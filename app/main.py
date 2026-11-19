@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import area_probe, countries, db, donations, i18n, paid_flow, prefetch, settings as app_settings, source_status, user_sources, worker
+from app import area_probe, countries, db, donations, i18n, paid_flow, prefetch, samples_refresh, settings as app_settings, source_status, user_sources, worker
 from app.cleanup import maybe_purge_old_jobs, prune_caches, purge_old_jobs, start_cleanup_scheduler
 from app.client_ip import client_ip
 from app.feedback import (
@@ -171,6 +171,7 @@ def startup() -> None:
     # Úklid cache na pozadí (průchod cache LiDARu trvá, start webu nesmí čekat) a rezerva místa na disku.
     threading.Thread(target=prune_caches, name="cache-cleanup", daemon=True).start()
     start_cleanup_scheduler(CLEANUP_INTERVAL_HOURS)
+    samples_refresh.start_scheduler()
     tools = tool_status()
     missing = [name for name, path in tools.items() if not path]
     logger.info("Nástroje: %s", tools)
@@ -1525,7 +1526,9 @@ async def api_create_job(request: Request):
         logger.exception("Multipart form parse failed")
         raise HTTPException(400, i18n.Msg("api.form_unreadable", error=str(exc))) from exc
 
-    api_client = _api_client_authenticated(request)
+    # Job ukázky, který server zakládá sám sobě (app.samples_refresh): soukromý, bez e-mailu a limitů.
+    sample_job = samples_refresh.request_is_internal(request)
+    api_client = False if sample_job else _api_client_authenticated(request)
 
     name = _form_str(form, "name").strip()
     if not name:
@@ -1673,7 +1676,7 @@ async def api_create_job(request: Request):
         )
 
     remote_ip = client_ip(request)
-    limit_msg = check_create_api_job() if api_client else check_create_job(remote_ip)
+    limit_msg = None if sample_job else check_create_api_job() if api_client else check_create_job(remote_ip)
     if limit_msg:
         raise HTTPException(429, limit_msg)
 
@@ -1795,6 +1798,9 @@ async def api_create_job(request: Request):
         notify_email = _form_str(form, "notify_email").strip()
         if notify_email and "@" in notify_email and "." in notify_email.split("@")[-1]:
             options["notify_email"] = notify_email
+    elif sample_job:
+        options["private"] = True
+        options["sample"] = True
     elif _opt_bool("private"):
         notify_email = _form_str(form, "notify_email").strip()
         if not notify_email or "@" not in notify_email or "." not in notify_email.split("@")[-1]:
@@ -1816,7 +1822,7 @@ async def api_create_job(request: Request):
         if can_reuse_lidar(prev, bbox, job_country.code):
             options["reused_from"] = reuse_id
     # Placená doména se zapnutým prodejem: job vznikne až po potvrzení e-mailu (app.paid_flow).
-    if not api_client and paid_flow.active_for(request):
+    if not api_client and not sample_job and paid_flow.active_for(request):
         return paid_flow.start_order(
             request,
             name=name,
@@ -1835,7 +1841,8 @@ async def api_create_job(request: Request):
             raise _user_source_error(exc) from exc
         options["user_sources"] = True
     # Job s vlastními daty se s jiným nikdy neslučuje (stejný výřez neznamená stejná data).
-    dup = None if has_user_sources else db.find_duplicate_active_job(options)
+    # Ukázka nesmí převzít cizí (i soukromý) job se stejným výřezem.
+    dup = None if (has_user_sources or sample_job) else db.find_duplicate_active_job(options)
     if dup:
         logger.info(
             "Duplicate job skipped – returning existing %s (status=%s)",

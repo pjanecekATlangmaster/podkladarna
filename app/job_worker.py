@@ -86,7 +86,7 @@ def _notify_private_job(job_id: str) -> None:
         return
     email = str((job.get("options") or {}).get("notify_email") or "").strip()
     if not email:
-        if not (job.get("options") or {}).get("api_client"):
+        if not ((job.get("options") or {}).get("api_client") or (job.get("options") or {}).get("sample")):
             db.append_log(job_id, "Privátní job bez e-mailu – odkaz neodeslán.")
         return
     token = _job_token(job_id)
