@@ -39,6 +39,12 @@ GARDEN_FARM_CODES = frozenset({"2", "4"})
 GARDEN_COVER_CACHE_SUFFIX = ".gardencover1.json"
 PARKING_TYPES = ("ParkovisteOdstavnaPlochaPlocha",)
 PARKING_CACHE_SUFFIX = ".park1.json"
+# Nájezdy (vjezdy přes chodník, plochy před garážemi, přístupové plochy; Petr 2026-11-19, Chvaletice): jen sprint, 501.0.
+# ``PrevazujiciPovrch`` (pořadí podle vyhlášky, ověřeno na ortofotu): 1 asfalt, 2 beton, 3 dlažba, 4 R-materiál,
+# 5 písek, 6 drcené kamenivo, 7 nezpevněný, 99 nezjištěno. Štěrk a nezpevněné (5–7) se nekreslí.
+DRIVEWAY_TYPES = ("NajezdPlocha",)
+DRIVEWAY_PAVED_CODES = frozenset({"1", "2", "3", "4", "99", ""})
+DRIVEWAY_CACHE_SUFFIX = ".najezd1.json"
 # Škvíry užší než tato hodnota (m) mezi chodníkem a silnicí se zacelí (hranice je jedna čára).
 ROAD_EDGE_GAP_M = 0.5
 # MTBO koridor silnice (silnice + přilehlé chodníky jedním polygonem): pruh zeleně mezi silnicí a chodníkem
@@ -193,6 +199,16 @@ def load_garden_cover_polygons(opl_zip: str | Path, *, use_cache: bool = True) -
 def load_parking_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[list[list[tuple[float, float]]]]:
     """Parkoviště a odstavné plochy na povrchu (úroveň 0) z balíku ZPS_OPL."""
     return load_polygons(opl_zip, PARKING_TYPES, PARKING_CACHE_SUFFIX, use_cache=use_cache)
+
+
+def _driveway_filter(rec) -> bool:
+    """Nájezd jen se zpevněným nebo nezjištěným převažujícím povrchem (``DRIVEWAY_PAVED_CODES``)."""
+    return str(rec.attrs.get("PrevazujiciPovrch", "")).strip() in DRIVEWAY_PAVED_CODES
+
+
+def load_driveway_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[list[list[tuple[float, float]]]]:
+    """Zpevněné nájezdy (``NajezdPlocha``) na povrchu (úroveň 0) z balíku ZPS_OPL."""
+    return load_polygons(opl_zip, DRIVEWAY_TYPES, DRIVEWAY_CACHE_SUFFIX, use_cache=use_cache, keep=_driveway_filter)
 
 
 def _touching_both(pieces: list, a, b) -> list:

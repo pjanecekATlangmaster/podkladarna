@@ -41,6 +41,7 @@ BUILDINGS_NAME = "buildings.json"
 SMALL_PAVED_NAME = "small_paved.json"
 STAIRS_NAME = "stairs.json"
 PARKING_NAME = "parking.json"
+DRIVEWAYS_NAME = "driveways.json"
 GREEN_NAME = "green.json"
 OTHER_COVER_NAME = "other_cover.json"
 GARDEN_COVER_NAME = "garden_cover.json"
@@ -553,6 +554,10 @@ def parking_path(work_dir: Path) -> Path:
     return dtm_dir(work_dir) / PARKING_NAME
 
 
+def driveways_path(work_dir: Path) -> Path:
+    return dtm_dir(work_dir) / DRIVEWAYS_NAME
+
+
 def green_path(work_dir: Path) -> Path:
     return dtm_dir(work_dir) / GREEN_NAME
 
@@ -750,6 +755,7 @@ def _write_sidewalks(work_dir: Path, opl_files: list, bounds: Bounds, log=None) 
         (small_paved_path(work_dir), dtm_sidewalks.load_small_paved_polygons, "malé zpevněné stavby"),
         (stairs_path(work_dir), dtm_sidewalks.load_stairs_polygons, "schodiště"),
         (parking_path(work_dir), dtm_sidewalks.load_parking_polygons, "parkoviště"),
+        (driveways_path(work_dir), dtm_sidewalks.load_driveway_polygons, "nájezdy"),
         (green_path(work_dir), dtm_sidewalks.load_green_polygons, "udržovaná zeleň"),
         (other_cover_path(work_dir), dtm_sidewalks.load_other_cover_polygons, "jiný kryt (les, pole, louka)"),
         (garden_cover_path(work_dir), dtm_sidewalks.load_garden_cover_polygons, "zahrady a sady"),
@@ -948,12 +954,15 @@ def merge_dtm_buildings(work_dir: Path, features: list[dict]) -> list[dict]:
 
 
 def dtm_mask_wkbs(work_dir: Path) -> list[bytes]:
-    """WKB ploch z DTM (budovy, chodníky, silnice, malé stavby), které se odečítají při výpočtu
+    """WKB ploch z DTM (budovy, chodníky, silnice, malé stavby, nájezdy), které se odečítají při výpočtu
     zbytkové zpevněné plochy (``residual_paved``), aby se nekreslila pod ně ani přes ně."""
     from shapely.geometry import Polygon
 
     out: list[bytes] = []
-    for path in (buildings_path(work_dir), sidewalks_path(work_dir), roads_path(work_dir), small_paved_path(work_dir)):
+    for path in (
+        buildings_path(work_dir), sidewalks_path(work_dir), roads_path(work_dir), small_paved_path(work_dir),
+        driveways_path(work_dir),
+    ):
         for poly in _load_polygons_file(path):
             try:
                 g = Polygon(poly[0], poly[1:])
@@ -1572,6 +1581,17 @@ def _sprint_merged_road_sidewalk(work_dir: Path, path_source: str = "mixed"):
     if merged is None:
         return None
     return merged, interface, rest
+
+
+# Pás (m) kolem sousední plochy, ve kterém se obrys nekreslí (společná hranice sloučené plochy a zbytku chodníku).
+SHARED_EDGE_TOL_M = 0.05
+
+
+def _shared_edge_zone(other):
+    """Okolí plochy ``other`` (shapely), kde obrys sousední plochy splývá s řezem; None bez plochy."""
+    if other is None or other.is_empty:
+        return None
+    return other.buffer(SHARED_EDGE_TOL_M)
 
 
 def _path_object_mapped(symbol_index: int, mapped) -> str:
@@ -2270,15 +2290,19 @@ def build_dtm_sidewalk_parts(
     narrow = narrow_line_zone(work_dir, path_source, preset_id, scale)  # úzký pás kreslí čára OSM
     merged = _sprint_merged_road_sidewalk(work_dir, path_source)
     if merged is not None:
-        _fill, _interface, rest = merged
+        fill, _interface, rest = merged
         rest = minus_zone(rest, narrow)
         if rest is None or rest.is_empty:
             return []
+        # Zbytek chodníku navazuje na sloučenou plochu silnice s chodníkem (řez v ``MERGE_SIDEWALK_NEAR_M`` od silnice):
+        # obrys podél řezu se nekreslí, jinak souvislý chodník přeškrtne čára (Chvaletice, Petr 2026-11-19).
         return _geometry_part(
             rest,
             edge_exclude=deck_footprint_geometry(work_dir),
             name="Chodníky mimo silnici (DTM + OSM)",
             code="501.0",
+            outline_separate=True,
+            edge_omit=_shared_edge_zone(fill),
             **kw,
         )
     geom = sidewalk_geometry(
@@ -2345,6 +2369,51 @@ def build_dtm_parking_parts(
         parking_geometry(work_dir, roads, sidewalks, cut_decks=True),
         edge_exclude=deck_footprint_geometry(work_dir),
         name="DTM – parkoviště (501.0)",
+        code="501.0",
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation_deg,
+        clip_bounds=clip_bounds,
+    )
+
+
+def build_dtm_driveway_parts(
+    work_dir: Path,
+    *,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+    clip_bounds: Bounds | None = None,
+    path_source: str = "mixed",
+) -> list[OomObjectPart]:
+    """Zpevněné nájezdy z DTM (``NajezdPlocha``) jako samostatná část 501.0, jen sprint.
+
+    Ořežou se o silnice, chodníky a parkoviště z DTM (ty kreslí vlastní části) a o mostovky. Les a MTBO beze změny.
+    """
+    from app.pipeline import dtm_sidewalks
+
+    if not preset_id.startswith("sprint") or not driveways_path(work_dir).is_file():
+        return []
+    geom = dtm_sidewalks.dtm_union(_load_polygons_file(driveways_path(work_dir)))
+    if geom is None or geom.is_empty:
+        return []
+    roads = road_geometry(work_dir, path_source, osm_residue=False)
+    sidewalks = sidewalk_geometry(work_dir, path_source, roads=roads) if dtm_owns_sidewalks(work_dir) else None
+    parking = parking_geometry(work_dir) if parking_path(work_dir).is_file() else None
+    for other in (roads, sidewalks, parking):
+        if other is not None and not other.is_empty:
+            geom = geom.difference(other)
+    geom = _minus_decks(geom, work_dir)
+    if geom is None or geom.is_empty:
+        return []
+    return _geometry_part(
+        geom,
+        edge_exclude=deck_footprint_geometry(work_dir),
+        name="DTM – nájezdy (501.0)",
         code="501.0",
         preset_id=preset_id,
         scale=scale,
@@ -2521,7 +2590,7 @@ def build_dtm_road_parts(
     narrow = narrow_line_zone(work_dir, path_source, preset_id, scale)  # úzký pás kreslí čára OSM
     merged = _sprint_merged_road_sidewalk(work_dir, path_source)
     if merged is not None:
-        fill, interface, _rest = merged
+        fill, interface, rest = merged
         fill = minus_zone(fill, narrow)
         interface = minus_zone(interface, narrow)
         parts = _geometry_part(
@@ -2530,6 +2599,7 @@ def build_dtm_road_parts(
             name="Silnice s chodníkem (DTM + OSM, 501.1)",
             code="501.0",
             outline_separate=True,
+            edge_omit=_shared_edge_zone(rest),  # řez proti zbytku chodníku bez obrysu
             **kw,
         )
         if interface is not None and not interface.is_empty:
