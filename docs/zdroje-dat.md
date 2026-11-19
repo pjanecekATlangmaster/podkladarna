@@ -22,6 +22,8 @@ Ověřeno: datum a způsob ověření licence; „neověřeno“ = převzato z p
 | DE-NW Německo – Severní Porýní-Vestfálsko | beta | `de_nrw` | `none` | 2 | 2 |
 | DE-BY Německo – Bavorsko | beta | `de_by` | `none` | 2 | 2 |
 | DE-ST Německo – Sasko-Anhaltsko | beta | `de_st` | `none` | 2 | 2 |
+| DE-MV Německo – Meklenbursko-Přední Pomořansko | beta | `de_mv` | `none` | 2 | 2 |
+| DE-NI Německo – Dolní Sasko | beta | `de_ni` | `none` | 2 | 2 |
 | PL Polsko | beta | `pl_gugik` | `none` | 5 | 5 |
 | GB-ENG Spojené království – Anglie | beta | `gb_ea` | `none` | 1 | 1 |
 | FR Francie | beta | `fr_lidarhd` | `fr_pdv` | 6 | 5 |
@@ -148,6 +150,24 @@ Stav `beta`, CRS `EPSG:25832`. Citace v mapě: „Base map: Omapic · © GeoBasi
 |---|---|---|---|---|---|---|
 | výšky (DTM/DSM) | **DGM1 a DOM1 Sasko-Anhaltsko (ALS, 1 m), WCS 2.0.1**<br>Landesamt für Vermessung und Geoinformation Sachsen-Anhalt (LVermGeo ST)<br><https://www.geodatenportal.sachsen-anhalt.de/ows_WCS_ST_DGM1> · [info](https://geodatenportal.sachsen-anhalt.de/gfds/datei/anzeigen/id/3567,501/nutzungsbedingungen_b.pdf) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „© GeoBasis-DE / LVermGeo ST“ | volný | napojeno (výšky)<br>sonda `de_st_elevation` | • WCS 2.0.1 vrací GeoTIFF jen jako multipart (GML + TIFF) a TIFF bez CRS: `_download` vyjme TIFF, VRT dostane -a_srs.<br>• Stáří a druh náletu (ALS, olistění) podle WFS ows_lvermgeo_wfs_st_geobasis zatím neověřeny. | Claude 2026-11-18: GetCapabilities ows_WCS_ST_DGM1 a ows_WCS_ST_DOM1 (Fees dl-de/by-2.0, AccessConstraints žádné; coverage Coverage1, EPSG:25832, 1 m, Float32), Nutzungsbedingungen v5.0 z 1. 3. 2024 bod 2 (offene Daten, dl-de/by-2.0, poskytovatel „© GeoBasis-DE / LVermGeo ST“), zkušební dlaždice 2 × 2 km Wernigerode 16 MB za 15 s |
 | ortofoto, mapa | **Ortofoto DOP20 a topografická mapa DTK25 (WMS LVermGeo ST, OpenData)**<br>Landesamt für Vermessung und Geoinformation Sachsen-Anhalt (LVermGeo ST)<br><https://www.geodatenportal.sachsen-anhalt.de/wss/service/ST_LVermGeo_DOP_WMS_OpenData/guest> · [info](https://geodatenportal.sachsen-anhalt.de/gfds/datei/anzeigen/id/3567,501/nutzungsbedingungen_b.pdf) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „© GeoBasis-DE / LVermGeo ST“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_st_dop` | • ALKIS WMS „OpenData“ vrací 403; ALKIS WFS OpenData odpovídá (napojení jako doplněk OSM zvlášť). | Claude 2026-11-18: GetCapabilities ST_LVermGeo_DOP_WMS_OpenData (vrstva lsa_lvermgeo_dop20_2) a ST_LVermGeo_DTK_WMS_OpenData (lsa_lvermgeo_dtk25_col_1), EPSG:25832 i 25833, GetMap JPEG OK i se STYLES=default |
+
+## DE-MV – Německo – Meklenbursko-Přední Pomořansko
+
+Stav `beta`, CRS `EPSG:25833`. Citace v mapě: „Base map: Omapic · © GeoBasis-DE/M-V · OSM, [year]“.
+
+| Druh dat | Zdroj a server | Licence | Přístup | Stav | Problémy a poznámky | Ověřeno |
+|---|---|---|---|---|---|---|
+| výšky (DTM/DSM) | **DGM1 a DOM1 Meklenbursko-Přední Pomořansko (1 m), WCS 2.0.1**<br>Landesamt für innere Verwaltung M-V (LAiV), Amt für Geoinformation, Vermessungs- und Katasterwesen<br><https://www.geodaten-mv.de/dienste/dgm_wcs> · [info](https://www.geodaten-mv.de/geomis/id/a78b6941-7aae-4b2f-9951-89c362e3e79e) | 🟢 public – [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)<br>citace: „© GeoBasis-DE/M-V <rok poslední dodávky dat>“ | volný | napojeno (výšky)<br>sonda `de_mv_elevation` | • Druh a stáří DOM1 (ALS / snímky, olistění) zatím neověřeno; rok v citaci = rok stažení (`[data year]`). | Claude 2026-11-18: GetCapabilities dgm_wcs a dom_wcs (Fees „keine Bedingungen“, AccessConstraints = povinný Quellenvermerk © GeoBasis-DE/M-V <Jahr>; coverage mv_dgm, mv_dom1, nativně EPSG:25833), metadata GeoMIS (CC BY 4.0), zkušební dlaždice 2 × 2 km Rostock 16 MB za ~2 s, čistý GeoTIFF |
+| ortofoto, mapa | **Ortofoto DOP a topografická mapa DTK10 (WMS LAiV M-V)**<br>Landesamt für innere Verwaltung M-V (LAiV)<br><https://www.geodaten-mv.de/dienste/adv_dop> · [info](https://www.geodaten-mv.de/) | 🟢 public – [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)<br>citace: „© GeoBasis-DE/M-V <rok>“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_mv_dop` | • WCS ortofota (inspire_oi_dop_wcs) je jen v paletě 256 barev – nepoužito, WMS adv_dop stačí. | Claude 2026-11-18: GetCapabilities adv_dop (vrstva mv_dop) a gdimv_dtk (mv_dtk10), stejný Quellenvermerk jako WCS; GetMap EPSG:25833 OK |
+
+## DE-NI – Německo – Dolní Sasko
+
+Stav `beta`, CRS `EPSG:25832`. Citace v mapě: „Base map: Omapic · LGLN · OSM, [year]“.
+
+| Druh dat | Zdroj a server | Licence | Přístup | Stav | Problémy a poznámky | Ověřeno |
+|---|---|---|---|---|---|---|
+| výšky (DTM/DSM) | **DGM1 a DOM1 Dolní Sasko (ALS od 2019, 1 m), WCS 2.0.1**<br>Landesamt für Geoinformation und Landesvermessung Niedersachsen (LGLN)<br><https://opendata.geoservices.lgln.niedersachsen.de/dgm_wcs> · [info](https://dgm.stac.lgln.niedersachsen.de/) | 🟢 public – [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)<br>citace: „LGLN (<rok datového odběru>)“ | volný | napojeno (výšky)<br>sonda `de_ni_elevation` | • Brémy nejsou v pokrytí (vlastní země); STAC s COG po 1 km je záloha, nepoužito. | Claude 2026-11-18: GetCapabilities dgm_wcs a dom_wcs (AccessConstraints CC BY 4.0, Quellenvermerk „LGLN (Jahr) CC BY 4.0“; coverage ni_dgm1, ni_dom1, EPSG:25832), STAC katalog DOM1 (z ALS od 2019, ≥ 4 b/m², NoData −9999), zkušební dlaždice 2 × 2 km Goslar 10–12 MB za ~9 s |
+| ortofoto, mapa | **Ortofoto DOP20 a topografická mapa DTK25 (WMS LGLN OpenData)**<br>Landesamt für Geoinformation und Landesvermessung Niedersachsen (LGLN)<br><https://opendata.lgln.niedersachsen.de/doorman/noauth/dop_wms> · [info](https://opendata.lgln.niedersachsen.de/) | 🟢 public – [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)<br>citace: „LGLN (<rok>)“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_ni_dop` | • Brémy jsou mimo pokrytí LGLN WMS i WCS. | Claude 2026-11-18: GetCapabilities dop_wms (ni_dop20) a dtk25_wms (ni_dtk25_farbe), AccessConstraints CC BY 4.0; GetMap EPSG:25832 OK |
 
 ## PL – Polsko
 

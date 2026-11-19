@@ -2190,6 +2190,98 @@ sources:
   issues:
     - "ALKIS WMS „OpenData“ vrací 403; ALKIS WFS OpenData odpovídá (napojení jako doplněk OSM zvlášť)."
 
+- id: de_mv_dgm
+  countries: [DE-MV]
+  kinds: [elevation]
+  name: DGM1 a DOM1 Meklenbursko-Přední Pomořansko (1 m), WCS 2.0.1
+  provider: Landesamt für innere Verwaltung M-V (LAiV), Amt für Geoinformation, Vermessungs- und Katasterwesen
+  url: https://www.geodaten-mv.de/dienste/dgm_wcs
+  info: https://www.geodaten-mv.de/geomis/id/a78b6941-7aae-4b2f-9951-89c362e3e79e
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (de_wcs_provider), app/pipeline/reference_de_states.py
+  provider_key: de_mv
+  probe: de_mv_elevation
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://creativecommons.org/licenses/by/4.0/
+    attribution: © GeoBasis-DE/M-V <rok poslední dodávky dat>
+  access: free
+  checked: "Claude 2026-11-18: GetCapabilities dgm_wcs a dom_wcs (Fees „keine Bedingungen“, AccessConstraints = povinný Quellenvermerk © GeoBasis-DE/M-V <Jahr>; coverage mv_dgm, mv_dom1, nativně EPSG:25833), metadata GeoMIS (CC BY 4.0), zkušební dlaždice 2 × 2 km Rostock 16 MB za ~2 s, čistý GeoTIFF"
+  issues:
+    - "Druh a stáří DOM1 (ALS / snímky, olistění) zatím neověřeno; rok v citaci = rok stažení (`[data year]`)."
+
+- id: de_mv_wms
+  countries: [DE-MV]
+  kinds: [orthophoto, map]
+  name: "Ortofoto DOP a topografická mapa DTK10 (WMS LAiV M-V)"
+  provider: Landesamt für innere Verwaltung M-V (LAiV)
+  url: https://www.geodaten-mv.de/dienste/adv_dop
+  info: https://www.geodaten-mv.de/
+  role: šablona
+  reference_keys: ["online_de_mv_*"]
+  image_in_zip: allowed
+  image_in_zip_note: "CC BY 4.0 – přibalit lze s uvedením zdroje (README a citace)."
+  status: used
+  code: app/pipeline/reference_de_states.py, app/pipeline/online_templates.py, app/pipeline/open_paved.py
+  probe: de_mv_dop
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://creativecommons.org/licenses/by/4.0/
+    attribution: © GeoBasis-DE/M-V <rok>
+  access: free
+  checked: "Claude 2026-11-18: GetCapabilities adv_dop (vrstva mv_dop) a gdimv_dtk (mv_dtk10), stejný Quellenvermerk jako WCS; GetMap EPSG:25833 OK"
+  issues:
+    - "WCS ortofota (inspire_oi_dop_wcs) je jen v paletě 256 barev – nepoužito, WMS adv_dop stačí."
+
+- id: de_ni_dgm
+  countries: [DE-NI]
+  kinds: [elevation]
+  name: DGM1 a DOM1 Dolní Sasko (ALS od 2019, 1 m), WCS 2.0.1
+  provider: Landesamt für Geoinformation und Landesvermessung Niedersachsen (LGLN)
+  url: https://opendata.geoservices.lgln.niedersachsen.de/dgm_wcs
+  info: https://dgm.stac.lgln.niedersachsen.de/
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (de_wcs_provider), app/pipeline/reference_de_states.py
+  provider_key: de_ni
+  probe: de_ni_elevation
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://creativecommons.org/licenses/by/4.0/
+    attribution: LGLN (<rok datového odběru>)
+  access: free
+  checked: "Claude 2026-11-18: GetCapabilities dgm_wcs a dom_wcs (AccessConstraints CC BY 4.0, Quellenvermerk „LGLN (Jahr) CC BY 4.0“; coverage ni_dgm1, ni_dom1, EPSG:25832), STAC katalog DOM1 (z ALS od 2019, ≥ 4 b/m², NoData −9999), zkušební dlaždice 2 × 2 km Goslar 10–12 MB za ~9 s"
+  issues:
+    - "Brémy nejsou v pokrytí (vlastní země); STAC s COG po 1 km je záloha, nepoužito."
+
+- id: de_ni_wms
+  countries: [DE-NI]
+  kinds: [orthophoto, map]
+  name: "Ortofoto DOP20 a topografická mapa DTK25 (WMS LGLN OpenData)"
+  provider: Landesamt für Geoinformation und Landesvermessung Niedersachsen (LGLN)
+  url: https://opendata.lgln.niedersachsen.de/doorman/noauth/dop_wms
+  info: https://opendata.lgln.niedersachsen.de/
+  role: šablona
+  reference_keys: ["online_de_ni_*"]
+  image_in_zip: allowed
+  image_in_zip_note: "CC BY 4.0 – přibalit lze s uvedením zdroje (README a citace)."
+  status: used
+  code: app/pipeline/reference_de_states.py, app/pipeline/online_templates.py, app/pipeline/open_paved.py
+  probe: de_ni_dop
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://creativecommons.org/licenses/by/4.0/
+    attribution: LGLN (<rok>)
+  access: free
+  checked: "Claude 2026-11-18: GetCapabilities dop_wms (ni_dop20) a dtk25_wms (ni_dtk25_farbe), AccessConstraints CC BY 4.0; GetMap EPSG:25832 OK"
+  issues:
+    - "Brémy jsou mimo pokrytí LGLN WMS i WCS."
+
 - id: de_bb_als
   countries:
   - DE

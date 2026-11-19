@@ -1861,6 +1861,8 @@ SOURCE_LABELS = {
     "fi_mml": "Korkeusmalli 2 m MML a latvusmalli Metsäkeskus",
     "lu_act": "LiDAR 2024 MNT a MNS, ACT Luxembourg",
     "de_st": "DGM1 a DOM1, LVermGeo Sachsen-Anhalt",
+    "de_mv": "DGM1 a DOM1, LAiV Mecklenburg-Vorpommern",
+    "de_ni": "DGM1 a DOM1, LGLN Niedersachsen",
 }
 
 

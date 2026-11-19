@@ -579,11 +579,15 @@ def index(request: Request) -> HTMLResponse:
 def country_sources_html(request: Request, lang: str) -> str:
     """Zdroje a citace zemí mimo Česko, které doména nabízí (``countries.yaml``), pro stránku licence
     v jiném jazyce než češtině (``<!-- PODKLADARNA_COUNTRY_SOURCES -->``; česká stránka značku nemá)."""
+    from app.pipeline import country_profile as _country_profile
+
     items = []
     for country in countries.allowed_countries(i18n.site_for_request(request)):
         if country.code == countries.DEFAULT_COUNTRY or not (country.citation or country.attribution):
             continue
-        lines = "".join(f"<li>{html_escape(line)}</li>" for line in country.attribution)
+        lines = "".join(
+            f"<li>{html_escape(line)}</li>" for line in _country_profile.attribution_lines({"country": country.code})
+        )
         items.append(
             f"<h3>{html_escape(country.name(lang))}</h3>\n"
             f"<p><strong>{html_escape(country.citation)}</strong></p>\n"
