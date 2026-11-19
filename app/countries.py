@@ -204,8 +204,16 @@ def local_elevation_dir(elevation: str) -> Path | None:
     return path if path.is_absolute() else Path(settings.DATA_ROOT) / path
 
 
+# Zdroje výšek s API klíčem: klíč jen v proměnné prostředí instance (data/.env), bez něj se země nenabízí.
+ELEVATION_KEY_ENV = {"dk_dhm": "DK_DATAFORDELER_API_KEY"}
+
+
 def elevation_ready(country: Country) -> bool:
-    """Má instance výšky země? U zdroje z disku musí být GeoTIFF terénu (``dtm``) i povrchu (``dsm``)."""
+    """Má instance výšky země? U zdroje z disku musí být GeoTIFF terénu (``dtm``) i povrchu (``dsm``),
+    u zdroje s klíčem (``ELEVATION_KEY_ENV``) vyplněný klíč."""
+    key_env = ELEVATION_KEY_ENV.get(country.elevation)
+    if key_env is not None:
+        return bool(os.environ.get(key_env, "").strip())
     base = local_elevation_dir(country.elevation)
     if base is None:
         return True

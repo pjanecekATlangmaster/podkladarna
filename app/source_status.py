@@ -43,6 +43,7 @@ from app.pipeline.reference_fr import FR_LIDAR_PROBE, FR_ORTHO_PROBE, FR_PDV_PRO
 from app.pipeline.reference_ee import EE_ELEVATION_PROBE, EE_ETAK_PROBE, EE_ORTHO_PROBE
 from app.pipeline.zbgis_sk import DATASETS as SK_ZBGIS_DATASETS
 from app.pipeline.reference_it import TN_ELEVATION_PROBE, TN_ORTHO_PROBE
+from app.pipeline.reference_dk import DK_ELEVATION_PROBE, with_key as dk_with_key
 from app.pipeline.reference_be import BE_ELEVATION_PROBE, BE_GRB_PROBE, BE_ORTHO_PROBE, BE_URBIS_PROBE
 from app.pipeline.reference_de_nw import DE_NW_DOP_PROBE, DE_NW_ELEVATION_PROBE
 from app.pipeline.reference_de_states import DE_WCS_STATES, elevation_probe, elevation_probe_method, ortho_probe
@@ -347,6 +348,15 @@ PROBES: tuple[Probe, ...] = (
         fatal=True,
         countries=("BE",),
     ),
+    # Dánsko: okno 8 × 8 m terénu DHM z WCS Datafordeleru (klíč se do URL dosadí až při dotazu, ``_probe_url``).
+    Probe(
+        "dk_elevation",
+        "Výšky DHM (Datafordeler) – terén a povrch",
+        (DK_ELEVATION_PROBE,),
+        "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
+        fatal=True,
+        countries=("DK",),
+    ),
     Probe(
         "be_grb",
         "GRB (Digitaal Vlaanderen)",
@@ -566,6 +576,10 @@ def ttl_s() -> float:
 
 def _probe_url(url: str, method: str) -> tuple[int | None, str | None, str]:
     """HTTP kód (nebo None), krátký popis chyby sítě a začátek textu chybové odpovědi."""
+    try:
+        url = dk_with_key(url)  # zástupný klíč Datafordeleru; chyby níž URL neobsahují
+    except RuntimeError as exc:
+        return None, str(exc)[:200], ""
     req = urllib.request.Request(url, method=method, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=PROBE_TIMEOUT_S) as resp:

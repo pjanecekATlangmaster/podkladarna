@@ -229,6 +229,7 @@ ELEVATION_LABELS = {"nl_ahn": "AHN (PDOK)", "sk_ugkk": "DMR 5.0 (ÚGKK SR)", "sk
     "ee_maaamet": "DTM a DSM Maa- ja Ruumiamet (1 m)",
     "it_trentino": "LiDAR DTM a DSM Provincia di Trento (0,5 m, 2014)",
     "be_dhmv": "DHMV II DTM a DSM Digitaal Vlaanderen (1 m, 2013–2015)",
+    "dk_dhm": "DHM terén a povrch Klimadatastyrelsen (Datafordeler, 1 m)",
     "fi_mml": "Korkeusmalli MML (2 m) a výška porostu Metsäkeskus (1 m)",
     "lu_act": "LiDAR 2024 MNT a MNS ACT Luxembourg (0,5 m)",
 }
