@@ -160,3 +160,14 @@ def test_czech_mail_links_czech_support_page(donate_env, monkeypatch):
     monkeypatch.setenv("DONATE_STRIPE_LINK", "https://buy.stripe.com/test_abc123")
     url = donations.donate_url_for_job({"site": "example.eu", "country": "CZ"}, "cs")
     assert url == "https://example.eu/podpora?lang=cs"
+
+
+def test_international_licence_without_github(client, monkeypatch):
+    """Licence na Omapicu: odkud data, jak se zpracují, citace s odkazem na web, nikde GitHub (Petr 2026-11-19)."""
+    monkeypatch.setenv("SITES", SITES)
+    for lang in ("en", "cs"):
+        html = client.get(f"/licence?lang={lang}", headers={"host": "example.eu"}).text
+        assert "github" not in html.lower() and "{{" not in html
+    en = client.get("/licence?lang=en", headers={"host": "example.eu"}).text
+    assert "Where the data come from" in en and 'href="https://example.eu">example.eu</a>' in en
+    assert "github.com" in client.get("/licence", headers={"host": "podkladarna.kibos.link"}).text  # česká beze změny

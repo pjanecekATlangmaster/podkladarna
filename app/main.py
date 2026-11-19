@@ -596,10 +596,25 @@ def country_sources_html(request: Request, lang: str) -> str:
     return "".join(items)
 
 
+_GITHUB_SOURCE_RE = re.compile(r"\s*Zdrojový kód:\s*<a [^>]*github\.com[^>]*>[^<]*</a>\.")
+_GITHUB_LINK_RE = re.compile(r'<a [^>]*href="https://[^"]*github\.(?:com|io)[^"]*"[^>]*>([^<]*)</a>')
+
+
+def _strip_github_links(html: str) -> str:
+    """Bez odkazu na zdrojový kód a bez odkazů na GitHub (text odkazu zůstane)."""
+    return _GITHUB_LINK_RE.sub(r"\1", _GITHUB_SOURCE_RE.sub("", html))
+
+
 @app.get("/licence", response_class=HTMLResponse)
 def licence_page(request: Request) -> HTMLResponse:
     html = _page_source("licence.html", request)
     html = html.replace("{{APP_VERSION}}", APP_VERSION)
+    site = i18n.site_for_request(request)
+    base = (site.base_url if site else app_settings.PUBLIC_BASE_URL or "").rstrip("/")
+    html = html.replace("{{SITE_URL}}", html_escape(base or "/"))
+    html = html.replace("{{SITE_HOST}}", html_escape(urllib.parse.urlsplit(base).netloc or i18n._request_host(request)))
+    if site is not None and tuple(site.countries) != ("CZ",):
+        html = _strip_github_links(html)  # mezinárodní verze GitHub neukazuje nikde (Petr 2026-11-19)
     if "<!-- PODKLADARNA_COUNTRY_SOURCES -->" in html:
         sources = country_sources_html(request, i18n.resolve_lang(request)[0])
         html = html.replace("<!-- PODKLADARNA_COUNTRY_SOURCES -->", sources)

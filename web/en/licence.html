@@ -19,15 +19,43 @@
   </header>
 
   <main class="licence-page">
-    <h2>{{t:web.brand}} software</h2>
+    <h2>Where the data come from</h2>
     <p>
-      The website, API and pipeline are free software under the
-      <a href="https://opensource.org/license/mit" target="_blank" rel="noopener">MIT</a> licence,
-      © 2026 Petr Janeček.
-      MIT applies to the <em>code</em> (you may use and modify it freely;
-      keep the copyright notice when distributing the code).
-      Maps you create with {{t:web.brand}} are, however, covered by the output licence below:
-      <strong>crediting {{t:web.brand}} as the source is required</strong>.
+      {{t:web.brand}} draws nothing by hand and invents nothing. Every map is built from open data published
+      by public bodies and by the OpenStreetMap community:
+    </p>
+    <ul>
+      <li><strong>Terrain and vegetation</strong> – airborne laser scanning (LiDAR) and elevation models from the national
+        mapping agency of the country. They give the shape of the ground, cliffs and boulders, and the height of the growth.</li>
+      <li><strong>Paths, roads, buildings, water, fences</strong> – OpenStreetMap, completed where available by national
+        topographic and technical maps (in Czechia ZABAGED® and the regional digital technical map).</li>
+      <li><strong>Templates</strong> – orthophoto, cadastre or hillshade from the same providers, and optionally Sentinel-2
+        satellite images. They are only placed under the map for drawing.</li>
+    </ul>
+    <p>
+      Each country uses the data of its own providers; the full list and the licences are under
+      <a href="#countries">data by country</a>.
+    </p>
+
+    <h2>How the map is made</h2>
+    <p>
+      The data are downloaded only for the area you select. The server computes contours, cliffs, knolls and vegetation
+      classes from the elevation models, combines them with the vector layers and turns everything into the symbols of
+      ISOM, ISSprOM or ISMTBOM. The result is a ZIP with an editable <code>.omap</code> / <code>.ocd</code> map and
+      the source layers, georeferenced in the national coordinate system of the country.
+    </p>
+    <p>
+      The ZIP stays available for a limited time and is then deleted. The output is a
+      <strong>working base map for drawing, not a precise survey</strong>: vegetation shows height and density
+      of growth, not runnability, and everything is meant to be checked and finished in the terrain.
+    </p>
+
+    <h2 id="credit">Credit {{t:web.brand}}</h2>
+    <p>
+      Using the map is free, but <strong>crediting {{t:web.brand}} with a link to
+      <a href="{{SITE_URL}}">{{SITE_HOST}}</a> is required</strong> – on the printed map or in its legend,
+      and next to the map wherever you publish it online. It helps other mappers find the tool and keeps the
+      data providers credited too.
     </p>
 
     <h2>Generated map (job output)</h2>
@@ -39,10 +67,10 @@
       the credit must make clear that the map used {{t:web.brand}}.
     </p>
     <p>
-      Minimum credit on the map / in the legend: the line printed in <code>ABOUT_OMAPIC.txt</code> of your ZIP.
-      It depends on the country of the area (see <a href="#countries">data by country</a>); for Czechia:
+      Minimum credit on the map / in the legend: the line printed in <code>ABOUT_OMAPIC.txt</code> of your ZIP,
+      together with the web address. It depends on the country of the area (see <a href="#countries">data by country</a>); for Czechia:
     </p>
-    <p><strong>Base map: {{t:web.brand}} · ČÚZK · OSM, [year]</strong></p>
+    <p><strong>Base map: {{t:web.brand}} ({{SITE_HOST}}) · ČÚZK · OSM, [year]</strong></p>
     <p>
       <code>[year]</code> is the year the <em>data used are current to</em> (elevation / technical map / OSM),
       not necessarily the year you printed the map. If you do not know the exact date of a layer,
@@ -111,8 +139,7 @@
     <h2>Inspiration</h2>
     <p>
       {{t:web.brand}} was <strong>loosely inspired</strong>
-      by the
-      <a href="https://github.com/karttapullautin/karttapullautin" target="_blank" rel="noopener">Karttapullautin</a>
+      by the Karttapullautin
       project and then went its own way: vegetation from LiDAR return density, cliffs and rocks from the DMR,
       GDAL contours.
     </p>
@@ -134,7 +161,7 @@
     <ul>
       <li><a href="https://pdal.io/" target="_blank" rel="noopener">PDAL</a> (BSD) – LiDAR processing</li>
       <li><a href="https://gdal.org/" target="_blank" rel="noopener">GDAL</a> (MIT/X) – ZABAGED vectors</li>
-      <li><a href="https://www.cairographics.org/" target="_blank" rel="noopener">cairo</a> and pycairo (LGPL-2.1 / MPL-1.1), <a href="https://dejavu-fonts.github.io/License.html" target="_blank" rel="noopener">DejaVu Sans</a> font (free licence), colours after the OpenStreetMap Carto style (CC0) – our own OpenStreetMap image (osm.png) in the ZIP, © OpenStreetMap contributors (ODbL)</li>
+      <li><a href="https://www.cairographics.org/" target="_blank" rel="noopener">cairo</a> and pycairo (LGPL-2.1 / MPL-1.1), DejaVu Sans font (free licence), colours after the OpenStreetMap Carto style (CC0) – our own OpenStreetMap image (osm.png) in the ZIP, © OpenStreetMap contributors (ODbL)</li>
       <li>
         Target editor (not part of the service):
         <a href="https://www.openorienteering.org/" target="_blank" rel="noopener">OpenOrienteering Mapper</a> (GPL-3.0)
@@ -143,7 +170,7 @@
   </main>
 
   <footer class="site-footer">
-    <p><a href="/">{{t:web.brand}}</a> v{{APP_VERSION}} · code MIT · output CC BY 4.0</p>
+    <p><a href="/">{{t:web.brand}}</a> v{{APP_VERSION}} · output CC BY 4.0</p>
   </footer>
 </body>
 </html>
