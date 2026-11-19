@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vlastní výšková data – {{t:web.brand}}</title>
+  <link rel="icon" href="/static/logo.png" type="image/png" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="page-wrap header-inner">
+      <a href="/"><img src="/static/logo.png" alt="{{t:web.brand}}" class="logo" width="48" height="48" /></a>
+      <div>
+        <h1>Vlastní výšková data</h1>
+        <p class="tagline"><a href="/">← zpět na {{t:web.brand}}</a></p>
+      </div>
+    </div>
+  </header>
+
+  <main class="licence-page">
+    <h2>Kdy se to hodí</h2>
+    <p>
+      {{t:web.brand}} si veřejná výšková data každé země stahuje sama. Některá data ale za vás stáhnout nejde:
+      potřebují vaši registraci, povolení nebo nákup a licence patří vám. Pro svou mapu je přesto použít můžete:
+      stáhněte je sami, ořízněte na výřez a nahrajte se zadáním mapy. Stejně fungují i vaše vlastní data,
+      například z dronu nebo od obce.
+    </p>
+
+    <h2>Odkud taková data bývají</h2>
+    <p>Příklady. Licence je vždy licencí poskytovatele; před nahráním si ji ověřte.</p>
+    <ul>
+      <li><strong>Slovinsko</strong> – celostátní LiDAR (ARSO / GURS), mračno bodů a model terénu po listech.</li>
+      <li><strong>Finsko</strong> – husté laserové skenování 5 b/m² zeměměřického úřadu (MML) vyžaduje povolení
+        a smí se používat jen uvnitř organizace držitele. Nahrávejte ho jen pro vlastní (klubovou) mapu.</li>
+      <li><strong>Valonsko (Belgie)</strong> – výškové modely SPW, zveřejněné jen jako velké archivy provincií.</li>
+      <li><strong>Maďarsko, Chorvatsko</strong> – celostátní LiDAR se prodává, licence patří kupujícímu.</li>
+      <li><strong>Skotsko</strong> – některé fáze LiDARu mají jen nekomerční licenci.</li>
+      <li><strong>Kdekoli</strong> – snímkování dronem, data od úřadu nebo vlastníka lesa.</li>
+    </ul>
+
+    <h2>Co nahrát</h2>
+    <ul>
+      <li>Dva soubory: <strong>terén</strong> (DTM, holá zem) a <strong>povrch</strong> (DSM, včetně stromů
+        a budov). Vegetace se počítá z jejich rozdílu, proto jsou potřeba oba.</li>
+      <li>Každý jako jeden GeoTIFF (.tif) s jedním pásmem výšek v metrech a hodnotou NoData. Ne VRT, ZIP ani
+        doprovodné soubory.</li>
+      <li>Souřadnicový systém v projekci v metrech (např. UTM nebo národní síť) uložený v souboru, nejlépe
+        s kódem EPSG. Ne stupně, ne otočený rastr.</li>
+      <li>Rozlišení 0,1 až 5 m na pixel, pokrytí aspoň 90 % výřezu mapy.</li>
+      <li>Oba soubory dohromady nejvýš {{MAX_MB}} MB, proto je potřeba data oříznout na výřez.</li>
+    </ul>
+
+    <h2>Jak data oříznout na výřez</h2>
+    <h3>QGIS</h3>
+    <ol>
+      <li>Otevřete rastr a přibližte se na výřez mapy (s malým okrajem).</li>
+      <li>Rastr → Extrakce → <em>Oříznout rastr podle rozsahu</em>, rozsah podle plátna mapy, uložit jako GeoTIFF.</li>
+      <li>Totéž pro druhý soubor.</li>
+    </ol>
+    <h3>Příkazová řádka GDAL</h3>
+    <p>
+      Blok pro nahrání na hlavní stránce ukáže tento příkaz s vyplněným aktuálním výřezem
+      (W S E N jsou zeměpisná délka a šířka ve stupních):
+    </p>
+    <pre><code>gdalwarp -te_srs EPSG:4326 -te W S E N -co COMPRESS=DEFLATE -co TILED=YES dtm_zdroj.tif dtm.tif
+gdalwarp -te_srs EPSG:4326 -te W S E N -co COMPRESS=DEFLATE -co TILED=YES dsm_zdroj.tif dsm.tif</code></pre>
+    <h3>Z mračna bodů (LAS / LAZ)</h3>
+    <p>
+      Máte-li jen mračno bodů, vytvořte nejdřív oba rastry, například v QGIS 3.32 a novějším
+      (Zpracování → Převod mračna bodů → <em>Export do rastru (triangulací)</em>): terén jen z bodů terénu
+      (klasifikace 2), povrch ze všech bodů, rozlišení 0,5 až 1 m.
+    </p>
+
+    <h2>Co se s daty stane</h2>
+    <ul>
+      <li>Mapa z vlastních dat je vždy soukromá, odkaz ke stažení přijde e-mailem.</li>
+      <li>Soubory se zkontrolují v odděleném procesu, oříznou na výřez a použijí jen pro tuto mapu.</li>
+      <li>Neukládají se do mezipaměti, nikomu se neukazují a nepoužijí se pro jinou mapu. Po doběhnutí mapy
+        se smažou, i když se nepovede.</li>
+      <li>Nahráním potvrzujete, že máte právo data použít a předat ke zpracování.</li>
+    </ul>
+  </main>
+
+  <footer class="site-footer">
+    <p><a href="/">{{t:web.brand}}</a> v{{APP_VERSION}}</p>
+  </footer>
+</body>
+</html>

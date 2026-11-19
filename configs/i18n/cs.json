@@ -1060,5 +1060,7 @@
   "web.js.user_sources.ready": "Připraveno: {size} MB. Po spuštění se data nahrají a zkontrolují (CRS, rozlišení, pokrytí výřezu); výsledek kontroly je v logu mapy.",
   "web.js.user_sources.private_forced": "S vlastními daty je mapa vždy soukromá.",
   "web.js.user_sources.uploading": "Nahrávám a kontroluji data…",
-  "web.js.user_sources.started": "Vlastní data prošla kontrolou. Mapa se počítá soukromě, odkaz přijde na {mail}; data se po doběhnutí smažou."
+  "web.js.user_sources.started": "Vlastní data prošla kontrolou. Mapa se počítá soukromě, odkaz přijde na {mail}; data se po doběhnutí smažou.",
+  "web.page.user_sources.guide": "Návod: kde data získat a jak je oříznout",
+  "web.page.user_sources.cmd": "Ořez na tento výřez v GDAL (pro terén i povrch):"
 }

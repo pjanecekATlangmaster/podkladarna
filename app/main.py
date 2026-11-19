@@ -563,7 +563,9 @@ def user_sources_form_html(request: Request, lang: str) -> str:
           <label>{{{{h:web.page.user_sources.dsm}}}}
             <input type="file" name="user_dsm" id="user_dsm" accept=".tif,.tiff,image/tiff" />
           </label>
-          <p class="hint">{limits}</p>
+          <p class="hint">{limits} <a href="/own-data" target="_blank" rel="noopener">{{{{h:web.page.user_sources.guide}}}}</a></p>
+          <p class="hint user-sources-cmd-wrap" id="user-sources-cmd-wrap" hidden>{{{{h:web.page.user_sources.cmd}}}}
+            <code class="user-sources-cmd" id="user-sources-cmd"></code></p>
           <label class="checkbox-row">
             <input type="checkbox" name="user_sources_consent" id="user_sources_consent" value="1" />
             {{{{h:web.page.user_sources.consent}}}}
@@ -644,6 +646,18 @@ def licence_page(request: Request) -> HTMLResponse:
     if "<!-- PODKLADARNA_COUNTRY_SOURCES -->" in html:
         sources = country_sources_html(request, i18n.resolve_lang(request)[0])
         html = html.replace("<!-- PODKLADARNA_COUNTRY_SOURCES -->", sources)
+    v = urllib.parse.quote(APP_VERSION, safe="")
+    html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={v}"')
+    return _localized_html(request, html)
+
+
+@app.get("/own-data", response_class=HTMLResponse)
+def own_data_page(request: Request) -> HTMLResponse:
+    """Návod k vlastním výškovým datům (``app.user_sources``): jen tam, kde je nahrání na formuláři."""
+    if not user_sources_form_html(request, i18n.resolve_lang(request)[0]):
+        raise HTTPException(404)
+    html = _page_source("own-data.html", request)
+    html = html.replace("{{APP_VERSION}}", APP_VERSION).replace("{{MAX_MB}}", str(int(user_sources.MAX_TOTAL_MB)))
     v = urllib.parse.quote(APP_VERSION, safe="")
     html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={v}"')
     return _localized_html(request, html)

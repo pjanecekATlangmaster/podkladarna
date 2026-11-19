@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Your own elevation data – {{t:web.brand}}</title>
+  <link rel="icon" href="/static/logo.png" type="image/png" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="page-wrap header-inner">
+      <a href="/"><img src="/static/logo.png" alt="{{t:web.brand}}" class="logo" width="48" height="48" /></a>
+      <div>
+        <h1>Your own elevation data</h1>
+        <p class="tagline"><a href="/">← back to {{t:web.brand}}</a></p>
+      </div>
+    </div>
+  </header>
+
+  <main class="licence-page">
+    <h2>When it helps</h2>
+    <p>
+      {{t:web.brand}} downloads the public elevation data of each country itself. Some data can't be downloaded
+      for you: they need your own registration, a permit or a purchase, and the licence is yours. You can still use
+      them for your map: download them yourself, crop them to your area and upload them with the map order.
+      The same works for your own data, for example from a drone survey or from your municipality.
+    </p>
+
+    <h2>Where such data come from</h2>
+    <p>Examples. The licence is always that of the provider; check it before you upload.</p>
+    <ul>
+      <li><strong>Slovenia</strong> – national LiDAR (ARSO / GURS), point cloud and terrain model by tiles.</li>
+      <li><strong>Finland</strong> – dense laser scanning 5 p/m² of the National Land Survey (MML) needs a permit
+        and may be used only inside the permit holder's organisation. Upload it only for your own (club) map.</li>
+      <li><strong>Wallonia (Belgium)</strong> – SPW elevation models, published only as large province archives.</li>
+      <li><strong>Hungary, Croatia</strong> – national LiDAR is sold; the licence belongs to the buyer.</li>
+      <li><strong>Scotland</strong> – some LiDAR phases have a non-commercial licence only.</li>
+      <li><strong>Anywhere</strong> – a drone survey, data from a local authority or a forest owner.</li>
+    </ul>
+
+    <h2>What to upload</h2>
+    <ul>
+      <li>Two files: <strong>terrain</strong> (DTM, bare ground) and <strong>surface</strong> (DSM, including trees
+        and buildings). Vegetation is computed from their difference, so both are needed.</li>
+      <li>Each one a single GeoTIFF (.tif) with one band of heights in metres and a NoData value. No VRT, ZIP or
+        side files.</li>
+      <li>A projected coordinate system in metres (for example UTM or the national grid), stored in the file,
+        best with an EPSG code. Not degrees, not rotated.</li>
+      <li>Resolution 0.1 to 5 m per pixel, covering at least 90 % of the map area.</li>
+      <li>At most {{MAX_MB}} MB both files together, which is why the data must be cropped to the area.</li>
+    </ul>
+
+    <h2>How to crop the data to your area</h2>
+    <h3>QGIS</h3>
+    <ol>
+      <li>Open the raster and zoom to your map area (with a small margin).</li>
+      <li>Raster → Extraction → <em>Clip Raster by Extent</em>, set the extent to the map canvas and save as GeoTIFF.</li>
+      <li>Do the same for the second file.</li>
+    </ol>
+    <h3>GDAL command line</h3>
+    <p>
+      The upload box on the main page shows this command with your current area already filled in
+      (W S E N are longitude and latitude in degrees):
+    </p>
+    <pre><code>gdalwarp -te_srs EPSG:4326 -te W S E N -co COMPRESS=DEFLATE -co TILED=YES dtm_source.tif dtm.tif
+gdalwarp -te_srs EPSG:4326 -te W S E N -co COMPRESS=DEFLATE -co TILED=YES dsm_source.tif dsm.tif</code></pre>
+    <h3>From a point cloud (LAS / LAZ)</h3>
+    <p>
+      If you only have a point cloud, make the two rasters first, for example in QGIS 3.32 or newer
+      (Processing → Point cloud conversion → <em>Export to raster (using triangulation)</em>): terrain from ground
+      points only (classification 2), surface from all points, resolution 0.5 to 1 m.
+    </p>
+
+    <h2>What happens to your data</h2>
+    <ul>
+      <li>A map from your own data is always private; the download link comes by e-mail.</li>
+      <li>The files are checked in an isolated process, cropped to your area and used only for this map.</li>
+      <li>They are never cached, never shown to anyone and never used for another map. They are deleted when the
+        map is finished, even if it fails.</li>
+      <li>By uploading you confirm that you have the right to use the data and hand them over for processing.</li>
+    </ul>
+  </main>
+
+  <footer class="site-footer">
+    <p><a href="/">{{t:web.brand}}</a> v{{APP_VERSION}}</p>
+  </footer>
+</body>
+</html>

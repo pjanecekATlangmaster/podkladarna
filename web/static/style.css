@@ -717,6 +717,8 @@ legend {
 .user-sources label { display: block; margin: 0.35rem 0; }
 .user-sources input[type="file"] { display: block; max-width: 100%; margin-top: 0.2rem; }
 .user-sources-status.warn { color: #a33; }
+.user-sources-cmd-wrap[hidden] { display: none; }
+.user-sources-cmd { display: block; margin-top: 0.2rem; padding: 0.3rem 0.4rem; background: rgba(0, 0, 0, 0.05); border-radius: 4px; font-size: 0.85em; overflow-wrap: anywhere; user-select: all; }
 
 .advanced-options .checkbox-row {
   margin: 0.45rem 0 0.15rem;
@@ -1650,3 +1652,4 @@ select:focus-visible {
   font-size: 18px;
   font-weight: bold;
 }
+.licence-page pre { overflow-x: auto; max-width: 100%; }

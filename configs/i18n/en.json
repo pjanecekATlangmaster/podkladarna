@@ -1061,5 +1061,7 @@
   "web.js.user_sources.ready": "Ready: {size} MB. After you start, the data is uploaded and checked (CRS, resolution, area coverage); the check result is in the map log.",
   "web.js.user_sources.private_forced": "With your own data the map is always private.",
   "web.js.user_sources.uploading": "Uploading and checking the data…",
-  "web.js.user_sources.started": "Your data passed the check. The map is computed privately, the link will come to {mail}; the data is deleted when it is finished."
+  "web.js.user_sources.started": "Your data passed the check. The map is computed privately, the link will come to {mail}; the data is deleted when it is finished.",
+  "web.page.user_sources.guide": "Guide: where to get the data and how to crop it",
+  "web.page.user_sources.cmd": "Crop to this area with GDAL (for terrain and surface):"
 }
