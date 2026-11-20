@@ -1,0 +1,58 @@
+# Referenční mapy z Liveloxu pro kontrolu kvality generování po zemích / oblastech (Petr 2026-11-20).
+# Ukládají se jen odkazy (classId); obrázky map stahuje fetch_ref.js do soukromé cache mimo repozitář.
+# Mapy jsou autorská díla mapařů: jen interní měření, nikam je nepublikovat.
+#
+# id        klíč oblasti (země-oblast-druh)
+# class_id  Livelox classId (https://www.livelox.com/Viewer?classId=<id>)
+# kind      les | sprint (určuje metriky a preset jobu)
+# map_scale měřítko jobu (sprint 4000, les 10000)
+# size_km   strana čtvercového výřezu jobu kolem středu referenční mapy (km)
+# terrain   typ terénu, data   výšky / kresba v Omapic (proč je oblast samostatná)
+# accepted  {popis odchylky z reportu: důvod} – známé omezení dat schválené Petrem, hlásí se jen ⚪ (změna proti
+#           minulému běhu se hlásí dál)
+references:
+  - id: lu-bambesch-les
+    country: LU
+    class_id: 427997
+    event: Luxembourg Forest Race 2021
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: listnatý les, kopcovitý
+    data: LiDAR 2024 raster + porost z mračna COPC
+  - id: be-soignes-les
+    country: BE
+    class_id: 695237
+    event: Brussels Orienteering Challenge 2023 #3
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: bukový les, mírně zvlněný
+    data: DHMV II zimní výšky (leafoff), GRB
+  - id: no-sognsvann-les
+    country: "NO"
+    class_id: 1243177
+    event: OSI/GeoForm Rankingløp 12 – Sognsvann vest 2026
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: severský jehličnatý les, skály a bažiny
+    data: Kartverket DTM/DOM, kresba OSM
+  - id: fi-paloheina-les
+    country: FI
+    class_id: 1156595
+    event: Iltarastit Paloheinä 2026-04-27
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: smíšený les, skalky a bažiny, okraj města
+    data: MML korkeusmalli 2 m + latvusmalli, kresba OSM
+  - id: nl-delft-sprint
+    country: NL
+    class_id: 728120
+    event: Campus race Delft 2024
+    kind: sprint
+    map_scale: 4000
+    size_km: 0.8
+    terrain: univerzitní kampus, budovy a parky
+    data: AHN raster, BGT
