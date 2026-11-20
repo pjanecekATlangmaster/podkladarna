@@ -19,7 +19,7 @@ import pytest
 
 import app.pipeline.oom_symbol_map as sm
 from app.pipeline import osm_paths
-from app.pipeline.contours_gdal import contour_oom_code
+from app.pipeline.contours_gdal import contour_oom_code, slope_line_codes
 from app.pipeline.oom_symbols import OOM_DIR
 from app.pipeline.oom_vectorconf import load_vectorconf
 from app.pipeline.symbol_catalog import catalog_entry, generator_map, load_catalog
@@ -182,6 +182,8 @@ def collect_generated_codes(
             "line",
         )
     add("103", "contours: formline 103", "line")
+    for base, tick in slope_line_codes(preset, scale).items():
+        add(tick, f"slope_line_codes: spádnice na {base}", "point")
     add("417", "AOPK památný strom", "point")
     add("708", "AOI rám", "line")
     add("403", "ZABAGED ostatní plocha jako 403", "area")
@@ -422,3 +424,11 @@ def test_aoi_frame_found_in_built_map(preset: str, scale: int) -> None:
     bbox = aoi_frame_bbox(root, grivation_deg=0.0)
     assert bbox is not None
     assert bbox[2] > bbox[0] and bbox[3] > bbox[1]
+
+@pytest.mark.parametrize("key,preset,scale,vectorconf,legacy", SETS, ids=_SET_IDS)
+def test_slope_line_lookup_reports_no_missing_symbol(key, preset, scale, vectorconf, legacy) -> None:
+    """Spádnice se dotazují jen na kódy, které sada má (MTBO bez 103.1 – job Dánsko 64063551bad6)."""
+    sm.drain_unmapped_codes()
+    for code in slope_line_codes(preset, scale).values():
+        assert sm.symbol_index_for_code(preset, scale, code) is not None, code
+    assert sm.drain_unmapped_codes() == {}
