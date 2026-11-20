@@ -76,6 +76,7 @@ def test_provider_builds_vrt_and_geoid_offset(tmp_path, monkeypatch):
     monkeypatch.setattr(er, "es_index", lambda key: {(610, 4741)})
     monkeypatch.setattr(er, "_es_tile", lambda key, e, n, log=None: tmp_path / f"{e}_{n}")
     monkeypatch.setattr(er, "run_cmd", lambda cmd, log=None: calls.append(cmd))
+    monkeypatch.setattr(er, "_gdal_tool", lambda name: name)  # CI bez nástrojů GDAL
     monkeypatch.setattr(er, "_es_geoid_grid", lambda log=None: tmp_path / "geoid.tif")
     monkeypatch.setattr(er, "geoid_offsets", lambda grid, pts: [50.0])
     monkeypatch.setattr(er, "_buffered", lambda b, crs, m: (610100.0, 4740100.0, 610900.0, 4740900.0))
