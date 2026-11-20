@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import area_probe, countries, db, donations, i18n, paid_flow, prefetch, samples_refresh, settings as app_settings, source_status, user_sources, worker
+from app import area_probe, countries, db, donations, i18n, paid_flow, prefetch, samples_refresh, settings as app_settings, source_events, source_status, user_sources, worker
 from app.cleanup import maybe_purge_old_jobs, prune_caches, purge_old_jobs, start_cleanup_scheduler
 from app.client_ip import client_ip
 from app.feedback import (
@@ -719,6 +719,24 @@ def api_source_status(request: Request, country: str | None = None):
     checking = source_status.refresh_if_stale()
     snap = source_status.localized(source_status.snapshot(code), i18n.resolve_lang(request)[0])
     return {"enabled": ttl > 0, "ttl_min": ttl, "checking": checking, "country": code, **snap}
+
+
+@app.get("/api/source_events")
+def api_source_events(request: Request, days: float = 7):
+    """Deník problémů zdrojů dat pro provozovatele (souhrn a události, bez osobních údajů).
+
+    Jen s hlavičkou ``Authorization: Bearer <SOURCE_EVENTS_TOKEN>``; bez nastaveného tokenu 404."""
+    expected = app_settings.SOURCE_EVENTS_TOKEN
+    if not expected:
+        raise HTTPException(404)
+    got = request.headers.get("authorization") or ""
+    scheme, _, token = got.partition(" ")
+    if scheme.lower() != "bearer" or not hmac.compare_digest(
+        token.strip().encode("utf-8"), expected.encode("utf-8")
+    ):
+        logger.warning("GET /api/source_events – neplatný token z %s", client_ip(request))
+        raise HTTPException(401)
+    return source_events.report(days)
 
 
 @app.get("/api/presets")

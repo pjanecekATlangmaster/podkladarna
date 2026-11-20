@@ -10,7 +10,10 @@ Zdroj je „mimo provoz“, když neodpoví (timeout, síť) nebo vrátí HTTP 5
 chybě se dotaz jednou zopakuje, ať krátký výpadek nevyvolá planý poplach. Odpověď 5xx s textem
 „odstávka“ (DMVS 2026-11: „Plánovaná odstávka“) je plánovaná odstávka (``planned``).
 
-Trvá-li výpadek nepřetržitě aspoň ``SOURCE_ALERT_AFTER_MIN`` (od prvního zjištěného selhání
+Každé selhání a obnovení se zapíše do deníku ``source_events`` (souhrnný e-mail jednou za
+``SOURCE_DIGEST_HOURS``, čtení přes ``GET /api/source_events`` s tokenem). Okamžitě se hlásí jen
+zdroj, bez kterého job selže, v zemích ``SOURCE_ALERT_COUNTRIES`` (výchozí Česko, Petr 2026-11-20):
+trvá-li výpadek nepřetržitě aspoň ``SOURCE_ALERT_AFTER_MIN`` (od prvního zjištěného selhání
 ``down_since``), pošle se provozovateli (``FEEDBACK_TO``) jeden e-mail a po obnovení druhý.
 Měří se líně při kontrolách (žádný běh na pozadí); proti dvojímu mailu z webu a jobu
 chrání značka v ``DATA_ROOT/source_alerts/`` založená výhradně (``O_EXCL``).
@@ -31,7 +34,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
 
-from app import countries, i18n, settings
+from app import countries, i18n, settings, source_events
 
 from app.pipeline.dtm_sources import DMVS_API
 from app.pipeline.fetch_openzu import OPENZU_DMPOK, OPENZU_DMR, USER_AGENT
@@ -714,6 +717,8 @@ def check_probe(probe: Probe) -> dict:
         "fatal": probe.fatal,
         "needs": probe.needs,
         "latency_ms": int((time.monotonic() - t0) * 1000),
+        "code": None if ok else code,
+        "countries": list(probe.countries),
     }
 
 
@@ -736,11 +741,16 @@ def check_all() -> dict:
         services[r["key"]] = r
     alerts = _due_alerts(prev, services)
     _save({"checked_at": now, "services": services})
+    source_events.record(results, prev, now)
     down = [r["label"] for r in results if not r["ok"]]
     if down:
         logger.warning("Zdroje dat mimo provoz: %s", ", ".join(down))
     if alerts:
         _send_alerts(alerts)
+    try:
+        source_events.maybe_send_digest(services)
+    except Exception:
+        logger.warning("Souhrn zdrojů dat selhal", exc_info=True)
     return snapshot()
 
 
@@ -786,6 +796,18 @@ def _claim_name(key: str, down_since: str, kind: str) -> str:
     return f"{key}-{stamp}.{kind}"
 
 
+def alerts_immediately(svc: dict) -> bool:
+    """Okamžitý e-mail jen u zdrojů, bez kterých job selže, v zemích ``SOURCE_ALERT_COUNTRIES``
+    (výchozí ``CZ``; ``*`` = všechny, prázdné = žádné). Ostatní jdou jen do souhrnu (``source_events``)."""
+    if not svc.get("fatal"):
+        return False
+    wanted = {c.strip().upper() for c in str(settings.SOURCE_ALERT_COUNTRIES or "").split(",") if c.strip()}
+    if not wanted:
+        return False
+    codes = set(svc.get("countries") or ["CZ"])
+    return "*" in wanted or "*" in codes or bool(wanted & codes)
+
+
 def _due_alerts(prev: dict, services: dict) -> list[tuple[str, dict]]:
     """Upozornění k odeslání: ("down", služba) po prahu výpadku, ("up", služba) po obnovení.
 
@@ -796,6 +818,8 @@ def _due_alerts(prev: dict, services: dict) -> list[tuple[str, dict]]:
     out: list[tuple[str, dict]] = []
     for key, r in services.items():
         old = prev.get(key) or {}
+        if not r["ok"] and not alerts_immediately(r):
+            continue
         if not r["ok"] and not r["alerted"]:
             age = _since_s(r["down_since"])
             if age is not None and age >= after:
