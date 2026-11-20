@@ -501,6 +501,8 @@
   "web.js.form.your_email": "your e-mail",
   "web.js.map.show_all": "Show all available areas",
   "web.js.legend.title": "Available data",
+  "web.js.legend.show": "Show legend",
+  "web.js.legend.hide": "Hide legend",
   "web.js.legend.full": "Elevation + large-scale base map (buildings, pavements, fences)",
   "web.js.legend.osm_only": "Elevation, drawing from OSM only",
   "web.js.legend.outside": "Outside coverage",

@@ -459,7 +459,29 @@ legend {
   max-width: 230px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
 }
+/* Text legendy gesta nechytá (posun / zoom mapy jdou i přes ni), klikací je jen hlavička. */
+.leaflet-control.map-legend { pointer-events: none; }
+.map-legend-toggle {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0 0 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.map-legend-chevron::before { content: "▾"; font-size: 10px; color: #555; }
+.map-legend.is-collapsed .map-legend-chevron::before { content: "▸"; }
+.map-legend.is-collapsed .map-legend-body { display: none; }
+.map-legend.is-collapsed .map-legend-toggle { margin: 0; }
 .map-legend-title { font-weight: 600; margin-bottom: 3px; }
+.map-legend-toggle .map-legend-title { margin: 0; }
 .map-legend-row { display: flex; align-items: center; gap: 6px; }
 .map-legend-swatch {
   flex: none;
@@ -1346,6 +1368,7 @@ footer a { color: var(--green); }
   }
 }
 
+.leaflet-control.bbox-badge { pointer-events: none; }
 .bbox-badge {
   max-width: 90%;
   padding: 0.3rem 0.6rem;
@@ -1359,6 +1382,9 @@ footer a { color: var(--green); }
 
 .bbox-badge.ok { color: var(--green); }
 .bbox-badge.err { color: #c00; }
+@media (max-width: 600px) {
+  .bbox-badge { font-size: 0.78rem; padding: 0.25rem 0.5rem; }
+}
 
 .sheet-info {
   font-size: 0.8rem;
