@@ -189,7 +189,7 @@ def mtbo_dtm_off(preset_id: str) -> bool:
 # MTBO: chodníky a zpevněné cesty z DTM mimo silnice jako plocha 501.0 (False = jen čáry z OSM jako dřív);
 # jen části široké aspoň tolik mm mapy a s plochou aspoň ``MTBO_SIDEWALK_MIN_LEN_M`` × šířka. 0,5 mm jako v lese
 # (``dtm_widths.WALK_AREA_MIN_MM``): užší pruh by v 1:10000 byl jen dvojitá tenká čára kolem čáry cesty (Praha 5).
-# Od 3.99.0 vypnuto (Petr 2026-11-20, Harrachov): v měřítku MTBO z chodníků z DTM zbývaly cáry podél silnic a černé
+# Od 3.100.0 vypnuto (Petr 2026-11-20, Harrachov): v měřítku MTBO z chodníků z DTM zbývaly cáry podél silnic a černé
 # cesty na nich končily; zpevněné plochy v MTBO kreslí jen OSM (viz i ``MTBO_DTM_PARKING``).
 MTBO_SIDEWALK_AREAS = False
 # MTBO a les: velká parkoviště z DTM (False = parkoviště jen z OSM; Petr 2026-11-20, Harrachov).

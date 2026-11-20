@@ -175,7 +175,7 @@ def test_street_with_parking_profile(tmp_path, monkeypatch, preset, strips, dtm,
 
     from app.pipeline import street_profile
 
-    monkeypatch.setattr(street_profile, "MTBO_STREET_PROFILE", True)  # od 3.99.0 vypnuto, mechanismus zůstává
+    monkeypatch.setattr(street_profile, "MTBO_STREET_PROFILE", True)  # od 3.100.0 vypnuto, mechanismus zůstává
     monkeypatch.setattr(street_profile, "FOREST_STREET_PROFILE", True)
 
     feats = [_area(x0, y0, x1, y1, "parking") for x0, x1, y0, y1 in strips]
@@ -461,7 +461,7 @@ def test_forest_symbols_from_dtm_width(tmp_path, monkeypatch):
 def test_forest_wide_dtm_walk_becomes_paved_area(tmp_path, monkeypatch):
     from app.pipeline import dtm_import as _di
 
-    monkeypatch.setattr(_di, "FOREST_DTM_WALK_AREAS", True)  # od 3.99.0 vypnuto, mechanismus zůstává
+    monkeypatch.setattr(_di, "FOREST_DTM_WALK_AREAS", True)  # od 3.100.0 vypnuto, mechanismus zůstává
     # Pěší plocha z DTM 20 m široká → zpevněná plocha 501.1 + okraj, pěšina uvnitř se nekreslí.
     walk = _line([(0, 50), (200, 50)], "footway")
     _write_job(tmp_path, [], [walk])
@@ -848,7 +848,7 @@ def test_mtbo_paved_network_contains_dtm_areas(tmp_path, monkeypatch):
 
     monkeypatch.setattr(junction_areas, "ROAD_AREAS", True)
     monkeypatch.setattr(junction_areas, "JUNCTION_AREAS", False)  # koridor podle šířky (záložní režim)
-    monkeypatch.setattr(_di, "MTBO_SIDEWALK_AREAS", True)  # od 3.99.0 v MTBO vypnuto, mechanismus zůstává
+    monkeypatch.setattr(_di, "MTBO_SIDEWALK_AREAS", True)  # od 3.100.0 v MTBO vypnuto, mechanismus zůstává
     # MTBO s DTM: koridor silnice (silnice 12 m z DTM) a široký chodník z DTM už nejsou samostatné části, ale prvky
     # (kind "paved_dtm") sítě zpevněných ploch – síť je MÁ pokrývat (jedna plocha, jeden okraj z paved_surface);
     # dřív (UNIFIED_PAVED = False) se z nich síť ořezávala, aby se tatáž plocha nekreslila dvakrát.

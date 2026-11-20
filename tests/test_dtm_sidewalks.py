@@ -259,7 +259,7 @@ def test_sprint_merges_adjacent_sidewalk_into_501_1_with_interface(tmp_path):
 def test_dtm_parking_part_and_osm_parking_dedup(tmp_path, monkeypatch):
     from app.pipeline import dtm_import as _di
 
-    monkeypatch.setattr(_di, "FOREST_DTM_PARKING", True)  # od 3.99.0 vypnuto, mechanismus zůstává
+    monkeypatch.setattr(_di, "FOREST_DTM_PARKING", True)  # od 3.100.0 vypnuto, mechanismus zůstává
     from app.pipeline import osm_paths as op
 
     work = tmp_path
@@ -536,7 +536,7 @@ def test_forest_and_mtbo_fill_dtm_fence_enclosures_with_olive(tmp_path):
 def test_mtbo_draws_only_large_dtm_parking_and_osm_duplicate_is_dropped(tmp_path, monkeypatch):
     from app.pipeline import dtm_import as _di
 
-    monkeypatch.setattr(_di, "MTBO_DTM_PARKING", True)  # od 3.99.0 vypnuto, mechanismus zůstává
+    monkeypatch.setattr(_di, "MTBO_DTM_PARKING", True)  # od 3.100.0 vypnuto, mechanismus zůstává
     monkeypatch.setattr(_di, "FOREST_DTM_PARKING", True)
     from app.pipeline import osm_paths as op
 
@@ -636,7 +636,7 @@ def test_wide_parts_keeps_only_wide_enough_pieces():
 def test_mtbo_draws_wide_dtm_sidewalks_away_from_roads_and_drops_osm_line_inside(tmp_path, monkeypatch):
     from app.pipeline import dtm_import as _di
 
-    monkeypatch.setattr(_di, "MTBO_SIDEWALK_AREAS", True)  # od 3.99.0 v MTBO vypnuto, mechanismus zůstává
+    monkeypatch.setattr(_di, "MTBO_SIDEWALK_AREAS", True)  # od 3.100.0 v MTBO vypnuto, mechanismus zůstává
     work = tmp_path
     (work / "dtm").mkdir()
     (work / "osm_paths").mkdir()
@@ -1563,7 +1563,7 @@ def _drawn_length_in_rect(parts, rect, ref, scale):
 def test_forest_and_mtbo_roads_and_paths_are_cut_by_dtm_parking(tmp_path, monkeypatch):
     from app.pipeline import dtm_import as _di
 
-    monkeypatch.setattr(_di, "MTBO_DTM_PARKING", True)  # od 3.99.0 vypnuto, mechanismus zůstává
+    monkeypatch.setattr(_di, "MTBO_DTM_PARKING", True)  # od 3.100.0 vypnuto, mechanismus zůstává
     monkeypatch.setattr(_di, "FOREST_DTM_PARKING", True)
     from app.pipeline import osm_paths as op
 
