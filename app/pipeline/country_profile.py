@@ -102,15 +102,17 @@ def citation(options: dict | None = None) -> str:
 def attribution_lines(options: dict | None = None) -> tuple[str, ...]:
     """Zdroje dat s licencí, jak je vyžadují místní servery (prázdné = české znění).
 
-    ``[data year]`` = rok stažení dat (Quellenvermerk s rokem dodání dat: M-V, LGLN).
+    ``[data year]`` = rok stažení dat (Quellenvermerk s rokem dodání dat: M-V, LGLN);
+    ``[data date]`` = den stažení dat (Etalab 2.0 chce zdroj a datum poslední aktualizace: IGN ve Francii).
     """
     from datetime import date
 
     country = job_country(options) if options is not None else process_country()
     if not country:
         return ()
-    year = str(date.today().year)
-    return tuple(line.replace("[data year]", year) for line in country.attribution)
+    today = date.today()
+    year, day = str(today.year), today.isoformat()
+    return tuple(line.replace("[data year]", year).replace("[data date]", day) for line in country.attribution)
 
 
 def process_country() -> Country | None:
