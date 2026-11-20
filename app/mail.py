@@ -72,8 +72,12 @@ def send_mail(
     from_name: str | None = None,
     attachments: Sequence[Path] | None = None,
     bcc: str | None = None,
+    reply_to: str | None = None,
 ) -> None:
-    """Pošle plain-text e-mail (volitelně s přílohami a skrytou kopií). Při chybě MailError."""
+    """Pošle plain-text e-mail (volitelně s přílohami, skrytou kopií a Reply-To). Při chybě MailError.
+
+    ``reply_to`` musí volající ověřit (jedna holá adresa, ``feedback.reply_to_address``); CR/LF se odmítne i tady.
+    """
     to = (to or "").strip()
     if not to:
         raise MailError("Chybí adresa příjemce.")
@@ -93,6 +97,9 @@ def send_mail(
     if bcc and bcc.lower() != to.lower():
         # send_message pošle i na Bcc a hlavičku z odeslané zprávy vypustí.
         msg["Bcc"] = bcc
+    reply_to = (reply_to or "").strip()
+    if reply_to and not any(c in reply_to for c in "\r\n,;"):
+        msg["Reply-To"] = reply_to
     msg.set_content(body)
 
     for path in attachments or ():

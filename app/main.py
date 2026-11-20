@@ -1448,6 +1448,7 @@ async def api_feedback(request: Request):
             client_ip=ip,
             job_name=job_name,
             job_status=job_status,
+            lang=i18n.resolve_lang(request)[0],
         )
     except MailError as exc:
         # 502, ne 503 — 503 si FE/klienti spojují s plnou frontou generování.
@@ -1511,6 +1512,7 @@ async def api_source_suggestion(request: Request):
             contact=contact,
             comment=comment,
             client_ip=ip,
+            lang=i18n.resolve_lang(request)[0],
         )
     except MailError as exc:
         logger.warning("Source suggestion mail failed: %s", exc)

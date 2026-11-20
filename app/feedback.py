@@ -6,6 +6,7 @@ posouzení, server navrženou adresu nikdy nevolá (žádné riziko SSRF).
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 import urllib.parse
@@ -13,8 +14,9 @@ from collections import defaultdict, deque
 from pathlib import Path
 
 from app import settings
+from app import i18n
 from app.i18n import Msg
-from app.mail import MailError, send_mail
+from app.mail import MailError, send_mail, sender_name
 from app.pipeline.preview import resolve_preview_png
 from app.rate_limit import is_exempt
 from app.settings import JOBS_DIR
@@ -25,6 +27,13 @@ MAX_JOB_ID_LEN = 64
 MAX_SOURCE_URL_LEN = 500
 MAX_SOURCE_AREA_LEN = 200
 MAX_SOURCE_LICENSE_LEN = 500
+MAX_REPLY_TO_LEN = 254
+
+# Jedna holá adresa local@domena.tld (bez jména, čárek, uvozovek, mezer a CR/LF): jde do hlavičky Reply-To.
+_REPLY_TO_RE = re.compile(
+    r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}"
+    r"@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}"
+)
 
 _lock = threading.Lock()
 _hits: dict[str, deque[float]] = defaultdict(deque)
@@ -63,6 +72,19 @@ def job_page_url(job_id: str) -> str | None:
     return f"{base}/api/jobs/{job_id}"
 
 
+def reply_to_address(contact: str | None) -> str | None:
+    """Kontakt z formuláře jako Reply-To, je-li to přesně jedna platná e-mailová adresa; jinak None.
+
+    From zůstává adresa serveru (SPF / DKIM), Petr odpoví rovnou uživateli.
+    """
+    value = (contact or "").strip()
+    if not value or len(value) > MAX_REPLY_TO_LEN:
+        return None
+    if _REPLY_TO_RE.fullmatch(value) is None or ".." in value:
+        return None
+    return value
+
+
 def build_feedback_email(
     *,
     contact: str,
@@ -72,28 +94,33 @@ def build_feedback_email(
     job_name: str | None = None,
     job_status: str | None = None,
     preview_attached: bool = False,
+    lang: str = i18n.SOURCE_LANG,
 ) -> tuple[str, str]:
-    """Vrací (předmět, tělo) pro zpětnou vazbu – česky. job_id je povinné."""
+    """Vrací (předmět, tělo) pro zpětnou vazbu v jazyce a se značkou stránky formuláře. job_id je povinné."""
     job_id = (job_id or "").strip()
-    subject = f"Podkladárna: zpětná vazba (job {job_id})"
+
+    def tr(key: str, **params: object) -> str:
+        return i18n.t(f"mail.feedback.{key}", lang, **params)
+
+    subject = tr("subject", job_id=job_id)
     lines = [
-        "Nová zpětná vazba z webu Podkladárny.",
+        tr("intro"),
         "",
-        f"Kontakt: {contact}",
-        f"Job ID: {job_id}",
+        f"{tr('contact')}: {contact}",
+        f"{tr('job_id')}: {job_id}",
     ]
     if job_name:
-        lines.append(f"Název: {job_name}")
+        lines.append(f"{tr('name')}: {job_name}")
     if job_status:
-        lines.append(f"Stav jobu: {job_status}")
+        lines.append(f"{tr('status')}: {job_status}")
     url = job_page_url(job_id)
     if url:
-        lines.append(f"Odkaz: {url}")
+        lines.append(f"{tr('link')}: {url}")
     if client_ip:
         lines.append(f"IP: {client_ip}")
     if preview_attached:
-        lines.append("Náhled PNG: v příloze tohoto e-mailu.")
-    lines.extend(["", "Komentář:", comment.strip(), ""])
+        lines.append(tr("preview"))
+    lines.extend(["", f"{tr('comment')}:", comment.strip(), ""])
     return subject, "\n".join(lines)
 
 
@@ -117,6 +144,7 @@ def send_feedback(
     client_ip: str | None = None,
     job_name: str | None = None,
     job_status: str | None = None,
+    lang: str = i18n.SOURCE_LANG,
 ) -> None:
     """Pošle zpětnou vazbu na FEEDBACK_TO. Při chybě MailError.
 
@@ -137,12 +165,15 @@ def send_feedback(
         job_name=job_name,
         job_status=job_status,
         preview_attached=preview is not None,
+        lang=lang,
     )
     send_mail(
         to,
         subject,
         body,
         attachments=[preview] if preview is not None else None,
+        from_name=sender_name(lang),
+        reply_to=reply_to_address(contact),
     )
 
 
@@ -166,23 +197,27 @@ def build_source_suggestion_email(
     contact: str,
     comment: str,
     client_ip: str | None = None,
+    lang: str = i18n.SOURCE_LANG,
 ) -> tuple[str, str]:
-    """Vrací (předmět, tělo) pro návrh zdroje dat – česky."""
+    """Vrací (předmět, tělo) pro návrh zdroje dat v jazyce a se značkou stránky formuláře."""
     host = urllib.parse.urlsplit(url).hostname or "?"
-    subject = f"Podkladárna: návrh zdroje dat ({host})"
+
+    def tr(key: str, **params: object) -> str:
+        return i18n.t(f"mail.source.{key}", lang, **params)
+
+    subject = tr("subject", host=host)
     lines = [
-        "Nový návrh zdroje dat z webu Podkladárny.",
-        "Adresa nebyla automaticky ověřena ani volána – před zařazením",
-        "zkontroluj funkčnost, licenci (tvorba a šíření map) a citaci.",
+        tr("intro"),
+        *tr("check").split("\n"),
         "",
-        f"Adresa: {url}",
-        f"Země / oblast: {area}",
-        f"Licence / podmínky: {license_text or '(neuvedeno)'}",
-        f"Kontakt: {contact}",
+        f"{tr('url')}: {url}",
+        f"{tr('area')}: {area}",
+        f"{tr('license')}: {license_text or tr('not_given')}",
+        f"{i18n.t('mail.feedback.contact', lang)}: {contact}",
     ]
     if client_ip:
         lines.append(f"IP: {client_ip}")
-    lines.extend(["", "Poznámka:", comment.strip() or "(bez poznámky)", ""])
+    lines.extend(["", f"{tr('note')}:", comment.strip() or tr("no_note"), ""])
     return subject, "\n".join(lines)
 
 
@@ -194,6 +229,7 @@ def send_source_suggestion(
     contact: str,
     comment: str,
     client_ip: str | None = None,
+    lang: str = i18n.SOURCE_LANG,
 ) -> None:
     """Pošle návrh zdroje na FEEDBACK_TO. Při chybě MailError."""
     to = (settings.FEEDBACK_TO or "").strip()
@@ -206,5 +242,6 @@ def send_source_suggestion(
         contact=contact,
         comment=comment,
         client_ip=client_ip,
+        lang=lang,
     )
-    send_mail(to, subject, body)
+    send_mail(to, subject, body, from_name=sender_name(lang), reply_to=reply_to_address(contact))
