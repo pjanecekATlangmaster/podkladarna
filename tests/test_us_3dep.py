@@ -100,13 +100,13 @@ def test_candidates_from_ept_footprints(tmp_path, monkeypatch):
         return bucket
 
     cands = reference_us.candidates(cell, fetch=fetch)
-    assert [(n, wu.year) for n, wu in cands] == [("NY_NewYorkCity", 0)]
+    assert [(n, wu.year) for n, wu in cands] == [("NY_NewYorkCity", 2017)]
     assert reference_us.coverage_share(cell, cands) == pytest.approx(1.0)
     assert reference_us.pending_workunits(cell) == ["NY_CMPG_2013 (2014)"]  # nasnímáno, mračno zatím chybí
     n = len(calls)
     reference_us.candidates(cell, fetch=fetch)
     assert not any("githubusercontent" in u for u in calls[n:])  # obrysy z cache
-    assert reference_us._name_year("GA_Central_1_2018") == 2018 and reference_us._name_year("UT_WestEast_1_B22") == 2022
+    assert reference_us._name_year("NY_X") == 0 and reference_us._name_year("GA_Central_1_2018") == 2018 and reference_us._name_year("UT_WestEast_1_B22") == 2022
     assert reference_us.ept_workunit("USGS_LPC_NY_LongIsland_Z18_2014_LAS_2015") == "NY_LongIsland_Z18_2014"
 
 

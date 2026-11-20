@@ -2641,7 +2641,7 @@ def us_3dep_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
     left = top = 0.0
     for name, wu in chosen:
         g_dtm, g_dsm, left, top, _pts, _size = us_ept_grids(ept_url(name), window, log=log,
-                                                            label=f"{wu.name} ({wu.ql}, {wu.year})")
+                                                            label=f"{wu.name} ({wu.ql}, {wu.year})" if wu.year else f"{wu.name} ({wu.ql})")
         if dtm is None:
             dtm, dsm = g_dtm, g_dsm
         else:  # starší projekt jen doplní buňky bez dat
@@ -2650,7 +2650,9 @@ def us_3dep_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
     dtm = fill_small_gaps(dtm, US_DTM_GAP_M)
     years = sorted({wu.year for _n, wu in chosen if wu.year})
     if years and years[0] <= _time.gmtime().tm_year - US_OLD_YEARS:
-        log_issue(log, f"Výškové modely: mračno USGS 3DEP z roku {years[0]} – porost a stavby se od té doby mohly změnit")
+        # Jen informace, ne chyba jobu: log_issue by job označil „hotovo s chybami“ s hláškou o chybějících výškách.
+        if log:
+            log(f"  Upozornění: mračno USGS 3DEP z roku {years[0]} – porost a stavby se od té doby mohly změnit")
     out: dict[str, Path] = {}
     gt = (left, 1.0, 0.0, top, 0.0, -1.0)
     for kind, grid in (("dtm", dtm), ("dsm", dsm)):

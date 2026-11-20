@@ -190,8 +190,15 @@ def ept_workunit(name: str) -> str:
     return m.group(1) if m else name
 
 
+# Rok snímkování mračen mimo WESM, která ho nemají ve jménu (bez něj by se řadila za starší projekty okolí:
+# Inwood Hill Park bral nejdřív NJ_SdL5_2014 za řekou a New York 2017 jen doplňoval).
+EPT_YEARS = {"NY_NewYorkCity": 2017, "KY_FullState": 2017}
+
+
 def _name_year(name: str) -> int:
     """Rok snímkování ze jména mračna mimo WESM (``GA_Central_1_2018``, ``UT_WestEast_1_B22``), jinak 0."""
+    if name in EPT_YEARS:
+        return EPT_YEARS[name]
     m = re.search(r"(?<!\d)(20\d{2}|19\d{2})(?!\d)", name) or re.search(r"_[A-D](\d{2})$", name)
     if not m:
         return 0
