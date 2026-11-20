@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from app.i18n import t
+from app.i18n import intl_brand_active, t
 from app.settings import APP_ROOT, APP_VERSION, CONFIG_DIR
 
 WHATS_NEW_PATH = CONFIG_DIR / "whats_new.yaml"
@@ -155,10 +155,30 @@ def _load_milestones_file() -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+# Rozsah milníku (``scope`` v ručním souboru, Petr 2026-11-20 u verze 4.0): ``cz`` jen česká verze (Podkladárna),
+# ``intl`` jen mezinárodní doména (Omapic); bez rozsahu všude. Česká verze nabízí jen Česko, proto zahraniční
+# novinky na ni nepatří, a na Omapicu se nepíše o vazbě na Podkladárnu.
+MILESTONE_SCOPES = ("cz", "intl")
+
+
+def milestone_visible(item: object) -> bool:
+    """Milník patří na doménu právě zpracovávaného požadavku (``scope``)."""
+    if not isinstance(item, dict):
+        return False
+    scope = str(item.get("scope") or "").strip().lower()
+    if scope not in MILESTONE_SCOPES:
+        return True
+    return (scope == "intl") == intl_brand_active()
+
+
+def _visible_milestones(raw_items: object) -> list[object]:
+    return [item for item in raw_items if milestone_visible(item)] if isinstance(raw_items, list) else []
+
+
 def _translated_milestones(lang: str) -> list[dict[str, str]]:
     """Milníky s nadpisem v jazyce (``title_<lang>`` v ručním souboru); bez překladu se vynechají."""
     out: list[dict[str, str]] = []
-    for item in _load_milestones_file().get("milestones") or []:
+    for item in _visible_milestones(_load_milestones_file().get("milestones")):
         if not isinstance(item, dict):
             continue
         d = _parse_dt(item.get("date"))
@@ -263,7 +283,7 @@ def whats_new_payload(now: datetime | None = None, lang: str = "cs") -> dict[str
             continue
         entries_out.append(item)
 
-    milestones_out = _normalize_items(data.get("milestones"))
+    milestones_out = _normalize_items(_visible_milestones(data.get("milestones")))
     # Fallback: starší YAML bez sekce milestones → načíst ruční soubor.
     if not milestones_out:
         ms_path = CONFIG_DIR / "whats_new_milestones.yaml"
@@ -272,7 +292,7 @@ def whats_new_payload(now: datetime | None = None, lang: str = "cs") -> dict[str
                 ms_data = yaml.safe_load(ms_path.read_text(encoding="utf-8")) or {}
             except OSError:
                 ms_data = {}
-            milestones_out = _normalize_items(ms_data.get("milestones"))
+            milestones_out = _normalize_items(_visible_milestones(ms_data.get("milestones")))
 
     return {
         "version": APP_VERSION,

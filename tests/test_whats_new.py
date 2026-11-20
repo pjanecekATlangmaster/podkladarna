@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from app.whats_new import whats_new_payload
 
 
@@ -146,3 +148,34 @@ def test_api_whats_new_follows_page_language(client, monkeypatch):
     assert paid["entries"] == [] and "rozbilo" not in paid["disclaimer"]
     free = client.get("/api/whats_new?lang=en", headers={"host": "podkladarna.kibos.link"}).json()
     assert "rozbilo" in free["disclaimer"]
+
+
+@pytest.mark.parametrize(
+    ("intl", "lang", "shown"),
+    [
+        (False, "cs", {"vsude", "cesko"}),
+        (True, "cs", {"vsude", "zahranici"}),
+        (True, "en", {"vsude", "zahranici"}),
+    ],
+)
+def test_milestone_scope_by_site(monkeypatch, tmp_path, intl, lang, shown):
+    """``scope`` milníku: cz jen česká verze, intl jen mezinárodní doména (verze 4.0)."""
+    import app.whats_new as wn
+    from app import i18n
+
+    (tmp_path / "whats_new_milestones.yaml").write_text(
+        "milestones:\n"
+        + "".join(
+            f'  - date: "2026-11-20"\n    title: "{name}"\n    title_en: "{name}"\n' + (f"    scope: {scope}\n" if scope else "")
+            for name, scope in (("vsude", ""), ("cesko", "cz"), ("zahranici", "intl"))
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(wn, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(wn, "load_whats_new_file", lambda: {})
+    token = i18n._INTL_BRAND.set("Omapic" if intl else None)
+    try:
+        payload = wn.whats_new_payload(lang=lang)
+    finally:
+        i18n._INTL_BRAND.reset(token)
+    assert {m["title"].split()[-1].lower() for m in payload["milestones"]} == shown
