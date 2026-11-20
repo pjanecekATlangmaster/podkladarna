@@ -60,6 +60,25 @@ def test_slow_source_does_not_block(fr, monkeypatch):
     assert result["block"] is None and result["elevation"]["status"] == "unknown"
 
 
+def test_elevation_pending_and_unverified(fr, monkeypatch):
+    """Nulové pokrytí s nasnímaným, ale nezveřejněným projektem má vlastní hlášku; chyba služby jen varuje."""
+    monkeypatch.setitem(elevation_raster.COVERAGE, "fr_lidarhd", lambda _b: 0.0)
+    monkeypatch.setitem(elevation_raster.COVERAGE_PENDING, "fr_lidarhd", lambda _b: ["NY_NHGaps_1_D24 (2025)"])
+    result = area_probe.probe(fr, LYON)
+    assert result["verdict"] == "block"
+    assert "NY_NHGaps_1_D24 (2025)" in i18n.localize(result["block"], "en")
+    assert "not been published" in i18n.localize(result["block"], "en")
+
+    def broken(_b):
+        raise OSError("timeout")
+
+    monkeypatch.setattr(elevation_raster, "_COVERAGE_CACHE", {})
+    monkeypatch.setitem(elevation_raster.COVERAGE, "fr_lidarhd", broken)
+    result = area_probe.probe(fr, LILLE)
+    assert result["block"] is None and result["elevation"]["status"] == "failed"
+    assert any("nepodařilo ověřit" in t for t in _texts(result))
+
+
 @pytest.mark.parametrize(
     "bbox, share, needle",
     [

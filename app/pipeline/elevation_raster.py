@@ -2665,6 +2665,13 @@ def us_3dep_coverage(bbox_wgs84: tuple[float, float, float, float]) -> float:
     return coverage_share(bbox_wgs84, candidates(bbox_wgs84))
 
 
+def us_3dep_pending(bbox_wgs84: tuple[float, float, float, float]) -> list[str]:
+    """Projekty QL 0 – QL 2 ve výřezu, jejichž mračno USGS ještě nezveřejnil (z poslední kontroly pokrytí)."""
+    from app.pipeline.reference_us import pending_workunits
+
+    return pending_workunits(bbox_wgs84)
+
+
 PROVIDERS["us_3dep"] = us_3dep_provider
 
 
@@ -3285,6 +3292,10 @@ COVERAGE: dict[str, Callable[[tuple[float, float, float, float]], float]] = {
     "gb_sct": sct_coverage,
     "us_3dep": us_3dep_coverage,
 }
+# Nasnímaná, ale ještě nezveřejněná data ve výřezu (jména projektů) – jen pro přesnější hlášku při nulovém pokrytí.
+COVERAGE_PENDING: dict[str, Callable[[tuple[float, float, float, float]], list[str]]] = {
+    "us_3dep": us_3dep_pending,
+}
 # Strop počtu stahovaných dlaždic výšek na výřez (zdroje po celých velkých dlaždicích): zdroj → (počet, strop).
 TILE_LIMITS: dict[str, Callable[[tuple[float, float, float, float]], tuple[int, int]]] = {
     "gb_ea": lambda bbox: (gb_ea_tile_count(bbox), GB_EA_MAX_TILES),
@@ -3313,6 +3324,17 @@ def elevation_coverage(source: str, bbox_wgs84: tuple[float, float, float, float
         _COVERAGE_CACHE.clear()
     _COVERAGE_CACHE[key] = (time.monotonic(), share)
     return share
+
+
+def coverage_pending(source: str, bbox_wgs84) -> list[str]:
+    """Nezveřejněné projekty ve výřezu (po ``elevation_coverage``); bez podpory nebo při chybě prázdné."""
+    check = COVERAGE_PENDING.get(source)
+    if check is None:
+        return []
+    try:
+        return list(check(tuple(float(v) for v in bbox_wgs84)))
+    except Exception:  # noqa: BLE001 – jen text hlášky
+        return []
 
 
 def resolve_provider(source: str) -> Provider:
