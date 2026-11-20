@@ -1818,8 +1818,25 @@ FR_BUFFER_M = 20.0
 FR_RETRIES = 3  # WMS-R občas vrátí 502 / přeruší spojení; další pokus obvykle projde
 
 
+# MapServer (GUGiK) při výpadku své databáze odpovídá 400 s ExceptionReportem „msPostGISLayerOpen(): … Database
+# connection failed“ (2026-11-20, job 6b949bdee97b; i kontrolní dotaz ve Varšavě): chyba serveru, ne dotazu.
+SERVER_FAULT_MARKERS = ("database connection failed", "mspostgislayeropen", "is the database running")
+
+
+def _ows_exception_text(exc) -> str:
+    """Text ``ows:ExceptionText`` (nebo začátek těla) chybové odpovědi WCS; prázdný, když tělo není."""
+    try:
+        raw = exc.read(4096) if exc.fp is not None else b""
+    except Exception:  # noqa: BLE001 – tělo chyby je jen doplněk hlášky
+        raw = b""
+    text = raw.decode("utf-8", "replace")
+    m = re.search(r"<(?:\w+:)?ExceptionText>(.*?)</(?:\w+:)?ExceptionText>", text, re.S)
+    return " ".join((m.group(1) if m else text).split())[:200]
+
+
 def _download_retry(url: str, dest: Path, *, retries: int = FR_RETRIES, log=None, wait_s: float = 3.0) -> Path:
-    """``_download`` s opakováním po přechodné chybě (5xx, 429, síť); 4xx a odpověď bez GeoTIFFu hned dál."""
+    """``_download`` s opakováním po přechodné chybě (5xx, 429, síť, výpadek databáze služby); jiná 4xx a odpověď
+    bez GeoTIFFu hned dál."""
     import time
     import urllib.error
 
@@ -1827,7 +1844,13 @@ def _download_retry(url: str, dest: Path, *, retries: int = FR_RETRIES, log=None
         try:
             return _download(url, dest, log=log)
         except urllib.error.HTTPError as exc:
-            if attempt >= retries or not (exc.code >= 500 or exc.code == 429):
+            detail = _ows_exception_text(exc) if 400 <= exc.code < 500 else ""
+            server_fault = any(m in detail.lower() for m in SERVER_FAULT_MARKERS)
+            if server_fault and attempt >= retries:
+                raise RuntimeError(
+                    f"výšková služba má výpadek na své straně (HTTP {exc.code}: {detail}); zkuste to později"
+                ) from exc
+            if not server_fault and (attempt >= retries or not (exc.code >= 500 or exc.code == 429)):
                 raise
         except (urllib.error.URLError, TimeoutError, ConnectionError):
             if attempt >= retries:
