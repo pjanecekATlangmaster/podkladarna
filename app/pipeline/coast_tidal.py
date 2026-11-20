@@ -24,6 +24,17 @@ CHM_MAX_M = 1.0
 SLOPE_MAX_DEG = 4.0
 MIN_AREA_M2 = 500.0
 HOLE_MIN_M2 = 200.0
+# Zástavba a zpevněné plochy nejsou přílivová zóna: nízké ploché nábřeží a přístav (CHM < 1 m) by jinak vyšly
+# jako písek a souvisle by přes ulice zaplavily i nízké město. Vyloučí se a přeruší i napojení na moře.
+BUILT_KINDS = frozenset(
+    {"building", "residential", "parking", "pedestrian_area", "platform", "pitch", "pitch_open", "playground",
+     "garden", "farmland", "water_well_building", "shelter"}
+)
+ROAD_HIGHWAYS = frozenset(
+    {"motorway", "trunk", "primary", "secondary", "tertiary", "unclassified", "residential", "service",
+     "living_street", "pedestrian", "motorway_link", "trunk_link", "primary_link", "secondary_link", "tertiary_link"}
+)
+ROAD_HALF_M = 3.0
 
 
 def _sea_geometry(features: list[dict]):
@@ -34,10 +45,34 @@ def _sea_geometry(features: list[dict]):
     return unary_union(seas) if seas else None
 
 
-def tidal_mask(dem, chm, gt, sea, *, grid_m: float = GRID_M):
+def _built_geometry(features: list[dict], work_dir: Path | None):
+    """Zástavba, zpevněné plochy a pole z OSM + silnice (osa ± ``ROAD_HALF_M``) – mimo přílivovou zónu."""
+    from shapely.geometry import shape
+    from shapely.ops import unary_union
+
+    geoms = []
+    for f in features:
+        p = f.get("properties") or {}
+        if p.get("kind") in BUILT_KINDS and f.get("geometry") and not p.get("sea"):
+            g = shape(f["geometry"])
+            if g.geom_type in ("Polygon", "MultiPolygon"):
+                geoms.append(g)
+    roads = Path(work_dir) / "osm_paths" / "paths_osm.geojson" if work_dir is not None else None
+    if roads is not None and roads.is_file():
+        try:
+            for f in json.loads(roads.read_text(encoding="utf-8")).get("features") or []:
+                if (f.get("properties") or {}).get("highway") in ROAD_HIGHWAYS and f.get("geometry"):
+                    geoms.append(shape(f["geometry"]).buffer(ROAD_HALF_M, cap_style=2))
+        except (OSError, ValueError):
+            pass
+    return unary_union(geoms) if geoms else None
+
+
+def tidal_mask(dem, chm, gt, sea, *, grid_m: float = GRID_M, built=None):
     """bool maska přílivové zóny v mřížce ``grid_m`` + (x0, y_top, krok) nebo None.
 
-    ``dem`` / ``chm``: pole stejné mřížky (geotransform ``gt``, sever nahoře), ``sea``: shapely plocha moře.
+    ``dem`` / ``chm``: pole stejné mřížky (geotransform ``gt``, sever nahoře), ``sea``: shapely plocha moře,
+    ``built``: plocha zástavby a silnic, která do zóny nepatří a přeruší napojení na moře.
     """
     import numpy as np
     import shapely
@@ -70,6 +105,9 @@ def tidal_mask(dem, chm, gt, sea, *, grid_m: float = GRID_M):
     gy, gx = np.gradient(ndi.uniform_filter(np.where(ok, d, ref), 3), step)
     slope = np.degrees(np.arctan(np.hypot(gx, gy)))
     low_bare = ok & ~inside & (d <= ref) & (np.nan_to_num(c, nan=0.0) < CHM_MAX_M)
+    if built is not None and not built.is_empty:
+        shapely.prepare(built)
+        low_bare &= ~shapely.contains_xy(built, X, Y)
     # Sklon u pobřeží kazí skok na hladinu moře v DTM: pás 2 kroky od moře se bere bez sklonu.
     cand = low_bare & ((slope < SLOPE_MAX_DEG) | ndi.binary_dilation(inside, iterations=2))
     lab, _n = ndi.label(cand | inside)
@@ -151,7 +189,7 @@ def apply_tidal_zone(work_dir: Path, *, log=None) -> int:
         dem, gt, _nd = read_float32_geotiff(dem_path)
         chm_file = chm_path(work_dir)
         chm = read_float32_geotiff(chm_file)[0] if chm_file is not None else None
-        res = tidal_mask(dem, chm, gt, sea)
+        res = tidal_mask(dem, chm, gt, sea, built=_built_geometry(features, work_dir))
         if res is not None:
             zone, origin, ref = res
             geom = _mask_to_geometry(zone, origin)

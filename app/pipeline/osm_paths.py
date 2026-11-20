@@ -1783,7 +1783,8 @@ def classify_osm_feature(
             return "info_board", "531"
     if not is_node and (
         natural in SAND_NATURAL or (natural == "wetland" and (tags.get("wetland") or "").lower() == "tidalflat")
-    ):
+    ) and not _cz_process():
+        # V Česku beze změny: plážový volejbal (leisure=pitch + natural=sand) zůstává hřištěm, tidalflat mokřadem.
         # Pláž, písek, bahno a přílivová plocha = písčitá půda (dotaz jen mimo Česko); slaná bažina zůstává mokřadem.
         return "sand", "213"
     if natural == "wetland":
