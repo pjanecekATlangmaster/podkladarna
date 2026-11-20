@@ -24,3 +24,9 @@ GB_EA_PROBE = f"{GB_EA_TILES}/{GB_EA_PRODUCTS['dtm']}/SE2530"
 # a database rights Ordnance Survey (INSPIRE end user licence, obrázek s vodoznakem podmínek) → jen online šablona.
 GB_HMLR_WMS = "https://inspire.landregistry.gov.uk/inspire/ows"
 GB_HMLR_LAYER = "inspire:CP.CadastralParcel"
+
+# Skotsko (Scottish Remote Sensing Portal, OGL v3): sonda stavu = HEAD malé dlaždice terénu (1 km, 0,25 MB).
+SCT_ELEVATION_PROBE = (
+    "https://srsp-open-data.s3.eu-west-2.amazonaws.com/lidar/national-lidar-programme/dtm/27700/gridded/"
+    "NG2106_50cm_DTM_ScotlandNationalLiDAR.tif"
+)
