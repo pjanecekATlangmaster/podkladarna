@@ -114,10 +114,10 @@ def test_outage_alert_once_after_threshold_and_once_on_recovery(fresh_state, mon
     monkeypatch.setattr(ss.settings, "FEEDBACK_TO", "provoz@example.cz")
     sent: list[tuple[str, str, str]] = []
     monkeypatch.setattr(app.mail, "send_mail", lambda to, subj, body, **kw: sent.append((to, subj, body)))
-    state = {"dtm": False}
+    state = {"lidar": False}
 
     def fake(url, method):
-        if state["dtm"] or "dmvs" not in url:
+        if state["lidar"] or "openzu" not in url:
             return 200, None, ""
         return 503, None, "Plánovaná odstávka"
 
@@ -128,7 +128,7 @@ def test_outage_alert_once_after_threshold_and_once_on_recovery(fresh_state, mon
     path = fresh_state / "source_status.json"
     data = json.loads(path.read_text(encoding="utf-8"))
     old = (datetime.now(timezone.utc) - timedelta(minutes=45)).replace(microsecond=0).isoformat()
-    data["services"]["dtm"]["down_since"] = old
+    data["services"]["lidar"]["down_since"] = old
     path.write_text(json.dumps(data), encoding="utf-8")
 
     ss.check_all()
@@ -139,12 +139,12 @@ def test_outage_alert_once_after_threshold_and_once_on_recovery(fresh_state, mon
 
     # jiný proces se starým stavem (alerted chybí) mail nezopakuje – značka v DATA_ROOT
     data = json.loads(path.read_text(encoding="utf-8"))
-    data["services"]["dtm"]["alerted"] = False
+    data["services"]["lidar"]["alerted"] = False
     path.write_text(json.dumps(data), encoding="utf-8")
     ss.check_all()
     assert len(sent) == 1
 
-    state["dtm"] = True
+    state["lidar"] = True
     ss.check_all()
     ss.check_all()
     assert len(sent) == 2 and "znovu běží" in sent[1][1]
@@ -206,3 +206,38 @@ def test_source_texts_follow_page_language(fresh_state, monkeypatch, client, sit
         assert svc["nl_ahn"]["label"] == "AHN – terrain and surface heights (PDOK)"
         assert svc["nl_ahn"]["detail"] == "no response"
         assert not any(set("ěščřžýáíéůú") & set(s["label"] + s["impact"]) for s in svc.values())
+
+
+def _age(path, key, minutes):
+    import json
+    from datetime import datetime, timedelta, timezone
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["services"][key]["down_since"] = (
+        datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    ).replace(microsecond=0).isoformat()
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+# (klíč zdroje, URL, která selže, SOURCE_ALERT_COUNTRIES, okamžitý mail)
+@pytest.mark.parametrize(
+    "key, fails, countries, immediate",
+    [
+        ("lidar", "openzu", "CZ", True),  # bez LiDARu job selže → hned
+        ("dtm", "dmvs", "CZ", False),  # DTM job nezastaví → jen souhrn
+        ("lidar", "openzu", "", False),  # okamžité maily vypnuté
+    ],
+)
+def test_immediate_alert_only_for_fatal_sources_of_alert_countries(fresh_state, monkeypatch, key, fails, countries, immediate):
+    import app.mail
+
+    monkeypatch.setattr(ss.settings, "SOURCE_ALERT_AFTER_MIN", 30.0)
+    monkeypatch.setattr(ss.settings, "SOURCE_ALERT_COUNTRIES", countries)
+    monkeypatch.setattr(ss.settings, "FEEDBACK_TO", "provoz@example.cz")
+    sent: list[str] = []
+    monkeypatch.setattr(app.mail, "send_mail", lambda to, subj, body, **kw: sent.append(subj))
+    monkeypatch.setattr(ss, "_probe_url", lambda url, method: (503, None, "") if fails in url else (200, None, ""))
+    ss.check_all()
+    _age(fresh_state / "source_status.json", key, 45)
+    ss.check_all()
+    assert bool(sent) is immediate
