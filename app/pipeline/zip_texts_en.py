@@ -147,7 +147,7 @@ What is inside
 What to do with it
 ------------------
 1. Install OOM (openorienteering.org).
-2. Unzip the ZIP. Double-click the chosen *-sprint.omap / *-les.omap / *-mtbo.omap (OOM)
+2. Unzip the ZIP. Double-click the chosen *-sprint.omap / *-forest.omap / *-mtbo.omap (OOM)
    or the *.ocd of the same name (OCAD), or use File → Open.
 3. Import DXF and SHP as described in README_OOM.txt and use the symbols of the map's symbol set
    (ISOM 2017-2 / ISSprOM 2019-2, MTBO: ISMTBOM).
@@ -574,7 +574,7 @@ def oom_readme_en(
         f"{ref_block}\n"
         "Recommended workflow in OOM\n"
         "---------------------------\n"
-        "1. Unzip the whole ZIP into one folder. Open the chosen *-sprint.omap / *-les.omap / *-mtbo.omap\n"
+        "1. Unzip the whole ZIP into one folder. Open the chosen *-sprint.omap / *-forest.omap / *-mtbo.omap\n"
         "   (by scale; les = forest; paths from OSM) – or the *.ocd of the same name in OCAD.\n"
         "   Default view: vectors only (contours, vegetation, OSM buildings, cliffs, …).\n"
         "   Purple rectangle = your area; outside it there is only an overlap of the map content.\n"

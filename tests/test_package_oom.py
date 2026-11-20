@@ -130,6 +130,11 @@ def test_resolve_omap_job_by_scale():
     assert omap_map_stem("Česká lípa sever") == "CeskaLipaSev"
     assert omap_map_stem("") == "Mapa"
     assert omap_variant_filename("les", map_name="A") == "A-les.omap"
+    # Anglický výstup (Omapic): les → forest, ostatní disciplíny i česky beze změny.
+    assert omap_variant_filename("les", map_name="A", lang="en") == "A-forest.omap"
+    assert omap_variant_filename("les", map_name="A", lang="cs") == "A-les.omap"
+    assert omap_variant_filename("mtbo", map_name="A", lang="en") == "A-mtbo.omap"
+    assert omap_variant_filename("sprint", map_name="A", lang="en") == "A-sprint.omap"
 
 
 def test_map_scale_from_scalefactor():

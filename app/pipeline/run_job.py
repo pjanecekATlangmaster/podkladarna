@@ -1647,7 +1647,7 @@ def _package_output(
                 ):
                     variant_name = omap_variant_filename(
                         disc_tag, path_tag, map_name=job_name or "",
-                        certain_only=certain,
+                        certain_only=certain, lang=zip_lang(options),
                     )
                     calls.append(
                         MapCall(

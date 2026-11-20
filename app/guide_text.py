@@ -173,7 +173,7 @@ WEB_ABOUT_HTML_EN = """
 <details class="about-zip">
   <summary><strong>The ZIP contains, among other things</strong></summary>
 <ul>
-  <li><code>*-sprint.omap</code> / <code>*-les.omap</code> (forest) / <code>*-mtbo.omap</code> (+ <code>.ocd</code> of the same name), named after the project and scale; paths from OSM; <code>.omap</code> for OOM, <code>.ocd</code> for OCAD (templates: orthophoto, base map, cadastre, hillshade … depending on the country, and OSM)</li>
+  <li><code>*-sprint.omap</code> / <code>*-forest.omap</code> / <code>*-mtbo.omap</code> (+ <code>.ocd</code> of the same name), named after the project and scale; paths from OSM; <code>.omap</code> for OOM, <code>.ocd</code> for OCAD (templates: orthophoto, base map, cadastre, hillshade … depending on the country, and OSM)</li>
   <li>cliff DXF, GDAL contours (<code>contours_gdal.*</code>), vegetation / cliffs / knolls in <code>base/</code>, OSM buildings in the .omap, OSM shapefiles in <code>osm/</code>, in Czechia also ZABAGED, RÚIAN/ZABAGED buildings in <code>zabaged/</code> and AOPK memorial trees, guide <code>README_OOM.txt</code></li>
 </ul>
 </details>
@@ -223,7 +223,7 @@ WEB_ABOUT_HTML_EN = """
   options if you like and start generating. The button shows a rough estimate of the time needed.
   You can close the page in the meantime.
   When it is done, download the ZIP, open the chosen
-  <code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code> in OOM
+  <code>*-sprint.omap</code> / <code>*-forest.omap</code> / <code>*-mtbo.omap</code> in OOM
   (or the <code>.ocd</code> of the same name in OCAD) and start mapping.
 </p>
 <p>
