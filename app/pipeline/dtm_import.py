@@ -195,6 +195,58 @@ MTBO_SIDEWALK_AREAS = False
 # MTBO a les: velká parkoviště z DTM (False = parkoviště jen z OSM; Petr 2026-11-20, Harrachov).
 MTBO_DTM_PARKING = False
 FOREST_DTM_PARKING = False
+# Bez plného převzetí (výše False) se z DTM berou jen parkoviště jednoduchého tvaru – obdélník nebo tvar mu blízký
+# (typicky stání u silnice); složitý obrys s mnoha hranami ne (Petr 2026-11-20, Harrachov). False = žádná.
+DTM_PARKING_SIMPLE = True
+SIMPLE_AREA_MIN_M2 = 100.0  # menší stání pohltí čára silnice
+SIMPLE_RECT_FILL = 0.85  # plocha / nejmenší opsaný (otočený) obdélník
+SIMPLE_MAX_VERTICES = 8  # vrcholů obrysu po zjednodušení o ``SIMPLE_TOL_M``
+SIMPLE_TOL_M = 0.5
+# Čitelnost v měřítku: část mimo kresbu silnice musí být široká aspoň tolik mm mapy a mít plochu aspoň (tolik mm)²,
+# jinak stání jen nepatrně rozšiřuje silnici a nekreslí se (Petr 2026-11-20).
+SIMPLE_VISIBLE_WIDTH_MM = 0.8
+SIMPLE_VISIBLE_AREA_MM = 1.0
+
+
+_OSM_PAVED_COVER_KINDS = frozenset({"parking", "pedestrian_area", "platform", "playground", "pitch", "building"})
+
+
+def _osm_paved_cover(work_dir: Path):
+    """OSM zpevněné plochy a budovy (``osm_paths/features.geojson``) jako shapely geometrie nebo None."""
+    from shapely.geometry import shape
+    from shapely.ops import unary_union
+
+    path = work_dir / "osm_paths" / "features.geojson"
+    try:
+        feats = json.loads(path.read_text(encoding="utf-8")).get("features") or []
+    except (OSError, ValueError):
+        return None
+    geoms = []
+    for f in feats:
+        if (f.get("properties") or {}).get("kind") not in _OSM_PAVED_COVER_KINDS:
+            continue
+        if (f.get("geometry") or {}).get("type") not in {"Polygon", "MultiPolygon"}:
+            continue
+        try:
+            g = shape(f["geometry"])
+        except (ValueError, TypeError, KeyError):
+            continue
+        if not g.is_valid:
+            g = g.buffer(0)
+        geoms.append(g)
+    return unary_union(geoms) if geoms else None
+
+
+def is_simple_area(poly) -> bool:
+    """Polygon jednoduchého tvaru: bez děr, skoro vyplní opsaný obdélník a má málo vrcholů."""
+    if poly.is_empty or poly.geom_type != "Polygon" or len(poly.interiors):
+        return False
+    rect = poly.minimum_rotated_rectangle
+    if rect.area <= 0 or poly.area / rect.area < SIMPLE_RECT_FILL:
+        return False
+    return len(poly.simplify(SIMPLE_TOL_M).exterior.coords) - 1 <= SIMPLE_MAX_VERTICES
+
+
 # Les: široké pěší plochy z DTM (``osm_paths.with_dtm_walk_areas``); False = jen z OSM (Petr 2026-11-20, Harrachov).
 FOREST_DTM_WALK_AREAS = False
 MTBO_SIDEWALK_MIN_WIDTH_MM = 0.5
@@ -1856,14 +1908,14 @@ def mtbo_parking_geometry(work_dir: Path, scale: int, path_source: str = "mixed"
 
 
 def dtm_parking_geometry(work_dir: Path, scale: int, path_source: str = "mixed", preset_id: str | None = None):
-    """Les a MTBO: velká parkoviště z DTM (od ``MTBO_PARKING_MIN_M2``) mimo koridor silnice, generalizovaná (shapely) nebo None."""
+    """Les a MTBO: parkoviště z DTM mimo koridor silnice, generalizovaná (shapely) nebo None. S ``MTBO_DTM_PARKING`` /
+    ``FOREST_DTM_PARKING`` velká (od ``MTBO_PARKING_MIN_M2``), jinak s ``DTM_PARKING_SIMPLE`` jen jednoduchého tvaru."""
     from shapely.ops import unary_union
 
     if not parking_path(work_dir).is_file():
         return None
-    if (preset_id or "").startswith("mtbo") and not MTBO_DTM_PARKING:
-        return None
-    if not (preset_id or "").startswith(("mtbo", "sprint")) and not FOREST_DTM_PARKING:
+    full = MTBO_DTM_PARKING if (preset_id or "").startswith("mtbo") else FOREST_DTM_PARKING
+    if not full and not DTM_PARKING_SIMPLE:
         return None
 
     def compute():
@@ -1874,10 +1926,29 @@ def dtm_parking_geometry(work_dir: Path, scale: int, path_source: str = "mixed",
         if corridor is not None and not corridor.is_empty:
             geom = geom.difference(corridor)  # část v koridoru kreslí koridor
         polys = [geom] if geom.geom_type == "Polygon" else [g for g in getattr(geom, "geoms", []) if g.geom_type == "Polygon"]
-        big = [g for g in polys if g.area >= MTBO_PARKING_MIN_M2]
+        if full:
+            big = [g for g in polys if g.area >= MTBO_PARKING_MIN_M2]
+        else:
+            big = [g for g in polys if g.area >= SIMPLE_AREA_MIN_M2 and is_simple_area(g)]
+            axes = _corridor_road_axes(work_dir)
+            band = axes.buffer(corridor_min_drawn_m(preset_id, scale) / 2.0) if axes is not None else None
+            w = SIMPLE_VISIBLE_WIDTH_MM * scale / 1000.0
+            a = (SIMPLE_VISIBLE_AREA_MM * scale / 1000.0) ** 2
+            osm = _osm_paved_cover(work_dir)  # OSM je základ: z DTM jen to, co OSM nemá
+
+            def legible_part(g):
+                own = g.difference(osm) if osm is not None else g
+                own = own.buffer(-w / 2.0).buffer(w / 2.0, join_style=2)  # jen části široké aspoň w (bez proužků)
+                rest = own.difference(band) if band is not None else own
+                rest = rest.buffer(-w / 2.0).buffer(w / 2.0)
+                return own if not rest.is_empty and rest.area >= a else None
+
+            big = [p for p in (legible_part(g) for g in big) if p is not None and not p.is_empty]
         return _generalized(unary_union(big), work_dir, scale) if big else None
 
-    return _mtbo_cached("parking", work_dir, scale, path_source, compute, (corridor_min_drawn_m(preset_id, scale),))
+    return _mtbo_cached(
+        "parking", work_dir, scale, path_source, compute, (corridor_min_drawn_m(preset_id, scale), full, DTM_PARKING_SIMPLE)
+    )
 
 
 def mtbo_dtm_area_geometry(work_dir: Path, scale: int, path_source: str = "mixed", preset_id: str | None = None):

@@ -2117,3 +2117,20 @@ def test_forest_and_mtbo_take_no_dtm_paved_areas_by_default(tmp_path):
         assert not street_profile.enabled(preset)
     assert di.mtbo_sidewalk_geometry(tmp_path, 10000, "mixed", "mtbo_10000") is None
     assert op.with_dtm_walk_areas(tmp_path, [], "forest_10000", 10000) == []
+
+
+@pytest.mark.parametrize(
+    "coords, simple",
+    [
+        ([(0, 0), (30, 0), (30, 15), (0, 15)], True),  # obdélník
+        ([(0, 0), (30, 0), (32, 15), (1, 16)], True),  # skoro obdélník
+        ([(0, 0), (30, 0), (30, 15), (20, 15), (20, 5), (10, 5), (10, 15), (0, 15)], False),  # tvar U
+        ([(0, 0), (30, 0), (15, 20)], False),  # trojúhelník nevyplní obdélník
+    ],
+)
+def test_is_simple_area(coords, simple):
+    from shapely.geometry import Polygon
+
+    from app.pipeline import dtm_import as di
+
+    assert di.is_simple_area(Polygon(coords)) is simple
