@@ -529,7 +529,7 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   je v lese i MTBO plynulá silnice v tahu (`is_road_bridge_highway`), MTBO u mostů bere symbol navazující cesty (dřív 816).
   Od 3.100.1 se silnice na mostě spojuje se sousedními úseky do jedné čáry a voda (301, 302, 304–306) se pod čárou kreslenou
   po OSM mostě vyřízne v její šířce (`path_clearance.water_under_bridges`; barva vody je v sadě nad výplní silnice).
-  Od 3.102.2 (Petr 2026-11-20, Mumlava pod můstky) se tok ZABAGED uvnitř vodní plochy (ZABAGED i OSM) nekreslí ani v lese a MTBO
+  Od 3.103.1 (Petr 2026-11-20, Mumlava pod můstky) se tok ZABAGED uvnitř vodní plochy (ZABAGED i OSM) nekreslí ani v lese a MTBO
   (`suppress_waterway_in_water`, dřív jen sprint), tok končí na břehu.
   Od 3.102.0 (Petr 2026-11-20) les a MTBO berou chodníky z DTM, které OSM nemá, mimo pás silnic (plocha silnic z DTM / osa
   v kresbě + `CORRIDOR_NEAR_M`); mimo zástavbu (dál než 50 m od budov, `SIDEWALK_BUILT_M`) jsou to lesní a polní cesty, kreslí se
