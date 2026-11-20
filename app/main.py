@@ -1082,8 +1082,8 @@ def _sheets_payload(bbox: str, request: Request, country: str = "") -> dict:
     }
 
 
-# Volby jobu, které se ven neposílají (IP klienta, e-mail privátního jobu).
-_JOB_OPTIONS_HIDDEN = ("client_ip", "notify_email")
+# Volby jobu, které se ven neposílají (IP klienta, e-mail privátního jobu, název API klienta).
+_JOB_OPTIONS_HIDDEN = ("client_ip", "notify_email", "api_client_name")
 
 
 def _public_job(job: dict) -> dict:
@@ -1527,21 +1527,25 @@ async def api_source_suggestion(request: Request):
 API_KEY_HEADER = "x-api-key"
 
 
-def _api_client_authenticated(request: Request) -> bool:
-    """Hlavička X-Api-Key: chybí → False; platná → True; neplatná / klíč nenastaven → 401.
+def _api_client_name(request: Request) -> str | None:
+    """Hlavička X-Api-Key: chybí → None; platná → název klienta; neplatná / žádný klíč nenastaven → 401.
 
-    Klíč se porovnává v konstantním čase a nikdy se neloguje ani nevrací.
+    Klíče jsou ``API_CLIENT_KEYS`` (název:klíč) a starý ``API_CLIENT_KEY`` jako klient ``default``. Porovnává se
+    v konstantním čase se všemi klíči; hodnota klíče se nikdy neloguje ani nevrací, jen název klienta.
     """
     got = request.headers.get(API_KEY_HEADER)
     if got is None:
-        return False
-    expected = app_settings.API_CLIENT_KEY
-    if not expected or not hmac.compare_digest(
-        got.strip().encode("utf-8"), expected.encode("utf-8")
-    ):
+        return None
+    keys = app_settings.parse_api_client_keys(app_settings.API_CLIENT_KEYS, app_settings.API_CLIENT_KEY)
+    sent = got.strip().encode("utf-8")
+    found = None
+    for name, expected in keys.items():
+        if hmac.compare_digest(sent, expected.encode("utf-8")) and found is None:
+            found = name
+    if found is None:
         logger.warning("POST /api/jobs – neplatný API klíč z %s", client_ip(request))
         raise HTTPException(401, i18n.Msg("api.key_invalid"))
-    return True
+    return found
 
 
 def can_reuse_lidar(prev: dict | None, bbox: list[float], country: str) -> bool:
@@ -1603,7 +1607,8 @@ async def api_create_job(request: Request):
 
     # Job ukázky, který server zakládá sám sobě (app.samples_refresh): soukromý, bez e-mailu a limitů.
     sample_job = samples_refresh.request_is_internal(request)
-    api_client = False if sample_job else _api_client_authenticated(request)
+    api_client_name = None if sample_job else _api_client_name(request)
+    api_client = api_client_name is not None
 
     name = _form_str(form, "name").strip()
     if not name:
@@ -1872,6 +1877,7 @@ async def api_create_job(request: Request):
     if api_client:
         options["private"] = True
         options["api_client"] = True
+        options["api_client_name"] = api_client_name
         notify_email = _form_str(form, "notify_email").strip()
         if notify_email and "@" in notify_email and "." in notify_email.split("@")[-1]:
             options["notify_email"] = notify_email
@@ -1951,7 +1957,8 @@ async def api_create_job(request: Request):
         db.append_log(dup["id"], str(msg))  # log jobu česky
         out = _public_job(dict(dup))
         # Stejný job založený týmž API klíčem – klient potřebuje token ke stažení.
-        if api_client and (dup.get("options") or {}).get("api_client"):
+        dup_opts = dup.get("options") or {}
+        if api_client and dup_opts.get("api_client") and (dup_opts.get("api_client_name") or "default") == api_client_name:
             token = db.get_download_token(dup["id"])
             if token:
                 out["download_token"] = token
@@ -2039,12 +2046,15 @@ async def api_create_job(request: Request):
         f"georef GeoTIFF {_yn('output_georef')} · "
         f"vynucené obnovení {_yn('force_refresh')} · "
         f"privátní {_yn('private')}"
-        + (" · API klient" if api_client else "")
+        + (f" · API klient {api_client_name}" if api_client else "")
+        + (" · ukázka (generuje server)" if sample_job else "")
     )
     outside = countries.outside_note(job_country, country_share)
     if outside:
         log(f"⚠ {outside}")
-    if options.get("private") and not options.get("notify_email"):
+    if sample_job:
+        log("Ukázka – generuje server (přegenerování ukázkových map), ZIP nahradí ukázku na webu.")
+    elif options.get("private") and not options.get("notify_email"):
         hours = PRIVATE_JOB_RETENTION_HOURS if PRIVATE_JOB_RETENTION_HOURS > 0 else 48
         log(f"Privátní job API klienta – odkaz s tokenem platí {hours} h.")
     elif options.get("private"):
