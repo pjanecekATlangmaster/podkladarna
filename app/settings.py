@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.93.0"
+APP_VERSION = "3.94.0"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -318,8 +318,8 @@ DEFAULT_OPTIONS = {
     "kp_osm_footway_as_sidewalk": False,
     # Zdroj cest: mixed | zabaged | osm (viz path_source v osm_paths.py).
     "path_source": "mixed",
-    # Pomocné vrstevnice 103: off | sparse | more (jen kde ukážou tvar navíc).
-    "contour_formlines": "off",
+    # Pomocné vrstevnice 103: auto (podle země, countries.yaml ``contour_formlines``) | off | sparse | more | all.
+    "contour_formlines": "auto",
     # Vyhlazení vrstevnic: auto = podle země (výchozí; Česko adaptivní, sever méně, countries.yaml ``contour_smooth``),
     # 1 = adaptivní (rovina a zástavba víc), 0 = méně vyhlazení (původní).
     "contour_smooth": "auto",

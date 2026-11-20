@@ -14,7 +14,7 @@ from app import i18n
 from app.pipeline.job_options import (
     resolve_cliff_sensitivity,
     contour_smooth_choice,
-    resolve_formline_mode,
+    formline_choice,
     resolve_map_types,
     resolve_osm_objects_mode,
     resolve_vege_height,
@@ -113,7 +113,7 @@ def job_form_template(job: dict[str, Any], presets: dict | None = None) -> dict[
             str(int(contour)) if float(contour).is_integer() else str(contour)
         ),
         "map_types": map_types,
-        "contour_formlines": resolve_formline_mode(opts),
+        "contour_formlines": formline_choice(opts),
         "contour_smooth": contour_smooth_choice(opts),
         "veg_smooth": str(resolve_veg_smooth(opts)),
         "kp_vege_height": str(int(vege)) if float(vege).is_integer() else str(vege),

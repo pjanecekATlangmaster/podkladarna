@@ -1,3 +1,5 @@
+import pytest
+
 from app.pipeline.contours_gdal import (
     chaikin,
     contour_dem_params,
@@ -264,13 +266,18 @@ def test_formline_mode_off_selects_nothing():
     assert select_formlines(formlines, contours, interval_m=5, scale=10000, mode="off") == []
 
 
-def test_resolve_formline_mode():
+@pytest.mark.parametrize(
+    "opts, expected",
+    [({}, "off"), ({"contour_formlines": "sparse"}, "sparse"), ({"contour_formlines": "MORE"}, "more"),
+     ({"contour_formlines": "lots"}, "off"), ({"contour_formlines": "auto"}, "off"),
+     # podle země: sever „víc“ (reálné mapy 5 m + pomocné), Česko beze změny, ruční volba má přednost
+     ({"country": "FI"}, "more"), ({"country": "NO", "contour_formlines": "auto"}, "more"),
+     ({"country": "FI", "contour_formlines": "off"}, "off"), ({"country": "CZ"}, "off")],
+)
+def test_resolve_formline_mode(opts, expected):
     from app.pipeline.job_options import resolve_formline_mode
 
-    assert resolve_formline_mode({}) == "off"
-    assert resolve_formline_mode({"contour_formlines": "sparse"}) == "sparse"
-    assert resolve_formline_mode({"contour_formlines": "MORE"}) == "more"
-    assert resolve_formline_mode({"contour_formlines": "lots"}) == "off"
+    assert resolve_formline_mode(opts) == expected
 
 
 def test_build_gdal_contour_parts_adds_formline_part(tmp_path, monkeypatch):

@@ -89,7 +89,8 @@ class Country:
     # Zeleň v lese: ``points`` hustota bodů z mračna (Česko), ``laser`` zrnitost z laserového povrchu (hranice
     # porostů jako z mračna, ``veg_texture``), ``photo`` povrch ze snímků – jen základní zeleň z výšky porostu,
     # ``leafoff`` zimní laserový povrch bez listí (Belgie DHMV II): bez zrnitosti, nízký porost v lese z OSM = bílý les;
-    # ``understory`` horský les (Trentino): místo zrnitosti podíl nízkého patra (``veg_texture``).
+    # ``understory`` horský les (Trentino): místo zrnitosti podíl nízkého patra (``veg_texture``);
+    # ``plain`` jen základní zeleň z výšky porostu bez zrnitosti (sever: řídký les, reálné mapy převážně bílé).
     green: str = "laser"
     # Stáří a vlastnosti výškových dat pro upozornění před buildem (``app.data_notes``): roky snímkování
     # (text, např. „2013–2015“) a klíče důsledků ``old`` | ``coarse`` (``photo`` plyne z ``green``).
@@ -99,8 +100,10 @@ class Country:
     # Maastotietokanta (``app.pipeline.mtk_fi``); prázdné = jen OSM.
     terrain_vectors: str = ""
     # Výchozí vyhlazení vrstevnic (volba jobu ``contour_smooth`` = auto): 1 adaptivní, 0 méně vyhlazení.
-    # Sever 0 (Petr 2026-11-19: reálné mapy Nuuksio a Sognsvann mají mikroreliéf, který adaptivní vyhlazení maže).
+    # Sever místo méně vyhlazení pomocné vrstevnice (Petr 2026-11-20: vyhlazení nevzdávat, reálné mapy mají víc čar).
     contour_smooth: int = 1
+    # Výchozí pomocné vrstevnice 103 (volba jobu ``contour_formlines`` = auto): off | sparse | more | all.
+    contour_formlines: str = "off"
 
     def name(self, lang: str = "cs") -> str:
         return self.names.get(lang) or self.names.get("en") or self.code
@@ -186,6 +189,7 @@ def load_countries() -> dict[str, Country]:
             data_notes=tuple(str(k) for k in (spec.get("data_notes") or [])),
             terrain_vectors=str(spec.get("terrain_vectors") or ""),
             contour_smooth=int(spec.get("contour_smooth", 1)),
+            contour_formlines=str(spec.get("contour_formlines") or "off").strip().lower(),
         )
         if len(view) != 4:
             w, s, e, n = country.envelope

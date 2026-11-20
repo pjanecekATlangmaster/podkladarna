@@ -26,6 +26,8 @@ KP_CLIFF_SENSITIVITY_DEFAULT = "low"
 # navíc, all = všude jako vodítko (jako OCAD z LAZ).
 FORMLINE_MODES = ("off", "sparse", "more", "all")
 FORMLINE_MODE_DEFAULT = "off"
+# Volba jobu „auto“ (výchozí): podle země (countries.yaml ``contour_formlines``; Česko off, sever víc).
+FORMLINE_MODE_AUTO = "auto"
 
 
 # Tvar hranic porostů 401–410 v lese a MTBO (sprint beze změny, viz veg_smooth):
@@ -171,9 +173,21 @@ def resolve_cliff_sensitivity(options: dict | None) -> str:
     return KP_CLIFF_SENSITIVITY_DEFAULT
 
 
-def resolve_formline_mode(options: dict | None) -> str:
+def formline_choice(options: dict | None) -> str:
+    """Volba formuláře: režim z FORMLINE_MODES, jinak „auto“ (podle země)."""
     raw = str((options or {}).get("contour_formlines") or "").strip().lower()
-    return raw if raw in FORMLINE_MODES else FORMLINE_MODE_DEFAULT
+    return raw if raw in FORMLINE_MODES else FORMLINE_MODE_AUTO
+
+
+def resolve_formline_mode(options: dict | None) -> str:
+    choice = formline_choice(options)
+    if choice != FORMLINE_MODE_AUTO:
+        return choice
+    from app.pipeline.country_profile import job_country
+
+    country = job_country(options)
+    mode = country.contour_formlines if country is not None else FORMLINE_MODE_DEFAULT
+    return mode if mode in FORMLINE_MODES else FORMLINE_MODE_DEFAULT
 
 
 # Typy map v lesních měřítkách (1:7500 / 1:10000 / 1:15000): job staví jen vybrané.

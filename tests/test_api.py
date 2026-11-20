@@ -283,10 +283,10 @@ def test_create_job_contour_formlines(client, monkeypatch):
         assert r.status_code == 200, r.text
         return r.json()["options"]["contour_formlines"]
 
-    assert post() == "off"
+    assert post() == "auto"
     assert post(contour_formlines="sparse") == "sparse"
     assert post(contour_formlines="more") == "more"
-    assert post(contour_formlines="nonsense") == "off"
+    assert post(contour_formlines="nonsense") == "auto"
 
 
 def test_create_job_sprint_residual_paved(client, monkeypatch):
@@ -672,7 +672,7 @@ def test_index_html(client):
     assert "DTM kraje" in html
     assert "ZABAGED → OSM → DTM kraje" in html
     assert 'name="contour_formlines"' in html
-    assert '<option value="off" selected>' in html
+    assert "Podle země – výchozí (v Česku ne, na severu víc)</option>" in html
     assert '<option value="2" selected>' in html
     assert 'name="sprint_residual_paved"' in html
     assert 'name="sprint_residual_size"' in html
