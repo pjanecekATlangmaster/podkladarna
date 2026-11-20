@@ -26,6 +26,35 @@ def log_issue(log: LogFn | None, message: str) -> None:
     log(ISSUE_LOG_PREFIX + str(message).strip())
 
 
+# Zdroje dat, jejichž data job opravdu získal (i přes záložní zrcadlo, opakovaný pokus nebo z cache). Varování
+# sondy zdrojů ze startu jobu (``app.source_status``) pak není chyba jobu, jen informace (job a934d7c44276:
+# Overpass při kontrole HTTP 502, stažení přes zrcadlo prošlo, a job přesto „hotovo s chybami“).
+SOURCE_OSM = "osm"
+SOURCE_ELEVATION = "elevation"
+SOURCE_SURFACE = "surface"
+_confirmed_sources: set[str] = set()
+_confirmed_lock = threading.Lock()
+
+
+def reset_confirmed_sources() -> None:
+    """Začátek jobu: žádný zdroj zatím potvrzený (proces může běžet víc jobů za sebou)."""
+    with _confirmed_lock:
+        _confirmed_sources.clear()
+
+
+def confirm_source(role: str) -> None:
+    """Data zdroje ``role`` (``SOURCE_*``) se v tomto jobu podařilo získat."""
+    with _confirmed_lock:
+        _confirmed_sources.add(role)
+
+
+def source_confirmed(role: str | None) -> bool:
+    if not role:
+        return False
+    with _confirmed_lock:
+        return role in _confirmed_sources
+
+
 class IssueCollector:
     """Obal job logu: řádky se značkou ``⚠`` si zapamatuje (i z vláken na pozadí)."""
 

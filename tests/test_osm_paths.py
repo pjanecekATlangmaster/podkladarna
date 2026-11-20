@@ -1794,11 +1794,16 @@ def test_fetch_osm_tries_next_mirror_after_504():
             )
         return _Resp(json.dumps(payload).encode("utf-8"))
 
+    from app.pipeline.job_progress import SOURCE_OSM, reset_confirmed_sources, source_confirmed
+
+    reset_confirmed_sources()
     with patch("urllib.request.urlopen", side_effect=fake_urlopen):
         got = fetch_osm_path_elements((14.4, 50.0, 14.41, 50.01))
     assert len(got) == 1
     assert calls[0] == OVERPASS_URLS[0]
     assert calls[1] == OVERPASS_URLS[1]
+    # Stažení přes záložní zrcadlo potvrdí zdroj: varování sondy ze startu jobu pak není chyba jobu.
+    assert source_confirmed(SOURCE_OSM)
 
 
 def test_parse_osm_api_map_xml_keeps_paths_only():
