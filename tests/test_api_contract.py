@@ -81,6 +81,36 @@ def test_wrong_key_rejected(api_client, key):
     assert API_KEY not in r.text
 
 
+@pytest.mark.parametrize(
+    "keys_env, key, expected",
+    [
+        ("", API_KEY, "default"),  # jen starý API_CLIENT_KEY = klient „default“
+        ("stavitel:klic-stavitel-0123456789,ohry:klic-ohry-0123456789", "klic-ohry-0123456789", "ohry"),
+        ("stavitel:klic-stavitel-0123456789", API_KEY, "default"),  # starý klíč platí vedle nových
+        ("stavitel:klic-stavitel-0123456789,bez-klice:,:sirotek", "sirotek", None),  # neplatné položky se ignorují
+    ],
+)
+def test_named_keys_record_client(api_client, monkeypatch, keys_env, key, expected):
+    import app.db as db
+    import app.main as main
+
+    monkeypatch.setattr(main.app_settings, "API_CLIENT_KEYS", keys_env)
+    r = _post(api_client, key=key)
+    if expected is None:
+        assert r.status_code == 401
+        return
+    assert r.status_code == 200, r.text
+    # Název klienta se z detailu jobu ven neposílá.
+    assert "api_client_name" not in api_client.get(f"/api/jobs/{r.json()['id']}").json()["options"]
+    job = db.get_job(r.json()["id"])
+    assert job["options"]["api_client_name"] == expected
+    log = "\n".join(x["line"] for x in db.get_logs(job["id"]))
+    assert f"API klient {expected}" in log and key not in log
+    with db.connect() as conn:
+        row = conn.execute("SELECT api_client, api_client_name FROM job_origin WHERE job_id = ?", (job["id"],)).fetchone()
+    assert tuple(row) == (1, expected)
+
+
 def test_key_header_rejected_when_not_configured(client, monkeypatch):
     import app.main as main
 

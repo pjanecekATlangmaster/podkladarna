@@ -33,6 +33,14 @@ def main(args: list[str]) -> None:
 _PRIVATE_WEB = "o.private = 1 AND o.api_client = 0 AND o.email_tag IS NOT NULL"
 
 
+def _kind(r) -> str:
+    """Druh jobu pro výpis; API s názvem klienta (starší řádky bez sloupce / bez názvu = „default“)."""
+    if r["api_client"]:
+        name = r["api_client_name"] if "api_client_name" in r.keys() else None
+        return f"API {name or 'default'}"
+    return "privátní" if r["private"] else "veřejný"
+
+
 def _ro() -> sqlite3.Connection:
     con = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
@@ -125,7 +133,7 @@ def _report(d_from: str | None = None, d_to: str | None = None) -> None:
 
     print(f"Joby {d_from} – {d_to} (UTC): {len(rows)}")
     kinds = collections.Counter(
-        "API" if r["api_client"] else ("privátní" if r["private"] else "veřejný") for r in rows
+        _kind(r) for r in rows
     )
     print("Podle druhu: " + ", ".join(f"{k} {v}" for k, v in kinds.most_common()))
     if rows and "site" in rows[0].keys():
@@ -146,7 +154,7 @@ def _report(d_from: str | None = None, d_to: str | None = None) -> None:
     for (ip, net), js in sorted(by_ip.items(), key=lambda kv: -len(kv[1])):
         print(f"\nIP {ip} (síť {net}): {len(js)} jobů")
         for r in js:
-            kind = "API" if r["api_client"] else ("privátní" if r["private"] else "veřejný")
+            kind = _kind(r)
             b = json.loads(r["bbox_json"]) if r["bbox_json"] else None
             center = f"{(b[1] + b[3]) / 2:.3f},{(b[0] + b[2]) / 2:.3f}" if b else "-"
             print("  " + " | ".join([

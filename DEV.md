@@ -359,8 +359,11 @@ python scripts/oom_export_png.py C:\cesta\Mapa-mtbo.omap -o preview.png
 Projekt Stavitel zakládá joby přes API a z výsledného `.omap` (S-JTSK) přenáší kontroly přes georeferenci.
 Následující části API jsou **stabilní kontrakt**: bez dohody se nemění (zamyká je `tests/test_api_contract.py`).
 
-- **Autentizace:** hlavička `X-Api-Key` = `API_CLIENT_KEY` z `.env` (porovnání v konstantním čase, klíč se neloguje
-  ani nevrací). Bez hlavičky se job zakládá jako dosud; neplatný klíč nebo klíč nenastavený na serveru → `401`.
+- **Autentizace:** hlavička `X-Api-Key` = některý klíč z `API_CLIENT_KEYS` (`název:klíč,název:klíč`) nebo starý
+  `API_CLIENT_KEY` (klient `default`) z `.env` (porovnání v konstantním čase, klíč se neloguje ani nevrací). Název
+  klienta jde do jobu (`options.api_client_name`, ven se neposílá), do řádku „Výstup: … · API klient <název>“ v logu
+  a do sloupce `api_client_name` statistiky původu (`python -m app.origin_stats` ukazuje „API <název>“). Limity
+  `API_KEY_MAX_*` jsou společné pro všechny klíče. Bez hlavičky se job zakládá jako dosud; neplatný klíč nebo klíč nenastavený na serveru → `401`.
 - **`POST /api/jobs`** (multipart / form): `name`, `map_scale` (`4000` sprint, `7500`, `10000`, `15000`),
   `bbox` = `W,S,E,N` ve WGS84 (stupně), volitelně `contour_interval` a `map_types` (`les`, `mtbo`, opakované pole
   nebo `les,mtbo`; jen u lesních měřítek, bez pole výchozí `les`, u 1:15000 `mtbo`; sprint 1:4000 se volí měřítkem
