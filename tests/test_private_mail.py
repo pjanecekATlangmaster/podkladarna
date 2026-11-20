@@ -273,6 +273,28 @@ def test_build_private_ready_email_includes_area(area, expected):
         assert "Plocha mapy" not in body
 
 
+@pytest.mark.parametrize(
+    "area, lang, expected",
+    [
+        (4.43, "cs", "4,4 km²"),
+        (0.38, "cs", "0,38 km²"),
+        (0.82, "en", "0.82 km²"),
+        (0.045, "cs", "0,045 km²"),
+        (0, "cs", None),
+    ],
+)
+def test_format_area_km2_always_km2(area, lang, expected):
+    from pathlib import Path
+
+    from app.mail import format_area_km2
+
+    assert format_area_km2(area, lang) == expected
+    # Web: jediná funkce formatAreaKm2 (druhá stejného jména dřív psala pod 1 km² hektary).
+    js = (Path(__file__).resolve().parent.parent / "web/static/app.js").read_text(encoding="utf-8")
+    assert js.count("function formatAreaKm2(") == 1
+    assert "} ha`" not in js
+
+
 def test_job_area_km2_from_bbox():
     from app.db import job_area_km2
 
