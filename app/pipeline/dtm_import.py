@@ -263,11 +263,12 @@ SIDEWALK_OSM_PARALLEL_M = 10.0  # čára, která z ``SIDEWALK_OSM_PARALLEL_SHARE
 SIDEWALK_OSM_PARALLEL_SHARE = 0.5
 SIDEWALK_BUILDING_NEAR_M = 8.0  # čára, která z ``SIDEWALK_BUILDING_SHARE`` vede do tolika m od budov, obchází dům
 SIDEWALK_BUILDING_SHARE = 0.6
-SIDEWALK_NATURE_SHARE = 0.5
-# Jen v zástavbě (Petr 2026-11-20): čára aspoň z ``SIDEWALK_BUILT_SHARE`` do tolika m od budov; mimo zástavbu vede DTM
-# jako chodník i lesní cesty (Barrandov, Klukovice) a cesty kreslí OSM.
+SIDEWALK_NATURE_SHARE = 0.5  # v zástavbě: čára z takového podílu v přírodním krytu OSM je polní / lesní cesta
+# Zástavba = čára aspoň z ``SIDEWALK_BUILT_SHARE`` do ``SIDEWALK_BUILT_M`` od budov. Mimo ni vede DTM jako chodník i lesní
+# cesty (Barrandov, Klukovice); Petr 2026-11-20 je chce také, jen s širším dedupem: OSM cesta tam bývá posunutá o desítky m.
 SIDEWALK_BUILT_M = 50.0
-SIDEWALK_BUILT_SHARE = 0.5  # čára z takového podílu v přírodním krytu OSM (les, louka …) je polní / lesní cesta, ne chodník
+SIDEWALK_BUILT_SHARE = 0.5
+SIDEWALK_NATURE_OSM_PARALLEL_M = 20.0
 
 
 def _sidewalk_near_road_zone(work_dir: Path, preset_id: str, scale: int):
@@ -361,6 +362,7 @@ def _dtm_sidewalk_lines_memo(work_dir: Path, preset_id: str, scale: int):
 
         nature = unary_union([Polygon(p[0], [r for r in p[1:] if len(r) >= 3]).buffer(0) for p in cover_polys if len(p[0]) >= 3])
     osm_band = osm.buffer(SIDEWALK_OSM_PARALLEL_M) if osm is not None else None
+    osm_band_nature = osm.buffer(SIDEWALK_NATURE_OSM_PARALLEL_M) if osm is not None else None
     near_band = near.buffer(SIDEWALK_CONNECT_M) if near is not None else None
     bnear = _buildings_zone(work_dir, tol_m=SIDEWALK_BUILDING_NEAR_M)
     built = _buildings_zone(work_dir, tol_m=SIDEWALK_BUILT_M)
@@ -376,14 +378,14 @@ def _dtm_sidewalk_lines_memo(work_dir: Path, preset_id: str, scale: int):
             continue
         if near_band is not None and line.intersection(near_band).length >= SIDEWALK_OSM_PARALLEL_SHARE * line.length:
             continue  # vede podél silnice (chodník u ulice), ne spojnice
-        if osm_band is not None and line.intersection(osm_band).length >= SIDEWALK_OSM_PARALLEL_SHARE * line.length:
+        in_town = built is not None and line.intersection(built).length >= SIDEWALK_BUILT_SHARE * line.length
+        band = osm_band if in_town else osm_band_nature
+        if band is not None and line.intersection(band).length >= SIDEWALK_OSM_PARALLEL_SHARE * line.length:
             continue  # souběžně s OSM cestou (posunutá táž cesta)
-        if nature is not None and line.intersection(nature).length >= SIDEWALK_NATURE_SHARE * line.length:
+        if in_town and nature is not None and line.intersection(nature).length >= SIDEWALK_NATURE_SHARE * line.length:
             continue
         if bnear is not None and line.intersection(bnear).length >= SIDEWALK_BUILDING_SHARE * line.length:
             continue  # chodník kolem domu
-        if built is None or line.intersection(built).length < SIDEWALK_BUILT_SHARE * line.length:
-            continue  # mimo zástavbu
         coords = [tuple(c[:2]) for c in line.coords]
         ok = True
         for end in (0, -1):
@@ -431,7 +433,7 @@ def _dtm_walk_area_legible_memo(work_dir: Path, preset_id: str, scale: int):
     a = (SIMPLE_VISIBLE_AREA_MM * scale / 1000.0) ** 2
     wide = res[0].buffer(-w / 2.0, join_style=2).buffer(w / 2.0, join_style=2)
     # jen jednoduchý tvar jako u parkovišť (Petr 2026-11-20: složité polygony nechceme)
-    built = _buildings_zone(work_dir, tol_m=SIDEWALK_BUILT_M)  # jen v zástavbě jako čáry
+    built = _buildings_zone(work_dir, tol_m=SIDEWALK_BUILT_M)  # plochy jen v zástavbě
     polys = [
         g
         for g in getattr(wide, "geoms", [wide])
