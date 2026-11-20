@@ -443,12 +443,12 @@ FR:
   technical_map: fr_pdv     # Plan de voirie Ville de Paris (ODbL), jen výřezy v Paříži; jinde plochy chodníků otevřeně nejsou
   technical_map_area: countries/fr_paris.geojson  # kde technická mapa je (obec Paříž); mimo ni job kreslí z OSM a GUI to odliší
   cz_sources: false
-  # Licence: Etalab 2.0 (IGN, uvést zdroj), ODbL (Plan de voirie, uvést zdroj a sdílet úpravy dat pod ODbL).
+  # Licence: Etalab 2.0 (IGN, uvést zdroj a datum poslední aktualizace = datum stažení ze služby, [data date]), ODbL (Plan de voirie, uvést zdroj a sdílet úpravy dat pod ODbL).
   citation: "Base map: Omapic · IGN LiDAR HD · Ville de Paris · OSM, [year]"
   attribution:
-    - "Elevation: LiDAR HD MNT and MNS, © IGN (Licence Ouverte Etalab 2.0)."
+    - "Elevation: LiDAR HD MNT and MNS, © IGN, data as downloaded on [data date] (Licence Ouverte Etalab 2.0), processed."
     - "Plan de voirie (Paris only): © Ville de Paris – opendata.paris.fr (ODbL)."
-    - "Orthophoto, Plan IGN and Parcellaire Express: © IGN – Géoplateforme (Licence Ouverte Etalab 2.0)."
+    - "Orthophoto, Plan IGN and Parcellaire Express: © IGN – Géoplateforme, data as downloaded on [data date] (Licence Ouverte Etalab 2.0)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 EE:
   name: {cs: Estonsko, en: Estonia, et: Eesti}

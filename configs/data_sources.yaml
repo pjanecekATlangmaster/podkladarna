@@ -1005,7 +1005,7 @@ sources:
     class: public
     name: Licence Ouverte Etalab 2.0
     url: https://www.etalab.gouv.fr/licence-ouverte-open-licence/
-    attribution: © IGN
+    attribution: © IGN + datum stažení dat (LO 2.0 chce datum poslední aktualizace)
   access: free
   checked: '2026-11-16 dokumentace IGN k LiDAR HD (Etalab 2.0) přes vyhledávání; stránka geoservices.ign.fr přesměrovává na
     cartes.gouv.fr · Claude 2026-11-16 geoservices.ign.fr/lidarhd přesměruje na cartes.gouv.fr; etalab.gouv.fr odpovídá 200
@@ -1039,7 +1039,7 @@ sources:
     class: public
     name: Licence Ouverte Etalab 2.0
     url: https://www.etalab.gouv.fr/licence-ouverte-open-licence/
-    attribution: © IGN
+    attribution: © IGN + datum stažení dat (LO 2.0 chce datum poslední aktualizace)
   access: free
   checked: '2026-11-16 dokumentace IGN (Etalab 2.0) · Claude 2026-11-16 geoservices.ign.fr/lidarhd přesměruje na cartes.gouv.fr
     · opencode (fr_lidarhd_copc): 2026-11-16 WFS odpověď (pole url_npl/url_mnt/url_mnh), https://data.gouv.fr/datasets/semis-de-points-lidar-hd-classe-auvergne-rhone-alpes-2021-2027

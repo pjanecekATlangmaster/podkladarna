@@ -101,3 +101,18 @@ def test_readme_lists_sentinel_with_other_references():
     readme = oom_readme({"reference_layers": ["osm.png"]}, sentinel_info=info)
     refs = readme.split("Referenční podklady (složka references/)", 1)[1]
     assert "- osm.png" in refs and "sentinel2_2026-11-05.jpg" in refs and "Copernicus Sentinel 2026" in refs
+
+
+@pytest.mark.parametrize(
+    "options, expected",
+    [
+        ({"output_sentinel": True, "map_scale": 10000}, True),  # les + MTBO
+        ({"output_sentinel": True, "map_scale": 4000, "contour_interval": 2.5}, False),  # sprint
+        ({"output_sentinel": False, "map_scale": 10000}, False),
+    ],
+)
+def test_sentinel_only_outside_sprint(options, expected):
+    """Ve sprintu se snímky Sentinel-2 do ZIPu nebalí (Petr 2026-11-20), les a MTBO je mají dál."""
+    from app.pipeline.run_job import job_wants_sentinel
+
+    assert job_wants_sentinel("forest_10000", options) is expected
