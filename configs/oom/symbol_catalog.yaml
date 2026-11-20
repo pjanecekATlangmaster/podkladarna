@@ -316,7 +316,7 @@ isom:
     review: false
   - ocad_code: "213.0"
     cz_name: "Písčitý povrch"
-    generator_codes: []
+    generator_codes: ["213"]
     geom: area
     review: false
   - ocad_code: "214.0"
@@ -1227,7 +1227,7 @@ sprint:
     review: false
   - ocad_code: "213.0"
     cz_name: "Otevřený písčitý povrch"
-    generator_codes: []
+    generator_codes: ["213"]
     geom: area
     review: false
   - ocad_code: "214.0"
@@ -2320,7 +2320,7 @@ mtbo:
     review: false
   - ocad_code: "213.0"
     cz_name: "Otevřený písčitý povrch"
-    generator_codes: []
+    generator_codes: ["213"]
     geom: area
     review: false
   - ocad_code: "214.0"
