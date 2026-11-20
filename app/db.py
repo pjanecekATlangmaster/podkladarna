@@ -874,6 +874,17 @@ def list_finished_public_job_times() -> list[tuple[str, str]]:
     return [(str(r["id"]), str(r["updated_at"] or "")) for r in rows]
 
 
+def list_done_job_times() -> list[tuple[str, str]]:
+    """(id, updated_at) jobů, které doběhly s výstupem (i soukromé a objednávky) – kandidáti úklidu mezivýsledků."""
+    marks = ",".join("?" * len(JOB_DONE_STATUSES))
+    with connect() as conn:
+        rows = conn.execute(
+            f"SELECT id, updated_at FROM jobs WHERE status IN ({marks})",
+            tuple(JOB_DONE_STATUSES),
+        ).fetchall()
+    return [(str(r["id"]), str(r["updated_at"] or "")) for r in rows]
+
+
 def all_job_ids() -> set[str]:
     """Id všech jobů v DB (úklid osiřelých složek nesmí smazat složku staršího jobu)."""
     with connect() as conn:

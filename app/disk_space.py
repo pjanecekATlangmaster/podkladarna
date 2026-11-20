@@ -372,6 +372,28 @@ def trim_job_work(job_dir: Path) -> int:
     return freed
 
 
+def _output_keep(entry: Path) -> bool:
+    """V ``output/`` po úklidu zůstává: ZIPy (výstup, georef náhledy, ukázka objednávky), náhled a ``preview/``."""
+    name = entry.name.lower()
+    if entry.is_dir():
+        return name == "preview"
+    return name.endswith(".zip") or name.startswith("preview.") or name == "order_preview.png"
+
+
+def trim_job_output(job_dir: Path) -> int:
+    """Smaže z ``output/`` rozbalené kopie vedle ZIPu (shade/, references/, uzitecne/, .omap …); vrací uvolněné bajty."""
+    out = Path(job_dir) / "output"
+    if not out.is_dir():
+        return 0
+    freed = 0
+    for entry in list(out.iterdir()):
+        if _output_keep(entry):
+            continue
+        freed += _entry_bytes(entry)
+        _remove(entry)
+    return freed
+
+
 def _finished_jobs_oldest_first() -> list[tuple[str, float]]:
     """(id, čas dokončení jako unix čas) hotových / selhaných jobů mimo objednávky, nejstarší první."""
     from datetime import datetime, timezone

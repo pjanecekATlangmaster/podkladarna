@@ -296,6 +296,7 @@ Limity a časové limity (env proměnné s výchozími hodnotami z `app/settings
 | `MAX_PRIVATE_JOBS_PER_EMAIL_DAY` | 8 | soukromé joby na jeden e-mail za klouzavých 24 h (aliasy +značka a tečky Gmailu se sčítají, API, ukázky a objednávky ne, IP z `RATE_LIMIT_EXEMPT_IPS` bez limitu); `0` vypne |
 | `BANNED_EMAILS` | – | zablokované e-maily pro soukromé joby (čárkami, aliasy se sčítají; jen v `.env` na serveru, nikdy v repu); přehled `python -m app.origin_stats --emails` / `--email <adresa>` |
 | `JOB_RETENTION_HOURS` | 48 | jak dlouho se drží hotové joby |
+| `JOB_TRIM_AFTER_MINUTES` | 180 | po tolika minutách od doběhnutí jobu se smažou mezivýsledky (`work/` kromě souhrnů a náhledu, rozbalené kopie v `output/`); ZIP, náhled a log zůstávají do `JOB_RETENTION_HOURS`; 0 = nemazat |
 
 Velikost výběru je omezena na 25 km² (`MAX_BBOX_AREA_KM2` v `app/pipeline/fetch_openzu.py`, od 3.2.2).
 
