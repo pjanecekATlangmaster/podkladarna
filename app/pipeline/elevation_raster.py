@@ -2573,7 +2573,7 @@ def si_arso_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 PROVIDERS["si_arso"] = si_arso_provider
 
 
-# --------------------------------------------------------------------------- ES: mračno LiDAR regionů (Navarra)
+# --------------------------------------------------------------------------- ES: mračno LiDAR regionů (Navarra, Baskicko)
 
 # Stejně jako Slovinsko: list LAZ se jednou převede na terén (průměr bodů země v buňce 1 m) a povrch (nejvyšší bod
 # tříd terénu, vegetace, budov, vody a mostů) a drží v cache jako GeoTIFF; LAZ se po převodu maže. Seznam listů
@@ -2581,6 +2581,7 @@ PROVIDERS["si_arso"] = si_arso_provider
 ES_BUFFER_M = 20.0
 ES_MAX_LAZ_BYTES = 400_000_000  # list Navarry má 60–90 MB; víc je chyba služby
 ES_INDEX_MAX_AGE_DAYS = 30
+ES_RETRIES = 4  # opakování stažení listu po přechodné chybě (5, 10, 15, 20 s)
 _ES_INDEX_LOCK = threading.Lock()
 
 
@@ -2589,73 +2590,121 @@ def es_cache_dir(key: str) -> Path:
     return settings.CACHE_DIR / key
 
 
-def es_index(key: str, *, fetch=None, max_age_days: float = ES_INDEX_MAX_AGE_DAYS) -> set[tuple[int, int]]:
-    """Listy regionu jako (E, N) v km podle jména (N podle ``top_corner``) z cache, jinak z výpisu adresáře."""
+def es_index(key: str, *, fetch=None, max_age_days: float = ES_INDEX_MAX_AGE_DAYS) -> dict[tuple[int, int], str]:
+    """Listy regionu {(E, N) ve jednotkách jména: URL} z cache, jinak z výpisu adresáře (u ``subdir_re`` i podadresářů)."""
     import time
     import urllib.request
+    from concurrent.futures import ThreadPoolExecutor
 
     from app.pipeline.fetch_openzu import USER_AGENT
     from app.pipeline.reference_es import ES_LAZ_REGIONS
 
     region = ES_LAZ_REGIONS[key]
-    path = es_cache_dir(key) / "index.json"
+    path = es_cache_dir(key) / "index2.json"
+
+    def load() -> dict[tuple[int, int], str]:
+        return {(int(e), int(n)): str(url) for e, n, url in json.loads(path.read_text(encoding="utf-8"))}
+
     with _ES_INDEX_LOCK:
         try:
             if time.time() - path.stat().st_mtime < max_age_days * 86400:
-                return {tuple(t) for t in json.loads(path.read_text(encoding="utf-8"))}
+                return load()
         except (OSError, ValueError):
             pass
 
     def default_fetch(url: str) -> str:
-        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            return resp.read(50_000_000).decode("utf-8", "replace")
+        for attempt in range(3):  # výpis Baskicka občas odpoví 503
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    return resp.read(50_000_000).decode("utf-8", "replace")
+            except Exception:
+                if attempt == 2:
+                    raise
+                time.sleep(2 + 3 * attempt)
+        raise AssertionError
 
+    get = fetch or default_fetch
     try:
-        body = (fetch or default_fetch)(region.listing)
-        tiles = {(int(e), int(n)) for e, n in re.findall(region.name_re, body)}
+        pages = [region.listing]
+        if region.subdir_re:
+            subdirs = sorted(set(re.findall(region.subdir_re, get(region.listing))))
+            pages = [f"{region.listing}{d}/" for d in subdirs]
+            with ThreadPoolExecutor(max_workers=4, thread_name_prefix=f"{key}-index") as ex:
+                bodies = list(ex.map(get, pages))
+        else:
+            bodies = [get(region.listing)]
+        tiles = {(int(m.group(1)), int(m.group(2))): region.listing + m.group(0)
+                 for body in bodies for m in re.finditer(region.name_re, body)}
         if not tiles:
             raise RuntimeError(f"{region.label}: výpis listů je prázdný")
     except Exception as exc:  # výpadek výpisu: prošlý seznam z cache je lepší než nic
         try:
-            return {tuple(t) for t in json.loads(path.read_text(encoding="utf-8"))}
+            return load()
         except (OSError, ValueError):
             raise ElevationUnavailable(f"{region.label}: seznam listů nejde načíst ({exc})") from exc
     with _ES_INDEX_LOCK:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}")
-        tmp.write_text(json.dumps(sorted(tiles)), encoding="utf-8")
+        tmp.write_text(json.dumps(sorted([e, n, url] for (e, n), url in tiles.items())), encoding="utf-8")
         tmp.replace(path)
     return tiles
 
 
-def es_tiles(key: str, window: tuple[float, float, float, float], index: set[tuple[int, int]]) -> list[tuple[int, int]]:
-    """Listy regionu (jména E, N v km), které zasahují do okna a existují."""
+def es_tiles(key: str, window: tuple[float, float, float, float], index) -> list[tuple[int, int]]:
+    """Listy regionu (jména E, N v ``unit_m``), které zasahují do okna a existují."""
     from app.pipeline.reference_es import ES_LAZ_REGIONS
 
     region = ES_LAZ_REGIONS[key]
-    side = region.tile_m
+    side, unit = region.tile_m, region.unit_m
     xmin, ymin, xmax, ymax = window
     out = []
     for e in range(math.floor(xmin / side), math.ceil(xmax / side)):
         for b in range(math.floor(ymin / side), math.ceil(ymax / side)):
-            name = (e * side // 1000, (b + 1) * side // 1000 if region.top_corner else b * side // 1000)
+            name = (e * side // unit, (b + 1) * side // unit if region.top_corner else b * side // unit)
             if name in index:
                 out.append(name)
     return out
 
 
-def _es_tile(key: str, e_km: int, n_km: int, *, log=None) -> Path:
-    """Složka listu s ``dtm.tif`` a ``dsm.tif`` z cache, jinak stáhne LAZ a převede."""
-    import tempfile
+def _es_fetch_laz(url: str, dest: Path, what: str, *, retries: int = ES_RETRIES, wait_s: float = 5.0) -> int:
+    """Stáhne LAZ listu; přechodné chyby (5xx, 429, síť) opakuje – server Baskicka pod zátěží vrací 503."""
+    import time
+    import urllib.error
     import urllib.request
 
-    from app.download_cache import touch_last_used
     from app.pipeline.fetch_openzu import USER_AGENT
+
+    for attempt in range(retries + 1):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=900) as resp, dest.open("wb") as fh:
+                size = 0
+                while chunk := resp.read(1 << 20):
+                    size += len(chunk)
+                    if size > ES_MAX_LAZ_BYTES:
+                        raise RuntimeError(f"{what}: LAZ větší než {ES_MAX_LAZ_BYTES // 1_000_000} MB")
+                    fh.write(chunk)
+            return size
+        except urllib.error.HTTPError as exc:
+            if attempt >= retries or not (exc.code >= 500 or exc.code == 429):
+                raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            if attempt >= retries:
+                raise
+        time.sleep(wait_s * (attempt + 1))
+    raise AssertionError
+
+
+def _es_tile(key: str, e: int, n: int, url: str, *, log=None) -> Path:
+    """Složka listu s ``dtm.tif`` a ``dsm.tif`` z cache, jinak stáhne LAZ a převede."""
+    import tempfile
+
+    from app.download_cache import touch_last_used
     from app.pipeline.reference_es import ES_CRS, ES_LAZ_REGIONS
 
     region = ES_LAZ_REGIONS[key]
-    folder = es_cache_dir(key) / f"{e_km}_{n_km}"
+    folder = es_cache_dir(key) / f"{e}_{n}"
     if (folder / ".complete").is_file():
         touch_last_used(folder)
         return folder
@@ -2664,18 +2713,11 @@ def _es_tile(key: str, e_km: int, n_km: int, *, log=None) -> Path:
     os.close(fd)
     lpath = Path(lname)
     side = region.tile_m
-    left = e_km * 1000.0
-    top = n_km * 1000.0 if region.top_corner else n_km * 1000.0 + side
+    left = e * float(region.unit_m)
+    top = n * float(region.unit_m) + (0 if region.top_corner else side)
     try:
-        req = urllib.request.Request(region.url.format(e=e_km, n=n_km), headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(req, timeout=900) as resp, lpath.open("wb") as fh:
-            size = 0
-            while chunk := resp.read(1 << 20):
-                size += len(chunk)
-                if size > ES_MAX_LAZ_BYTES:
-                    raise RuntimeError(f"{region.label} {e_km}-{n_km}: LAZ větší než {ES_MAX_LAZ_BYTES // 1_000_000} MB")
-                fh.write(chunk)
-        dtm, dsm = si_laz_grids(lpath, e_km, n_km, side_m=side, left=left, bottom=top - side,
+        size = _es_fetch_laz(url, lpath, f"{region.label} {e}-{n}")
+        dtm, dsm = si_laz_grids(lpath, e, n, side_m=side, left=left, bottom=top - side,
                                 ground=region.ground, surface=region.surface)
         for name, grid in (("dtm", dtm), ("dsm", dsm)):
             tmp = folder / f".{name}.{os.getpid()}.{threading.get_ident()}.tif"
@@ -2686,7 +2728,7 @@ def _es_tile(key: str, e_km: int, n_km: int, *, log=None) -> Path:
         lpath.unlink(missing_ok=True)
     touch_last_used(folder)
     if log:
-        log(f"  {region.label} {e_km}-{n_km}: {size / 1e6:.0f} MB převedeno do cache")
+        log(f"  {region.label} {e}-{n}: {size / 1e6:.0f} MB převedeno do cache")
     return folder
 
 
@@ -2714,11 +2756,12 @@ def es_laz_provider(key: str) -> Callable[..., SourceRasters]:
 
         region = ES_LAZ_REGIONS[key]
         window = _buffered(bounds, ES_CRS, ES_BUFFER_M)
-        tiles = es_tiles(key, window, es_index(key))
+        index = es_index(key)
+        tiles = es_tiles(key, window, index)
         if not tiles:
             raise ElevationUnavailable(f"výřez je mimo pokrytí mračna {region.label}")
-        with ThreadPoolExecutor(max_workers=3, thread_name_prefix=f"{key}-laz") as ex:
-            folders = list(ex.map(lambda t: _es_tile(key, t[0], t[1], log=log), tiles))
+        with ThreadPoolExecutor(max_workers=region.workers, thread_name_prefix=f"{key}-laz") as ex:
+            folders = list(ex.map(lambda t: _es_tile(key, t[0], t[1], index[t], log=log), tiles))
         out: dict[str, Path] = {}
         for kind in ("dtm", "dsm"):
             vrt = out_dir / f"{key}_{kind}.vrt"
@@ -2739,6 +2782,7 @@ def es_laz_provider(key: str) -> Callable[..., SourceRasters]:
 
 
 PROVIDERS["es_nav"] = es_laz_provider("es_nav")
+PROVIDERS["es_pv"] = es_laz_provider("es_pv")
 
 
 # --------------------------------------------------------------------------- US: USGS 3DEP (mračno EPT na AWS)
@@ -3593,6 +3637,7 @@ SOURCE_LABELS = {
     "gb_sct": "LiDAR DTM a DSM, Scottish Government",
     "gb_wls": "LiDAR DTM a DSM, Welsh Government",
     "es_nav": "mračno LiDAR 2024, Gobierno de Navarra",
+    "es_pv": "mračno LiDAR 2017, Gobierno Vasco (geoEuskadi)",
     USER_UPLOAD: "vlastní data zadavatele",
 }
 
