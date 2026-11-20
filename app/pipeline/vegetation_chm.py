@@ -681,6 +681,52 @@ def regenerate_leafoff_vegetation(
     )
 
 
+# Výřez bez modelu povrchu (``elevation_raster.NO_SURFACE_MARK``): třídy vegetace z přírodního krytu OSM.
+# Les a vše ostatní zůstane bílé; pozdější kryt v pořadí přepíše dřívější (louka v lese je louka).
+OSM_COVER_CLASSES: tuple[tuple[str, int], ...] = (
+    ("scrub", 2),  # 406
+    ("heath", 5),  # 403
+    ("meadow", 1),  # 401
+    ("grassland", 1),
+)
+
+
+def generate_vegetation_from_osm(work_dir: Path, *, log=None) -> Path | None:
+    """``vegetation.shp`` z OSM ``natural_cover.geojson`` na mřížce ``dem_filled.tif`` (bez CHM)."""
+    import json
+
+    import numpy as np
+
+    from app.pipeline.gdal_cli_raster import read_float32_geotiff
+    from app.pipeline.osm_paths import NATURAL_COVER_NAME
+    from app.pipeline.vegetation_merge import rasterize_buildings
+
+    work_dir = Path(work_dir)
+    dem = work_dir / DEM_DIR_NAME / "dem_filled.tif"
+    dest = work_dir / "vegetation" / "vegetation.shp"
+    if not dem.is_file():
+        return None
+    try:
+        feats = json.loads((work_dir / "osm_paths" / NATURAL_COVER_NAME).read_text(encoding="utf-8")).get("features") or []
+    except (OSError, ValueError):
+        feats = []
+    arr, gt, _nodata = read_float32_geotiff(dem, log=log)
+    classified = np.zeros(arr.shape, dtype=np.uint8)
+    for cover, cls in OSM_COVER_CLASSES:
+        sel = [f for f in feats if (f.get("properties") or {}).get("cover") == cover]
+        if sel:
+            classified[rasterize_buildings({"type": "FeatureCollection", "features": sel}, gt, arr.shape)] = cls
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    (dest.parent / CHM_SOURCE_MARK).unlink(missing_ok=True)  # porost není z CHM (žádné falešné stromy)
+    if log:
+        log(f"Vegetace z OSM (bez výšky porostu): kryt {100.0 * (classified > 0).mean():.1f} % výřezu, les bílý")
+    if not classified.any():
+        for old in dest.parent.glob("vegetation.*"):
+            old.unlink(missing_ok=True)
+        return None
+    return polygonize_vegetation_classes(classified, gt, dest, log=log, label="OSM natural_cover")
+
+
 def generate_job_vegetation_chm(
     work_dir: Path,
     *,

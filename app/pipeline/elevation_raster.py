@@ -2811,7 +2811,7 @@ def fi_mml_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
                       nodata=NODATA)
     if chm is None:
         if log:
-            log("  ⚠ Výška porostu Metsäkeskus pro výřez chybí – vegetace bez výšky porostu.")
+            log("  Výška porostu Metsäkeskus pro výřez chybí (latvusmalli je jen pro pevninské Finsko, ne Ålandy).")
         return SourceRasters(dtm, None)
     return SourceRasters(dtm, _fi_surface(dtm, chm, window, out_dir, log=log))
 
@@ -3181,6 +3181,16 @@ def chm_from_rasters(dem_raw: Path, dem_filled: Path, dsm: Path, dest: Path) -> 
     return _write_like(dem_filled, chm, dest)
 
 
+# Značka v ``work/dem``: zdroj pro výřez neměl model povrchu, vegetace se kreslí z OSM (ne z CHM).
+NO_SURFACE_MARK = "no_surface.txt"
+
+
+def surface_missing(work_dir: Path) -> bool:
+    from app.pipeline.dem_prep import DEM_DIR_NAME
+
+    return (Path(work_dir) / DEM_DIR_NAME / NO_SURFACE_MARK).is_file()
+
+
 def prepare_raster_surfaces(
     work_dir: Path,
     bounds: tuple[float, float, float, float],
@@ -3200,9 +3210,14 @@ def prepare_raster_surfaces(
     log_step(log, f"Stahuji výšková data ({label}): terén a povrch jako rastr")
     src = provider(tuple(bounds), src_dir, log)
     dtm_src, dsm_src = src.dtm, src.dsm
+    surface_mark = dem_dir / NO_SURFACE_MARK
+    surface_mark.unlink(missing_ok=True)
     if dsm_src is None:
-        # Výška porostu vždy z modelu povrchu (Petr 2026-11-14): bez DSM by vegetace chyběla a mapa byla bílá.
-        raise ElevationUnavailable(f"zdroj výšek {source!r} nemá model povrchu (DSM / DMP)")
+        # Bez modelu povrchu (Ålandy: latvusmalli Metsäkeskus je jen pro pevninu) job nepadá: terén z DTM,
+        # vegetace z přírodního krytu OSM (``vegetation_chm.generate_vegetation_from_osm``), s varováním.
+        log_issue(log, f"Výškové modely: zdroj {label} pro výřez nemá model povrchu – vegetace se kreslí z OSM "
+                       "(les bílý, louky, vřesoviště a křoviny podle OSM), bez výšky porostu")
+        surface_mark.write_text("no_surface\n", encoding="utf-8")
 
     dem_raw = _warp_to_grid(dtm_src, dem_dir / "dem_raw.tif", bounds, resolution_m, resampling="bilinear", log=log)
     if src.vertical_offset is not None:
@@ -3216,12 +3231,16 @@ def prepare_raster_surfaces(
         log(f"Terén z rastru: {share:.0%} buněk s daty, rozlišení {resolution_m:g} m")
     dem_filled = _fill(dem_raw, dem_dir / "dem_filled.tif", log=log)
 
-    # Povrch: maximum v buňce (koruny, ne průměr s mezerami).
-    dsm_raw = _warp_to_grid(dsm_src, dem_dir / "dsm_raw.tif", bounds, resolution_m, resampling="max", log=log)
-    if src.vertical_offset is not None:
-        _subtract_vertical_offset(dsm_raw, bounds, src.vertical_offset)
-    dsm_filled = _fill(dsm_raw, dem_dir / "dsm_filled.tif", log=log)
-    chm = chm_from_rasters(dem_raw, dem_filled, dsm_raw, dem_dir / "chm.tif")
+    dsm_raw = dsm_filled = chm = None
+    for stale in ("dsm_raw.tif", "dsm_filled.tif", "chm.tif"):
+        (dem_dir / stale).unlink(missing_ok=True)
+    if dsm_src is not None:
+        # Povrch: maximum v buňce (koruny, ne průměr s mezerami).
+        dsm_raw = _warp_to_grid(dsm_src, dem_dir / "dsm_raw.tif", bounds, resolution_m, resampling="max", log=log)
+        if src.vertical_offset is not None:
+            _subtract_vertical_offset(dsm_raw, bounds, src.vertical_offset)
+        dsm_filled = _fill(dsm_raw, dem_dir / "dsm_filled.tif", log=log)
+        chm = chm_from_rasters(dem_raw, dem_filled, dsm_raw, dem_dir / "chm.tif")
 
     result = DemPrepResult(
         dem_raw=dem_raw,
