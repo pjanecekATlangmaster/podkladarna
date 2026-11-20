@@ -161,6 +161,19 @@ SOURCE_ALERT_AFTER_MIN = float(
 # (``app.source_gate``); výsledek kontroly platí tolik minut. SOURCE_GATE=0 vypne.
 SOURCE_GATE = os.environ.get("SOURCE_GATE", "1").strip().lower() not in {"0", "false", "no", "off", ""}
 SOURCE_GATE_TTL_MIN = float(os.environ.get("SOURCE_GATE_TTL_MIN", "5") or 0)
+# Okamžitý e-mail jen o zdrojích, bez kterých job selže, v těchto zemích (čárkami; * = všechny, prázdné = žádné).
+# Ostatní problémy zdrojů jdou do souhrnu (Petr 2026-11-20: maily o zahraničních výpadcích nic nezmění).
+SOURCE_ALERT_COUNTRIES = os.environ.get("SOURCE_ALERT_COUNTRIES", "CZ")
+# Souhrnný e-mail o problémech zdrojů (deník DATA_ROOT/source_events.jsonl) jednou za tolik hodin, jen když
+# je co hlásit; 0 = bez souhrnu. Test B ve výchozím stavu neposílá (souhrn hlásí ostrá A).
+SOURCE_DIGEST_HOURS = float(
+    os.environ.get("SOURCE_DIGEST_HOURS", "0" if INSTANCE_CHANNEL == "test" else "24") or 0
+)
+# Jak dlouho deník zdrojů drží události (dny).
+SOURCE_EVENTS_KEEP_DAYS = int(os.environ.get("SOURCE_EVENTS_KEEP_DAYS", "30") or 0)
+# Token pro čtení deníku přes GET /api/source_events (hlavička Authorization: Bearer …);
+# prázdný = endpoint neexistuje. Nastavuje se jen v .env serveru, nikdy v repozitáři.
+SOURCE_EVENTS_TOKEN = os.environ.get("SOURCE_EVENTS_TOKEN", "").strip()
 LIDAR_CACHE_MAX_AGE_DAYS = int(os.environ.get("LIDAR_CACHE_MAX_AGE_DAYS", "180"))
 # Listy LiDARu (DMR 5G, DMP OK) se podle stáří znovu nestahují: jednou za tolik dní se u ČÚZK ověří
 # (HEAD: Last-Modified + velikost), jestli nevyšla novější verze; jinak se list bere z cache.

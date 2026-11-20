@@ -182,6 +182,12 @@ def start_cleanup_scheduler(interval_hours: int = 24) -> None:
         while True:
             # Úklid mezivýsledků po JOB_TRIM_AFTER_MINUTES i bez návštěvy webu; celý úklid jednou za interval.
             time.sleep(min(TRIM_CHECK_INTERVAL_S, interval_s))
+            try:  # souhrn problémů zdrojů i bez návštěvy webu (jen když je co hlásit)
+                from app import source_events
+
+                source_events.maybe_send_digest()
+            except Exception:
+                logger.exception("Souhrn zdrojů dat selhal")
             if time.monotonic() - last_purge < interval_s:
                 try:
                     trim_finished_jobs()
@@ -196,5 +202,11 @@ def start_cleanup_scheduler(interval_hours: int = 24) -> None:
             except Exception:
                 logger.exception("Scheduled cleanup failed")
             prune_caches()
+            try:  # deník zdrojů se zkracuje i bez souhrnu (test B má SOURCE_DIGEST_HOURS=0)
+                from app import source_events
+
+                source_events.prune()
+            except Exception:
+                logger.exception("Zkrácení deníku zdrojů selhalo")
 
     threading.Thread(target=_loop, name="job-cleanup", daemon=True).start()

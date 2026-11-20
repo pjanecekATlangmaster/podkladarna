@@ -442,6 +442,7 @@ def _run_job(job_id: str) -> int:
         if outage is not None:
             try:
                 db.mark_source_outage(job_id, outage.key)
+                source_gate._record_impact("job_failed", outage, job_country_code(db.get_job(job_id).get("options")), None)
                 log(f"Job selhal na výpadku zdroje {outage.label}; do limitů se nepočítá.")
             except Exception:
                 logger.exception("Značka výpadku zdroje u jobu %s nejde zapsat", job_id)

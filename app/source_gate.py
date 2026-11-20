@@ -119,6 +119,16 @@ def _status(probe: source_status.Probe) -> dict:
         return {"key": probe.key, "ok": True, "detail": None}
 
 
+def _record_impact(event: str, probe: source_status.Probe, country_code: str | None, detail: str | None) -> None:
+    """Zápis dopadu výpadku do deníku zdrojů (``source_events``); chyba deníku job neovlivní."""
+    try:
+        from app import source_events
+
+        source_events.record_job_impact(event, probe.key, probe.label, (country_code or "").upper() or None, detail)
+    except Exception:  # noqa: BLE001
+        logger.warning("Zápis do deníku zdrojů selhal", exc_info=True)
+
+
 def _label(probe: source_status.Probe) -> Any:
     key = f"api.source.{probe.key}.label"
     return i18n.Msg(key) if key in i18n.catalog("en") and key in i18n.catalog("cs") else probe.label
@@ -141,6 +151,7 @@ def check(country_code: str | None, *, has_fallback: bool = False) -> dict | Non
         logger.warning(
             "Job odmítnut: zdroj %s (%s) neodpovídá – %s", probe.key, country_code, result.get("detail")
         )
+        _record_impact("rejected", probe, country_code, result.get("detail"))
         return {
             "key": probe.key,
             "label": probe.label,

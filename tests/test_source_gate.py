@@ -210,3 +210,20 @@ def test_source_status_marks_blocking_source(client, monkeypatch, gate):
     }})
     services = {s["key"]: s for s in client.get("/api/source_status", params={"country": "PL"}).json()["services"]}
     assert services["pl_elevation"]["blocks_job"] and not services["osm"]["blocks_job"]
+
+
+def test_rejection_and_failure_recorded_in_source_events(gate):
+    from app import source_events
+
+    fake_url, _calls = gate
+    fake_url([DOWN, DOWN])
+    assert source_gate.check("PL") is not None
+    probe = source_gate.critical_probes("PL")[0]
+    source_gate._record_impact("job_failed", probe, "PL", None)
+    events = source_events.read_events()
+    assert [e["event"] for e in events] == ["rejected", "job_failed"]
+    assert events[0]["countries"] == ["PL"] and "client_ip" not in events[0]
+    group = source_events.summary(events)[0]
+    assert group["key"] == "pl_elevation" and group["rejected"] == 1 and group["job_failed"] == 1
+    subject, body = source_events.build_digest_email([{**group, "state": "down"}], source_events._now())
+    assert "odmítnuté joby 1×" in body

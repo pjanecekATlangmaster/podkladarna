@@ -397,6 +397,7 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   `options.source_outage` (`db.mark_source_outage`): do limitů IP, /24 ani e-mailu se nepočítá. `/api/sheets` vrací
   `recent_source_outage` (tentýž výřez a země selhaly v poslední hodině), web ho ukáže nad stavem zdrojů; tlačítko „Zkusit zdroje znovu“
   (`POST /api/source_status/recheck`, `source_gate.recheck`) ověří zdroje mimo provoz, každý nejvýš jednou za minutu.
+  Odmítnutí a selhání jobu jdou do deníku zdrojů jako události `rejected` / `job_failed` (`source_events.record_job_impact`, souhrn je sčítá).
 - **Sonda zdrojů výřezu** (3.48.0, Petr 2026-11-15, `app/area_probe.py`): před jobem jedna sjednocená sonda pro konkrétní výřez –
   pokrytí výškami u neceloplošných zdrojů (`elevation_raster.COVERAGE`, FR LiDAR HD), podíl výřezu s technickou mapou
   (`technical_map_area` / `technical_map_gaps`) a v Česku kvalita DTM obcí (`dtm_coverage`, jen v POST /api/jobs, web ji má z `/api/dtm_coverage`).

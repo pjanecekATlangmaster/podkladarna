@@ -376,6 +376,12 @@ SMTP_FROM_NAME=OB podklady
 
 `GHCR_OWNER` musí být **lowercase** – GHCR ukládá image jako `ghcr.io/pjanecekatlangmaster/podkladarna`.
 
+**Problémy zdrojů dat (4.1.0):** každé selhání kontroly zdrojů jde do deníku `data/source_events.jsonl`
+(bez osobních údajů). Okamžitý e-mail chodí jen o zdroji, bez kterého job selže, v zemích
+`SOURCE_ALERT_COUNTRIES` (výchozí `CZ`); ostatní jednou za `SOURCE_DIGEST_HOURS` (24) v souhrnném e-mailu,
+jen když je co hlásit. Deník jde číst přes `GET /api/source_events?days=7` s hlavičkou
+`Authorization: Bearer <SOURCE_EVENTS_TOKEN>`; token patří jen do `data/.env` (bez něj endpoint vrací 404).
+
 `docker-compose.nas-ab.yml` předává `SMTP_*` / `PUBLIC_BASE_URL` / `FEEDBACK_TO`
 z tohoto `.env` do kontejneru. Od **2.2.12** má compose **product default**
 `SMTP_HOST` (M365 relay) a `PUBLIC_BASE_URL=https://podkladarna.kibos.link`
