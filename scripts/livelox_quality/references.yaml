@@ -8,7 +8,7 @@
 # map_scale měřítko jobu (sprint 4000, les 10000)
 # size_km   strana čtvercového výřezu jobu kolem středu referenční mapy (km)
 # terrain   typ terénu, data   výšky / kresba v Omapic (proč je oblast samostatná)
-# accepted  {popis odchylky z reportu: důvod} – známé omezení dat schválené Petrem, hlásí se jen ⚪ (změna proti
+# accepted  {začátek popisu odchylky z reportu: důvod} – známé omezení dat schválené Petrem, hlásí se jen ⚪ (změna proti
 #           minulému běhu se hlásí dál)
 references:
   - id: lu-bambesch-les
@@ -38,6 +38,9 @@ references:
     size_km: 1.4
     terrain: severský jehličnatý les, skály a bažiny
     data: Kartverket DTM/DOM, kresba OSM
+    accepted:
+      "zeleň": "sever bez zrnitosti zeleně od 3.94.0 (Petr 2026-11-20)"
+      "bílý les": "důsledek severu bez zeleně (Petr 2026-11-20)"
   - id: fi-paloheina-les
     country: FI
     class_id: 1156595
@@ -47,6 +50,9 @@ references:
     size_km: 1.4
     terrain: smíšený les, skalky a bažiny, okraj města
     data: MML korkeusmalli 2 m + latvusmalli, kresba OSM
+    accepted:
+      "zeleň": "sever bez zrnitosti zeleně od 3.94.0 (Petr 2026-11-20)"
+      "bílý les": "důsledek severu bez zeleně (Petr 2026-11-20)"
   - id: nl-delft-sprint
     country: NL
     class_id: 728120
@@ -56,3 +62,5 @@ references:
     size_km: 0.8
     terrain: univerzitní kampus, budovy a parky
     data: AHN raster, BGT
+    accepted:
+      "oliva": "soukromé zahrady v datech chybí (Petr 2026-11-20)"

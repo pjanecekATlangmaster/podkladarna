@@ -84,7 +84,8 @@ def main(results_p: Path, out_md: Path, history: Path | None) -> int:
         issues = check(ref["kind"], m)
         # odchylky, které Petr přijal jako známé omezení dat (references.yaml `accepted`), se nehlásí červeně
         acc = ref.get("accepted") or {}
-        known = [i for i in issues if i.split(":")[0] in acc]
+        why = lambda i: next((v for k, v in acc.items() if i.startswith(k)), None)  # noqa: E731
+        known = [i for i in issues if why(i)]
         issues = [i for i in issues if i not in known]
         dr = drift(m, (prev.get(key) or {}).get("m"))
         flag = "🔴" if issues else ("🟡" if dr else ("⚪" if known else "🟢"))
@@ -99,7 +100,7 @@ def main(results_p: Path, out_md: Path, history: Path | None) -> int:
                        f"otevřené {o['open']:.0%}/{r['open']:.0%}, zeleň {o['green']:.0%}/{r['green']:.0%}, oliva {o['olive']:.0%}/{r['olive']:.0%}")
         rows.append(f"| {key} | {ref['country']} | {ref['kind']} | {flag} | {summary} |")
         if issues or dr or known:
-            parts = issues + dr + [f"{i} (známé: {acc[i.split(':')[0]]})" for i in known]
+            parts = issues + dr + [f"{i} (známé: {why(i)})" for i in known]
             details.append(f"**{key}** ({ref['terrain']}; {ref['data']}): " + "; ".join(parts))
         if history:
             with history.open("a") as f:
