@@ -77,6 +77,22 @@ def test_lidarhd_download_retries_transient_errors(monkeypatch, tmp_path):
         elevation_raster._download_retry("u", tmp_path / "t.tif", wait_s=0)
     assert len(calls) == 1  # chyba požadavku se neopakuje
 
+    # GUGiK 2026-11-20: výpadek databáze MapServeru vrací 400 s ExceptionReportem – opakovat, pak jasná hláška.
+    import io
+
+    body = (b'<ows:ExceptionReport><ows:Exception exceptionCode=""><ows:ExceptionText>msPostGISLayerOpen(): '
+            b'Query error. Database connection failed.</ows:ExceptionText></ows:Exception></ows:ExceptionReport>')
+
+    def db_down(url, dest, log=None):
+        calls.append(url)
+        raise urllib.error.HTTPError(url, 400, "Bad Request", {}, io.BytesIO(body))
+
+    monkeypatch.setattr(elevation_raster, "_download", db_down)
+    calls.clear()
+    with pytest.raises(RuntimeError, match="výpadek na své straně.*Database connection failed"):
+        elevation_raster._download_retry("u", tmp_path / "t.tif", wait_s=0)
+    assert len(calls) == 4
+
 
 def _tile(x0: float, y0: float, mnt: bool = True, mns: bool = True) -> dict:
     feat = _feat(x0, y0, 1.0)
