@@ -275,7 +275,7 @@ DE_BY_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float],
 # Slovensko (ÚGKK SR, S-JTSK): ortofoto ZBGIS (obrázek licence do ZIPu nepouští, jen online), katastr ESKN a mapa ZBGIS.
 SK_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
     ("sk_ortho", "ortofoto_zbgis.xml", "Ortofotomozaika SR (ZBGIS)", SK_ORTHO_WMS, SK_ORTHO_LAYERS, "image/jpeg", False,
-     0.25),
+     0.15),
     ("sk_zbgis", "mapa_zbgis.xml", "ZBGIS (topografická mapa ÚGKK SR)", SK_ZBGIS_WMS, SK_ZBGIS_LAYERS, "image/png", False,
      0.5),
     ("sk_cadastre", "katastr_eskn.xml", "Katastrální mapa ESKN (parcely)", SK_CADASTRE_WMS, SK_CADASTRE_LAYERS, "image/png",
