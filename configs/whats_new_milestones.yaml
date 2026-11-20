@@ -2,7 +2,39 @@
 # Jen opravdové produktové zlomy — ne každý commit.
 # Generátor (scripts/generate_whats_new.py) je sloučí do whats_new.yaml.
 # title_en: anglický nadpis pro anglický web (bez něj se milník v angličtině nezobrazí).
+# scope: cz = jen česká verze (nabízí jen Česko), intl = jen mezinárodní doména; bez scope všude.
+#   Texty bez názvu služby a bez odkazů na repozitář, musí platit pod oběma značkami (Petr 2026-11-20).
 milestones:
+  - date: "2026-11-20"
+    title: "Verze 4.0 – soukromé mapy nejvýš 8 za 24 hodin na jeden e-mail; mezivýsledky hotové mapy se mažou 3 hodiny po doběhnutí, ZIP ke stažení zůstává jako dřív"
+    title_en: "Version 4.0 – private maps limited to 8 per 24 hours per e-mail address; intermediate files of a finished map are deleted 3 hours after it completes, the ZIP stays available as before"
+  - date: "2026-11-20"
+    title: "Verze 4.0 – vrstevnice: spádnice v uzavřených prohlubních a uzavřená pomocná vrstevnice pro malé kupky a prohlubně v rovině; les a MTBO: silnice na mostě plynule v tahu, voda pod mostem vyříznutá"
+    title_en: "Version 4.0 – contours: slope lines in closed depressions and a closed form line for small knolls and depressions on flat ground; forest and MTBO: a road on a bridge runs on without a break, water under the bridge is cut out"
+  - date: "2026-11-20"
+    scope: cz
+    title: "Verze 4.0 – les a MTBO: zpevněné plochy kreslí OSM; z DTM zůstávají budovy, ploty, šířky silnic, plochy složitých křižovatek a chodníky a lesní cesty, které OSM nemá"
+    title_en: "Version 4.0 – forest and MTBO: paved areas come from OSM; the DTM still gives buildings, fences, road widths, complex junction areas and sidewalks and forest tracks missing in OSM"
+  - date: "2026-11-20"
+    scope: cz
+    title: "Verze 4.0 – sprint: ulice z katastru v pásech podél silnic v pravidelném tvaru, stromy u ulic a na dlažbě bodem 418, louka u domu místo bílé díry, nájezdy z DTM"
+    title_en: "Version 4.0 – sprint: streets from the cadastre as regular strips along roads, trees along streets and on paving as point 418, lawns by houses instead of white holes, driveways from the DTM"
+  - date: "2026-11-20"
+    scope: cz
+    title: "Verze 4.0 – DTM čte nový formát ČÚZK (JVF DTM 1.5, od 18. 11. 2026); chybí-li nejnovější vydání balíku, vezme se předchozí"
+    title_en: "Version 4.0 – the DTM reader handles the new ČÚZK format (JVF DTM 1.5, from 18 Nov 2026); if the latest package release is missing, the previous one is used"
+  - date: "2026-11-20"
+    scope: intl
+    title: "Verze 4.0 – zkušebně (beta) i mimo Česko z národních výškových dat: Německo (14 spolkových zemí), Rakousko, Švýcarsko, Nizozemsko, Belgie (Flandry a Brusel), Lucembursko, Francie, Polsko, Slovensko, Slovinsko, Itálie (Trentino), Anglie, Skotsko, Dánsko, Norsko, Finsko a Estonsko"
+    title_en: "Version 4.0 – beta maps outside Czechia from national elevation data: Germany (14 federal states), Austria, Switzerland, the Netherlands, Belgium (Flanders and Brussels), Luxembourg, France, Poland, Slovakia, Slovenia, Italy (Trentino), England, Scotland, Denmark, Norway, Finland and Estonia"
+  - date: "2026-11-20"
+    scope: intl
+    title: "Verze 4.0 – mimo Česko: ortofoto a katastr jako online šablony podle země, budovy a silnice z národních map (Slovensko, Dánsko), bažiny, skály a balvany z finské topografické mapy; před spuštěním shrnutí zdrojů a licencí výřezu"
+    title_en: "Version 4.0 – outside Czechia: orthophoto and cadastre as online templates per country, buildings and roads from national maps (Slovakia, Denmark), marshes, rocks and boulders from the Finnish topographic database; a summary of the area's sources and licences before you start"
+  - date: "2026-11-20"
+    scope: intl
+    title: "Verze 4.0 – mimo Česko: moře, pláže, písek a přílivová zóna (213); zeleň v lese z rozdílů výšky porostu, kde je snímkování v zimě, bílý les z nízkého porostu; vyhlazení vrstevnic a zeleň podle země"
+    title_en: "Version 4.0 – outside Czechia: sea, beaches, sand and the intertidal zone (213); green in forest from variation in canopy height, white forest from low vegetation where data were flown in winter; contour smoothing and green tuned per country"
   - date: "2026-11-16"
     title: "Verze 3.60 – obrázek OpenStreetMap (osm.png) v ZIPu kreslíme sami z dat OSM (silnice, budovy, voda, les, názvy ulic) místo stažených dlaždic, jejichž podmínky přibalení do balíčku nedovolují; obrázek je v ZIPu vždy (i bez „Stáhnout referenční šablony předem“) a nahrazuje online šablonu OSM"
     title_en: "Version 3.60 – the OpenStreetMap image (osm.png) in the ZIP is now our own rendering of OSM data (roads, buildings, water, forest, street names) instead of downloaded tiles, whose terms do not allow packing them; the image is always in the ZIP (also without “Download reference templates in advance”) and replaces the online OSM template"
