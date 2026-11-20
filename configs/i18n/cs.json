@@ -1109,5 +1109,14 @@
   "web.js.user_sources.uploading": "Nahrávám a kontroluji data…",
   "web.js.user_sources.started": "Vlastní data prošla kontrolou. Mapa se počítá soukromě, odkaz přijde na {mail}; data se po doběhnutí smažou.",
   "web.page.user_sources.guide": "Návod: kde data získat a jak je oříznout",
-  "web.page.user_sources.cmd": "Ořez na tento výřez v GDAL (pro terén i povrch):"
+  "web.page.user_sources.cmd": "Ořez na tento výřez v GDAL (pro terén i povrch):",
+  "api.job.source_down": "Zdroj výšek této země ({source}) teď neodpovídá, mapu proto nejde vytvořit. Zkuste to prosím později.",
+  "api.job.source_planned": "Zdroj výšek této země ({source}) má teď plánovanou odstávku, mapu proto nejde vytvořit. Zkuste to prosím později.",
+  "issue.failure.source_down": "Zdroj výšek této země ({source}) v době výpočtu neodpovídal, mapu proto nešlo vytvořit. Nejde o chybu výřezu ani nastavení a pokus se nezapočítává do limitů. Zkuste to prosím později; dostupnost zdrojů ověříte u výběru plochy tlačítkem „Zkusit zdroje znovu“.",
+  "web.page.zkusit_zdroje_znovu": "Zkusit zdroje znovu",
+  "web.js.sources.retrying": "Ověřuji zdroje…",
+  "web.js.sources.retry_throttled": " Některé zdroje byly ověřeny před chvílí, znovu je lze zkusit za minutu.",
+  "web.js.sources.retry_failed": "Zdroje teď nejde ověřit, zkuste to prosím za chvíli.",
+  "web.js.sources.recent_outage": "Tento výřez před {minutes} min selhal, protože zdroj {label} neodpovídal. Než job pustíte znovu, ověřte zdroje tlačítkem „Zkusit zdroje znovu“ níže.",
+  "web.js.sources.cannot_generate": " Dokud zdroj výšek neodpovídá, mapu nejde vytvořit (job se nezaloží a do limitů se nepočítá). Zkuste to později."
 }

@@ -9,7 +9,7 @@ import re
 import threading
 import traceback
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import area_probe, countries, db, donations, i18n, paid_flow, prefetch, samples_refresh, settings as app_settings, source_events, source_status, user_sources, worker
+from app import area_probe, countries, db, donations, i18n, paid_flow, prefetch, samples_refresh, settings as app_settings, source_events, source_gate, source_status, user_sources, worker
 from app.cleanup import maybe_purge_old_jobs, prune_caches, purge_old_jobs, start_cleanup_scheduler
 from app.client_ip import client_ip
 from app.feedback import (
@@ -717,8 +717,60 @@ def api_source_status(request: Request, country: str | None = None):
     if code not in countries.offered_codes():
         code = countries.DEFAULT_COUNTRY
     checking = source_status.refresh_if_stale()
-    snap = source_status.localized(source_status.snapshot(code), i18n.resolve_lang(request)[0])
+    snap = _source_snapshot(code, request)
     return {"enabled": ttl > 0, "ttl_min": ttl, "checking": checking, "country": code, **snap}
+
+
+def _source_snapshot(code: str, request: Request) -> dict:
+    """Stav zdrojů země v jazyce stránky; ``blocks_job`` = výpadek zdroje job odmítne (``app.source_gate``)."""
+    snap = source_status.localized(source_status.snapshot(code), i18n.resolve_lang(request)[0])
+    if source_gate.enabled():
+        critical = {p.key for p in source_gate.critical_probes(code)}
+        snap["services"] = [{**svc, "blocks_job": svc.get("key") in critical} for svc in snap.get("services") or []]
+    return snap
+
+
+@app.post("/api/source_status/recheck")
+def api_source_status_recheck(request: Request, country: str | None = None):
+    """„Zkusit zdroje znovu“: ověří zdroje země, které poslední kontrola vidí mimo provoz.
+
+    Každý zdroj nejvýš jednou za ``source_gate.RECHECK_MIN_S`` (víc návštěvníků = jeden dotaz na cizí server)."""
+    code = str(country or "").strip().upper()
+    if code not in countries.offered_codes():
+        code = countries.DEFAULT_COUNTRY
+    out = source_gate.recheck(code) if app_settings.SOURCE_CHECK_TTL_MIN > 0 else {"rechecked": [], "throttled": False}
+    snap = _source_snapshot(code, request)
+    return {
+        "enabled": app_settings.SOURCE_CHECK_TTL_MIN > 0,
+        "ttl_min": app_settings.SOURCE_CHECK_TTL_MIN,
+        "checking": False,
+        "country": code,
+        **out,
+        **snap,
+    }
+
+
+def _recent_source_outage(job_country: countries.Country, bbox) -> dict | None:
+    """Tentýž výřez v poslední hodině selhal na výpadku zdroje → {key, label, minutes} pro upozornění v GUI."""
+    try:
+        since = datetime.now(timezone.utc) - timedelta(hours=1)
+        job = db.recent_source_outage(job_country.code, list(bbox), since)
+    except Exception:  # noqa: BLE001 – upozornění je jen doplněk
+        logger.warning("Hledání jobu selhaného na výpadku zdroje selhalo", exc_info=True)
+        return None
+    if not job:
+        return None
+    key = str((job.get("options") or {}).get("source_outage") or "")
+    probe = next((p for p in source_status.probes_for(job_country.code) if p.key == key), None)
+    try:
+        minutes = max(1, int((datetime.now(timezone.utc) - datetime.fromisoformat(job["created_at"])).total_seconds() // 60))
+    except (KeyError, TypeError, ValueError):
+        minutes = None
+    return {
+        "key": key,
+        "label": source_gate._label(probe) if probe else key,
+        "minutes": minutes,
+    }
 
 
 @app.get("/api/source_events")
@@ -1025,6 +1077,8 @@ def _sheets_payload(bbox: str, request: Request, country: str = "") -> dict:
             "warnings": probe.get("warnings") or [],
             "data_notes": probe.get("data_notes"),
         },
+        # Tentýž výřez v poslední hodině selhal na výpadku zdroje: GUI nabídne ověření zdrojů místo opakování.
+        "recent_source_outage": _recent_source_outage(job_country, (west, south, east, north)),
     }
 
 
@@ -1850,6 +1904,14 @@ async def api_create_job(request: Request):
             prev = None
         if can_reuse_lidar(prev, bbox, job_country.code):
             options["reused_from"] = reuse_id
+    # Potvrzený výpadek zdroje výšek země (mimo Česko) job odmítne dřív, než vznikne – nezapočítá se do limitů.
+    outage = await run_in_threadpool(
+        source_gate.check,
+        job_country.code,
+        has_fallback=has_user_sources or bool(options.get("reused_from")),
+    )
+    if outage is not None:
+        raise HTTPException(503, outage["message"])
     # Placená doména se zapnutým prodejem: job vznikne až po potvrzení e-mailu (app.paid_flow).
     if not api_client and not sample_job and paid_flow.active_for(request):
         return paid_flow.start_order(

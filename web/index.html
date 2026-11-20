@@ -343,10 +343,12 @@
         </div>
 
         <p class="hint submit-ask">{{h:web.page.server_je_sdileny_na_prvni_pokus}}</p>
+        <p class="source-recent-outage" id="source-recent-outage" hidden></p>
         <details class="source-status" id="source-status" hidden>
           <summary id="source-status-summary">{{h:web.page.stav_zdroju_dat}}</summary>
           <ul class="source-status-list" id="source-status-list"></ul>
           <p class="source-status-note" id="source-status-note"></p>
+          <p class="source-status-recheck" id="source-recheck-row" hidden><button type="button" class="btn" id="source-recheck">{{h:web.page.zkusit_zdroje_znovu}}</button></p>
         </details>
         <details class="source-status" id="data-licenses" hidden>
           <summary>{{h:web.page.zdroje_dat_a_licence}}</summary>

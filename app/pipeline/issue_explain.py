@@ -175,15 +175,24 @@ _FAILURE_COMPILED = tuple((re.compile(p), key) for p, key in _FAILURE_RULES)
 FAILURE_DEFAULT = t("issue.failure.default", "cs")
 
 
-def failure_summary(technical: str, lang: str = "cs") -> str:
-    """Lidská zpráva pro job, který skončil ``failed`` (technika zůstává v logu), v jazyce zadání."""
+def failure_key(technical: str) -> str:
+    """Druh selhání jobu (``disk``, ``download``, ``elevation`` … nebo ``default``) podle technické hlášky."""
     text = " ".join(str(technical or "").split())
-    key = "default"
     for rx, name in _FAILURE_COMPILED:
         if rx.search(text):
-            key = name
-            break
+            return name
+    return "default"
+
+
+def failure_summary(technical: str, lang: str = "cs") -> str:
+    """Lidská zpráva pro job, který skončil ``failed`` (technika zůstává v logu), v jazyce zadání."""
+    key = failure_key(technical)
     return _clip(f"{t('issue.failure.prefix', lang)} {t(f'issue.failure.{key}', lang)} {t('issue.details', lang)}")
+
+
+def source_outage_summary(source: str, lang: str = "cs") -> str:
+    """Zpráva pro job, který selhal na výpadku zdroje výšek země (``app.source_gate.failed_job_outage``)."""
+    return _clip(f"{t('issue.failure.prefix', lang)} {t('issue.failure.source_down', lang, source=source)} {t('issue.details', lang)}")
 
 
 def _clip(text: str) -> str:

@@ -387,6 +387,17 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   (`planned`, web i log jobu to tak napíšou). Výpadek trvající nepřetržitě `SOURCE_ALERT_AFTER_MIN` (30, test B výchozí 0) od
   `down_since` pošle na `FEEDBACK_TO` jeden e-mail a po obnovení druhý; měří se líně při kontrolách, dvojímu mailu z webu a jobu
   brání značky `DATA_ROOT/source_alerts/` (`O_EXCL`).
+- **Odmítnutí jobu při výpadku výšek** (4.2.0, Petr 2026-11-20, `app/source_gate.py`): `POST /api/jobs` mimo Česko ověří zdroje
+  výšek země bez zálohy (sondy `source_status` s `fatal` a rolí výšek; OSM ne, má zrcadla). Čerstvý `source_status.json` s „běží“ stačí,
+  jinak `check_probe` (dva pokusy s pauzou); odmítne se (503, `api.job.source_down` / `source_planned`) až po dvou selháních.
+  Cache v procesu `SOURCE_GATE_TTL_MIN` (5), výpadek 2 min (`DOWN_TTL_S`); vlastní data a převzatý LAZ = záloha. Job nevznikne,
+  limity se nezvýší. Česko beze změny (LiDAR má cache listů a předstahování, sonda PRAH77 neříká nic o výřezu). `SOURCE_GATE=0` vypne.
+  Job, který přesto selže na výpadku (`failed_job_outage`: selhání stahováním / „výšková služba má výpadek“ a zdroj potvrzený řádkem
+  startovní kontroly v logu nebo dvěma dotazy teď), dostane hlášku `issue.failure.source_down` se jménem zdroje a značku
+  `options.source_outage` (`db.mark_source_outage`): do limitů IP, /24 ani e-mailu se nepočítá. `/api/sheets` vrací
+  `recent_source_outage` (tentýž výřez a země selhaly v poslední hodině), web ho ukáže nad stavem zdrojů; tlačítko „Zkusit zdroje znovu“
+  (`POST /api/source_status/recheck`, `source_gate.recheck`) ověří zdroje mimo provoz, každý nejvýš jednou za minutu.
+  Odmítnutí a selhání jobu jdou do deníku zdrojů jako události `rejected` / `job_failed` (`source_events.record_job_impact`, souhrn je sčítá).
 - **Sonda zdrojů výřezu** (3.48.0, Petr 2026-11-15, `app/area_probe.py`): před jobem jedna sjednocená sonda pro konkrétní výřez –
   pokrytí výškami u neceloplošných zdrojů (`elevation_raster.COVERAGE`, FR LiDAR HD), podíl výřezu s technickou mapou
   (`technical_map_area` / `technical_map_gaps`) a v Česku kvalita DTM obcí (`dtm_coverage`, jen v POST /api/jobs, web ji má z `/api/dtm_coverage`).

@@ -1286,6 +1286,20 @@ footer a { color: var(--green); }
 .dtm-forest-note { overflow-wrap: anywhere; }
 .source-status-list .impact { display: block; margin-left: 1.1em; color: var(--muted); }
 .source-status-note { margin: 0.3rem 0 0; color: var(--muted); }
+.source-status-recheck { margin: 0.4rem 0 0; }
+.source-status-recheck[hidden] { display: none; }
+/* Tentýž výřez nedávno selhal na výpadku zdroje (GET /api/sheets recent_source_outage). */
+.source-recent-outage {
+  margin: 0.2rem 0 0.4rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--orange);
+  border-radius: 6px;
+  background: #fff4ec;
+  color: var(--text);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+.source-recent-outage[hidden] { display: none; }
 /* Informativní (ne chybové) upozornění: modrý rámeček s ikonou, text čitelný i bez barvy. */
 .dtm-forest-note {
   display: flex;

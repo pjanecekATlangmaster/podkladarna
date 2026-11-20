@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "4.1.0"
+APP_VERSION = "4.2.0"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -157,6 +157,10 @@ SOURCE_CHECK_TTL_MIN = float(os.environ.get("SOURCE_CHECK_TTL_MIN", "3") or 0)
 SOURCE_ALERT_AFTER_MIN = float(
     os.environ.get("SOURCE_ALERT_AFTER_MIN", "0" if INSTANCE_CHANNEL == "test" else "30") or 0
 )
+# Zadání jobu mimo Česko: potvrzený výpadek zdroje výšek země (dva neúspěšné dotazy za sebou) job odmítne
+# (``app.source_gate``); výsledek kontroly platí tolik minut. SOURCE_GATE=0 vypne.
+SOURCE_GATE = os.environ.get("SOURCE_GATE", "1").strip().lower() not in {"0", "false", "no", "off", ""}
+SOURCE_GATE_TTL_MIN = float(os.environ.get("SOURCE_GATE_TTL_MIN", "5") or 0)
 # Okamžitý e-mail jen o zdrojích, bez kterých job selže, v těchto zemích (čárkami; * = všechny, prázdné = žádné).
 # Ostatní problémy zdrojů jdou do souhrnu (Petr 2026-11-20: maily o zahraničních výpadcích nic nezmění).
 SOURCE_ALERT_COUNTRIES = os.environ.get("SOURCE_ALERT_COUNTRIES", "CZ")

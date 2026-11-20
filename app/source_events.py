@@ -49,6 +49,8 @@ TRANSIENT_4XX = (408, 429)
 # Chyby sítě, které znamenají spíš chybu konfigurace než výpadek.
 PERSISTENT_ERRORS = ("CERTIFICATE_VERIFY_FAILED", "SSLCertVerificationError", "certificate verify failed")
 MAX_EVENTS_RETURNED = 2000
+# Události dopadu výpadku na joby (``record_job_impact``); v souhrnu se jen sčítají.
+IMPACT_EVENTS = ("rejected", "job_failed")
 
 
 def _now() -> datetime:
@@ -111,6 +113,30 @@ def record(results: list[dict], prev: dict, now: str | None = None) -> None:
         logger.warning("Deník zdrojů nejde zapsat do %s", path, exc_info=True)
 
 
+def _append(lines: list[dict]) -> None:
+    path = events_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = "".join(json.dumps(x, ensure_ascii=False) + "\n" for x in lines)
+        with _write_lock, open(path, "a", encoding="utf-8") as f:
+            f.write(payload)
+    except OSError:
+        logger.warning("Deník zdrojů nejde zapsat do %s", path, exc_info=True)
+
+
+def record_job_impact(event: str, key: str, label: str | None, country: str | None, detail: str | None = None) -> None:
+    """Dopad výpadku na uživatele (``app.source_gate``): ``rejected`` = job při zadání odmítnut,
+    ``job_failed`` = job selhal na výpadku zdroje. Jen zdroj a země, žádné údaje o jobu ani zadavateli."""
+    _append([{
+        "ts": _now().isoformat(),
+        "event": event,
+        "key": key,
+        "label": label,
+        "countries": [country] if country else [],
+        "detail": detail,
+    }])
+
+
 def read_events(since: datetime | None = None) -> list[dict]:
     """Události od ``since`` (vadné řádky přeskočí)."""
     out: list[dict] = []
@@ -155,12 +181,18 @@ def summary(events: list[dict], services: dict | None = None) -> list[dict]:
     services = services or {}
     groups: dict[str, dict] = {}
     for ev in events:
-        if ev.get("event") != "down":
+        impact = ev.get("event") in IMPACT_EVENTS
+        if ev.get("event") != "down" and not impact:
             continue
         g = groups.setdefault(ev["key"], {
             "key": ev["key"], "label": ev.get("label"), "countries": ev.get("countries") or [],
             "count": 0, "first": ev["ts"], "last": ev["ts"], "kinds": {}, "fatal": bool(ev.get("fatal")),
+            "rejected": 0, "job_failed": 0, "last_kind": "transient",
         })
+        if impact:  # odmítnuté / selhané joby: dopad na uživatele, ne další selhání kontroly
+            g[ev["event"]] += 1
+            g["fatal"] = True
+            continue
         g["count"] += 1
         g["first"] = min(g["first"], ev["ts"])
         g["last"] = max(g["last"], ev["ts"])
@@ -221,6 +253,8 @@ def build_digest_email(groups: list[dict], since: datetime) -> tuple[str, str]:
             f"odpověď: {g.get('last_detail') or '?'}"
             + (f", mimo provoz od {_cs_time(g['down_since'])}" if g.get("down_since") else "")
         )
+        if g.get("rejected") or g.get("job_failed"):
+            lines.append(f"  dopad: odmítnuté joby {g.get('rejected', 0)}×, selhané joby {g.get('job_failed', 0)}×")
     base = (settings.PUBLIC_BASE_URL or "").strip()
     lines += [
         "",
