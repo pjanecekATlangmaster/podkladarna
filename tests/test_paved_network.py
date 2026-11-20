@@ -449,6 +449,32 @@ def test_dtm_width_index_measures_strip():
     assert idx.line_width([(0, 20), (100, 20)]) is None  # čára mimo plochu
 
 
+def test_dtm_width_index_tiles_big_polygon(monkeypatch):
+    # Velká plocha (GeoDanmark: síť vozovek jako jeden polygon) se pro řezy ořízne do dlaždic – šířky stejné.
+    import math
+
+    from shapely.geometry import Polygon
+
+    from app.pipeline import dtm_widths as dw
+
+    # Zvlněný pás 6–10 m přes několik dlaždic, s hustými vrcholy.
+    xs = [i * 0.5 for i in range(801)]
+    top = [(x, 3 + 2 * math.sin(x / 7)) for x in xs]
+    bottom = [(x, -3 - 2 * math.cos(x / 11)) for x in reversed(xs)]
+    poly = Polygon(top + bottom)
+    plain = dw.WidthIndex([poly])
+    monkeypatch.setattr(dw, "TILE_MIN_VERTICES", 100)
+    tiled = dw.WidthIndex([poly])
+    assert tiled._big == {0}
+    for k in range(5, 400, 7):
+        a = math.radians(70 + k % 40)
+        assert tiled.width_at(k, 0.3, math.cos(a), math.sin(a)) == pytest.approx(plain.width_at(k, 0.3, math.cos(a), math.sin(a)), abs=1e-9)
+    assert tiled.line_width([(0, 0), (400, 0)]) == pytest.approx(plain.line_width([(0, 0), (400, 0)]), abs=1e-9)
+    assert len(tiled._tiles) > 3
+    # Delší řez než okraj dlaždice jde na celou plochu.
+    assert tiled.width_at(100, 0, 0, 1, max_half=40) == pytest.approx(plain.width_at(100, 0, 0, 1, max_half=40))
+
+
 def test_width_line_code_rules():
     from app.pipeline.dtm_widths import width_line_code
 
