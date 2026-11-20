@@ -196,3 +196,51 @@ def test_usage_build_seconds_whole_run_and_backfill(tmp_path, monkeypatch):
     t = {k: v["value"] for k, v in db.usage_totals().items()}
     assert t["build_seconds"] == 1200 + 5400 + (1200 + 5400) / 2
     assert t["build_seconds_backfilled"] == 1
+
+
+def test_trim_finished_jobs_keeps_zip_preview_log(tmp_path, monkeypatch):
+    """Po JOB_TRIM_AFTER_MINUTES od doběhnutí zůstane jen ZIP, náhled, souhrny a log (Petr 2026-11-20)."""
+    from app.cleanup import trim_finished_jobs
+
+    jobs = tmp_path / "jobs"
+    monkeypatch.setattr("app.cleanup.JOBS_DIR", jobs)
+    monkeypatch.setattr("app.db.JOBS_DIR", jobs)
+    monkeypatch.setattr("app.db.DB_PATH", tmp_path / "t.db")
+    jobs.mkdir()
+    db.init_db()
+    now = datetime.now(timezone.utc)
+    ids = {}
+    for name, status, age_min, opts in (
+        ("old_done", "done", 200, {}),
+        ("old_private", "done_with_errors", 200, {"private": True, "email_tag": "x"}),
+        ("fresh_done", "done", 60, {}),
+        ("old_failed", "failed", 200, {}),
+        ("running", "running", 200, {}),
+    ):
+        job = db.create_job(name, "forest_10000", opts)
+        ids[name] = job["id"]
+        db.update_job(job["id"], status=status)
+        d = jobs / job["id"]
+        for rel in ("work/lidar/merged.laz", "work/build_stats.json", "work/preview.jpg",
+                    "output/podkladarna_output.zip", "output/preview.png", "output/references/a.png",
+                    "output/x-les.omap", "output/preview/oom_preview.jpg", "log.txt"):
+            (d / rel).parent.mkdir(parents=True, exist_ok=True)
+            (d / rel).write_bytes(b"x")
+        with db.connect() as conn:
+            conn.execute("UPDATE jobs SET updated_at = ? WHERE id = ?",
+                         ((now - timedelta(minutes=age_min)).isoformat(), job["id"]))
+            conn.commit()
+
+    assert trim_finished_jobs(180, now=now) == 2
+    for name in ("old_done", "old_private"):
+        d = jobs / ids[name]
+        assert not (d / "work/lidar").exists()
+        assert not (d / "output/references").exists() and not (d / "output/x-les.omap").exists()
+        for rel in ("work/build_stats.json", "work/preview.jpg", "output/podkladarna_output.zip",
+                    "output/preview.png", "output/preview/oom_preview.jpg", "log.txt"):
+            assert (d / rel).is_file(), rel
+        assert not db.get_job(ids[name])["has_reusable_lidar"]
+    for name in ("fresh_done", "old_failed", "running"):
+        assert (jobs / ids[name] / "work/lidar/merged.laz").is_file(), name
+        assert (jobs / ids[name] / "output/references/a.png").is_file(), name
+    assert trim_finished_jobs(0, now=now) == 0

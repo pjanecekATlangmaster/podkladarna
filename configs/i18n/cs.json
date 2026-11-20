@@ -68,7 +68,7 @@
   "web.page.nejdriv_vyberte_meritko": "Nejdřív vyberte měřítko",
   "web.page.nabidka_zavisi_na_meritku": "Nabídka závisí na měřítku.",
   "web.page.vyrez": "Výřez",
-  "web.page.dva_protilehle_rohy_nebo_v_detailu": "Dva protilehlé rohy, nebo v detailu hotové mapy zvolte Použít nastavení a výřez. Hotový výřez doladíte tažením za rohy, křížkem uprostřed ho posunete. LiDAR i ZABAGED jdou do cache; sloučený LAZ z předchozí mapy se při iteraci znovu použije. Jen Česko. MTBO max 25&nbsp;km² (např. 5&nbsp;×&nbsp;5 nebo 7&nbsp;×&nbsp;3,5&nbsp;km), les max 15&nbsp;km² (např. 4&nbsp;×&nbsp;3,75&nbsp;km), sprint 1:4000 max 4&nbsp;km² (např. 2&nbsp;×&nbsp;2&nbsp;km).",
+  "web.page.dva_protilehle_rohy_nebo_v_detailu": "Dva protilehlé rohy, nebo v detailu hotové mapy zvolte Použít nastavení a výřez. Hotový výřez doladíte tažením za rohy, křížkem uprostřed ho posunete. LiDAR i ZABAGED jdou do cache; sloučený LAZ z předchozí mapy se při iteraci do 3 hodin od dokončení znovu použije. Jen Česko. MTBO max 25&nbsp;km² (např. 5&nbsp;×&nbsp;5 nebo 7&nbsp;×&nbsp;3,5&nbsp;km), les max 15&nbsp;km² (např. 4&nbsp;×&nbsp;3,75&nbsp;km), sprint 1:4000 max 4&nbsp;km² (např. 2&nbsp;×&nbsp;2&nbsp;km).",
   "web.page.mapa_vyrezu": "Mapa výřezu",
   "web.page.zmenit_vysku_mapy": "Změnit výšku mapy",
   "web.page.pretahnete_pro_zmenu_vysky_mapy": "Přetáhněte pro změnu výšky mapy",

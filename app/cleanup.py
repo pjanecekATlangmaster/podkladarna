@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from app import db
-from app.settings import JOB_RETENTION_DAYS, JOB_RETENTION_HOURS, JOBS_DIR
+from app.settings import JOB_RETENTION_DAYS, JOB_RETENTION_HOURS, JOB_TRIM_AFTER_MINUTES, JOBS_DIR
 
 logger = logging.getLogger("podkladarna.cleanup")
 
@@ -16,6 +16,46 @@ _last_pageview_purge: float | None = None
 _pageview_purge_lock = threading.Lock()
 # Při otevření webu / výpisu jobů; ne při každém pollu.
 PAGEVIEW_PURGE_MIN_INTERVAL_S = 60.0
+# Plánovač mezi denními úklidy kontroluje joby k úklidu mezivýsledků (JOB_TRIM_AFTER_MINUTES) po tolika sekundách.
+TRIM_CHECK_INTERVAL_S = 600.0
+
+
+def trim_finished_jobs(minutes: int | None = None, *, now: datetime | None = None) -> int:
+    """Joby, které doběhly (done) před víc než ``minutes`` minutami: smaže mezivýsledky ``work/`` (kromě souhrnů
+    a náhledu) a rozbalené kopie v ``output/``; ZIP, náhled a log zůstávají do smazání celého jobu.
+
+    Platí i pro soukromé joby. Běžící / čekající job se nikdy nebere (jen stav done), selhaný si ``work/``
+    nechává kvůli diagnóze. Převzetí sloučeného LAZ („Použít nastavení a výřez“) pak nabízené není a nový
+    job ořízne LAZ z cache listů. Vrací počet jobů, u kterých se něco smazalo.
+    """
+    from app.disk_space import trim_job_output, trim_job_work
+
+    minutes = JOB_TRIM_AFTER_MINUTES if minutes is None else minutes
+    if minutes <= 0:
+        return 0
+    now = now or datetime.now(timezone.utc)
+    cutoff = now - timedelta(minutes=minutes)
+    trimmed = 0
+    freed = 0
+    for job_id, updated_at in db.list_done_job_times():
+        try:
+            updated = datetime.fromisoformat(updated_at)
+        except ValueError:
+            continue
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=timezone.utc)
+        if updated >= cutoff:
+            continue
+        job_dir = JOBS_DIR / job_id
+        if not job_dir.is_dir():
+            continue
+        got = trim_job_work(job_dir) + trim_job_output(job_dir)
+        if got:
+            trimmed += 1
+            freed += got
+    if trimmed:
+        logger.info("Trimmed intermediate files of %s finished job(s), %.1f GB", trimmed, freed / 1e9)
+    return trimmed
 
 
 def purge_old_jobs(retention_hours: int | None = None) -> int:
@@ -68,6 +108,10 @@ def purge_old_jobs(retention_hours: int | None = None) -> int:
                 logger.info("Purged old job %s", job_id)
 
     _purge_orphan_job_dirs()
+    try:
+        trim_finished_jobs()
+    except Exception:  # noqa: BLE001 – úklid mezivýsledků nesmí zastavit úklid jobů
+        logger.exception("Trim of finished jobs failed")
     try:
         from app import user_sources
 
@@ -133,8 +177,18 @@ def start_cleanup_scheduler(interval_hours: int = 24) -> None:
     _cleanup_started = True
 
     def _loop() -> None:
+        interval_s = max(interval_hours, 1) * 3600
+        last_purge = time.monotonic()
         while True:
-            time.sleep(max(interval_hours, 1) * 3600)
+            # Úklid mezivýsledků po JOB_TRIM_AFTER_MINUTES i bez návštěvy webu; celý úklid jednou za interval.
+            time.sleep(min(TRIM_CHECK_INTERVAL_S, interval_s))
+            if time.monotonic() - last_purge < interval_s:
+                try:
+                    trim_finished_jobs()
+                except Exception:
+                    logger.exception("Scheduled trim failed")
+                continue
+            last_purge = time.monotonic()
             try:
                 n = purge_old_jobs()
                 if n:

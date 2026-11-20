@@ -68,7 +68,7 @@
   "web.page.nejdriv_vyberte_meritko": "Choose a scale first",
   "web.page.nabidka_zavisi_na_meritku": "The options depend on the scale.",
   "web.page.vyrez": "Area",
-  "web.page.dva_protilehle_rohy_nebo_v_detailu": "Click two opposite corners, or open a finished map and choose Use settings and area. Fine-tune the area by dragging its corners, move it with the cross in the middle. Source data are cached; the merged LAZ of a previous map is reused when you iterate. Supported countries only (see the map). MTBO max 25&nbsp;km² (e.g. 5&nbsp;×&nbsp;5 or 7&nbsp;×&nbsp;3.5&nbsp;km), forest max 15&nbsp;km² (e.g. 4&nbsp;×&nbsp;3.75&nbsp;km), sprint 1:4000 max 4&nbsp;km² (e.g. 2&nbsp;×&nbsp;2&nbsp;km).",
+  "web.page.dva_protilehle_rohy_nebo_v_detailu": "Click two opposite corners, or open a finished map and choose Use settings and area. Fine-tune the area by dragging its corners, move it with the cross in the middle. Source data are cached; the merged LAZ of a previous map is reused when you iterate within 3 hours of completion. Supported countries only (see the map). MTBO max 25&nbsp;km² (e.g. 5&nbsp;×&nbsp;5 or 7&nbsp;×&nbsp;3.5&nbsp;km), forest max 15&nbsp;km² (e.g. 4&nbsp;×&nbsp;3.75&nbsp;km), sprint 1:4000 max 4&nbsp;km² (e.g. 2&nbsp;×&nbsp;2&nbsp;km).",
   "web.page.mapa_vyrezu": "Area map",
   "web.page.zmenit_vysku_mapy": "Change map height",
   "web.page.pretahnete_pro_zmenu_vysky_mapy": "Drag to change the map height",

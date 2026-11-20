@@ -294,6 +294,7 @@ Limity a časové limity (env proměnné s výchozími hodnotami z `app/settings
 | `MAX_ACTIVE_JOBS_PER_IP` | 2 | souběžné joby z jedné IP |
 | `MAX_JOBS_PER_IP_HOUR` | 10 | nové joby z jedné IP za hodinu |
 | `JOB_RETENTION_HOURS` | 48 | jak dlouho se drží hotové joby |
+| `JOB_TRIM_AFTER_MINUTES` | 180 | po tolika minutách od doběhnutí jobu se smažou mezivýsledky (`work/` kromě souhrnů a náhledu, rozbalené kopie v `output/`); ZIP, náhled a log zůstávají do `JOB_RETENTION_HOURS`; 0 = nemazat |
 
 Velikost výběru je omezena na 25 km² (`MAX_BBOX_AREA_KM2` v `app/pipeline/fetch_openzu.py`, od 3.2.2).
 
