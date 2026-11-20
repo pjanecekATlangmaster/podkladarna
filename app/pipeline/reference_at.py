@@ -28,3 +28,7 @@ AT_FMZK_PROBE = (
 )
 AT_LB_PROBE = "https://maps.wien.gv.at/wmts/lb/farbe/google3857/18/90898/142995.jpeg"
 AT_BASEMAP_PROBE = f"{AT_BASEMAP}/bmaporthofoto30cm/normal/google3857/16/22911/34927.jpeg"
+# Katastr BEV (DKM, CC BY 4.0, „Datenquelle: BEV“): hranice a čísla parcel, celé Rakousko. Server převádí z MGI správně
+# (porovnání EPSG:25833 a nativního EPSG:31256 ve Vídni: posun pod 2 m, Claude 2026-11-20).
+AT_BEV_KAT_WMS = "https://data.bev.gv.at/geoserver/BEVdataKAT/wms"
+AT_BEV_KAT_LAYER = "DKM_GST"
