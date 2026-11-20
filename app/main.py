@@ -35,7 +35,7 @@ from app.feedback import (
 from app.guide_text import strip_github_links, web_about_html
 from app.job_template import job_form_template
 from app.mail import MailError
-from app.rate_limit import check_create_api_job, check_create_job
+from app.rate_limit import check_create_api_job, check_create_job, check_private_email
 from app.pipeline import build_stats
 from app.pipeline.fetch_openzu import (
     FetchError,
@@ -1813,6 +1813,11 @@ async def api_create_job(request: Request):
             )
         options["private"] = True
         options["notify_email"] = notify_email
+        # Mírný limit soukromých jobů na e-mail (objednávky na placené doméně mají vlastní tok).
+        if not paid_flow.active_for(request):
+            email_msg = check_private_email(notify_email, remote_ip)
+            if email_msg:
+                raise HTTPException(429, email_msg)
     if has_user_sources and not options.get("private"):
         # Vlastní data: výsledek jen zadavateli (soukromý job s odkazem e-mailem), nikdy ve veřejném seznamu.
         raise HTTPException(400, i18n.Msg("api.user_sources.private_required"))

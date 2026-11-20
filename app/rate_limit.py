@@ -9,6 +9,7 @@ from app.settings import (
     API_KEY_MAX_JOBS_HOUR,
     MAX_ACTIVE_JOBS_PER_IP,
     MAX_JOBS_PER_IP_HOUR,
+    MAX_PRIVATE_JOBS_PER_EMAIL_DAY,
     RATE_LIMIT_EXEMPT_IPS,
 )
 
@@ -31,6 +32,28 @@ def check_create_job(client_ip: str) -> str | None:
     if hourly >= MAX_JOBS_PER_IP_HOUR:
         return Msg("api.rate.ip_hourly", limit=MAX_JOBS_PER_IP_HOUR)
     return None
+
+
+EMAIL_WINDOW = timedelta(hours=24)
+
+
+def check_private_email(email: str, client_ip: str = "") -> str | None:
+    """Limit soukromých jobů na jeden e-mail za klouzavých 24 h (``MAX_PRIVATE_JOBS_PER_EMAIL_DAY``, 0 = vypnuto).
+
+    Hláška uvede, za jak dlouho půjde další job (až z okna vypadne nejstarší)."""
+    limit = MAX_PRIVATE_JOBS_PER_EMAIL_DAY
+    if limit <= 0 or not (email or "").strip() or is_exempt(client_ip):
+        return None
+    now = datetime.now(timezone.utc)
+    times = db.private_email_jobs_since(email, now - EMAIL_WINDOW)
+    if len(times) < limit:
+        return None
+    try:
+        free_at = datetime.fromisoformat(times[len(times) - limit]) + EMAIL_WINDOW
+    except ValueError:
+        free_at = now + EMAIL_WINDOW
+    wait_min = max(1, int((free_at - now).total_seconds() // 60) + 1)
+    return Msg("api.rate.email_daily", limit=limit, hours=wait_min // 60, minutes=wait_min % 60)
 
 
 def check_create_api_job() -> str | None:

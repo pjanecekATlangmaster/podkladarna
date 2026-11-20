@@ -759,6 +759,8 @@
   "api.job.private_email": "Private mode requires a valid e-mail for the download link.",
   "api.rate.ip_active": "{active} jobs are already running or waiting from this network (limit {limit}). Please wait until they finish, or let others run in the meantime.",
   "api.rate.ip_hourly": "The limit of {limit} new jobs per hour from one network has been reached. Please try again later.",
+  "api.rate.email_daily": "You have reached the limit of {limit} private jobs per 24 hours for one e-mail address. You can start another one in {hours} h {minutes} min. If you need more, write to Petr using “Send feedback” on any of your maps.",
+  "api.rate.email_daily_intl": "You have reached the limit of {limit} private jobs per 24 hours for one e-mail address. You can start another one in {hours} h {minutes} min. If you need more, write to the author using “Send feedback” on any of your maps.",
   "api.rate.key_active": "{active} jobs are already running or waiting for the API key (limit {limit}). Please wait until they finish.",
   "api.rate.key_hourly": "The limit of {limit} new jobs per hour for the API key has been reached. Please try again later.",
   "api.hint.sprint_area": "Sprint (1:4000) can only be generated for a smaller area: the selection is {width} × {height} km ({area} km²), max {max} km² (e.g. {side} × {side} km). Sprint maps of larger areas are not built and drawing from the DTM would take long. Make the area smaller, or choose a forest scale.",
