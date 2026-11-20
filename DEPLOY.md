@@ -285,14 +285,16 @@ Router: forward **443** (a volitelně **80**) na **vnitřní IP NAS**, ne na jin
 | Restart policy | unless-stopped |
 | Volume | `./data` persistent (B: `./data-test`) |
 
-Limity a časové limity (env proměnné s výchozími hodnotami z `app/settings.py`; `docker-compose.nas-ab.yml` nastavuje `JOB_RETENTION_HOURS`, `MAX_ACTIVE_JOBS_PER_IP` a `MAX_JOBS_PER_IP_HOUR`):
+Limity a časové limity (env proměnné s výchozími hodnotami z `app/settings.py`; `docker-compose.nas-ab.yml` nastavuje `JOB_RETENTION_HOURS`, `MAX_ACTIVE_JOBS_PER_IP` a `MAX_JOBS_PER_IP_HOUR` (od 3.104.0 z host `.env`, výchozí 4)):
 
 | Proměnná | Výchozí | Význam |
 |----------|---------|--------|
 | `JOB_TIMEOUT_MINUTES` | 90 | časový limit jobu |
 | `SHARED_SLOT_WAIT_MINUTES` | `JOB_TIMEOUT_MINUTES` + 15 | jak dlouho job nejvýš čeká na sdílený slot (A/B) |
 | `MAX_ACTIVE_JOBS_PER_IP` | 2 | souběžné joby z jedné IP |
-| `MAX_JOBS_PER_IP_HOUR` | 10 | nové joby z jedné IP za hodinu |
+| `MAX_JOBS_PER_IP_HOUR` | 4 | nové joby z jedné IP za hodinu |
+| `MAX_JOBS_PER_IP_DAY` | 15 | nové webové joby z jedné IP za klouzavých 24 h (`0` vypne) |
+| `MAX_JOBS_PER_NET_DAY` | 40 | nové webové joby ze sítě /24 (IPv6 /48) za 24 h; volněji kvůli CGNAT mobilních operátorů (`0` vypne) |
 | `MAX_PRIVATE_JOBS_PER_EMAIL_DAY` | 8 | soukromé joby na jeden e-mail za klouzavých 24 h (aliasy +značka a tečky Gmailu se sčítají, API, ukázky a objednávky ne, IP z `RATE_LIMIT_EXEMPT_IPS` bez limitu); `0` vypne |
 | `BANNED_EMAILS` | – | zablokované e-maily pro soukromé joby (čárkami, aliasy se sčítají; jen v `.env` na serveru, nikdy v repu); přehled `python -m app.origin_stats --emails` / `--email <adresa>` |
 | `JOB_RETENTION_HOURS` | 48 | jak dlouho se drží hotové joby |

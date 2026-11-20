@@ -30,7 +30,7 @@ x-env: &env
   MAX_CONCURRENT_LIDAR: "1"
   JOB_RETENTION_HOURS: "48"
   MAX_ACTIVE_JOBS_PER_IP: "2"
-  MAX_JOBS_PER_IP_HOUR: "10"
+  MAX_JOBS_PER_IP_HOUR: ${MAX_JOBS_PER_IP_HOUR:-4}
   TRUST_PROXY_HEADERS: "1"
   RATE_LIMIT_EXEMPT_IPS: ${RATE_LIMIT_EXEMPT_IPS:-78.80.94.188}
   # API klient (Stavitel): klíč jen v host .env, prázdné = vypnuto (DEV.md „API pro externí klienty“).
