@@ -1117,7 +1117,7 @@ def _prepare_oom_map(
             ostatni_as_403=ostatni_as_403,
             water_deck=water_deck,
             osm_water_area=osm_water_area,
-            suppress_waterway_in_water=preset_id.startswith("sprint"),
+            suppress_waterway_in_water=True,  # tok pod vodní plochou ne (les a MTBO od 3.102.2)
             osm_priority_areas=osm_priority_areas or None,
             dtm_cover=dtm_cover,
             stub_cover=stub_cover,

@@ -1310,7 +1310,7 @@ def _build_zabaged_object_parts(
     def _emit_waterway_cut(wkb_bytes: bytes, symbol_index: int) -> list[str] | None:
         """Tok (306) bez částí pod vodní plochou; None = neřešit zde.
 
-        Jen když je zapnuto ``suppress_waterway_in_water`` (sprint).
+        Jen když je zapnuto ``suppress_waterway_in_water`` (všechny sady, les a MTBO od 3.102.2).
         """
         if not suppress_waterway_in_water:
             return None
