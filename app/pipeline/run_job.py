@@ -345,6 +345,21 @@ def job_has_sprint(preset_id: str, options: dict) -> bool:
     )
 
 
+def job_wants_sentinel(preset_id: str, options: dict) -> bool:
+    """Snímky Sentinel-2 do podkladů: jen job s jinou mapou než sprint (Petr 2026-11-20: ve sprintu nepomáhá,
+    pixel 10 m je v 1:4000 2,5 mm). Kresba sprintu mimo Česko bere letní NDVI dál (``open_paved``)."""
+    if not options.get("output_sentinel"):
+        return False
+    presets = resolve_discipline_presets(
+        preset_id,
+        load_presets(),
+        map_scale=options.get("map_scale"),
+        contour_interval=options.get("contour_interval"),
+        map_types=resolve_map_types(options),
+    )
+    return any(not str(disc_preset).startswith("sprint") for _tag, disc_preset, _scale in presets)
+
+
 def vegetation_density_params(preset_id: str, options: dict):
     """Parametry vegetace z hustoty bodů pro job.
 
@@ -1070,7 +1085,7 @@ def run_job_pipeline(
                 with_references=want_refs,
                 ortho_prefetch_bounds=ortho_prefetch_bounds(grid_bounds, preset_id, options),
                 sprint_ortho=job_has_sprint(preset_id, options),
-                sentinel=bool(options.get("output_sentinel")),
+                sentinel=job_wants_sentinel(preset_id, options),
                 zip_ortho=want_refs,
             )
 
@@ -1524,7 +1539,7 @@ def _package_output(
                     force_refresh=force_refresh_enabled(options),
                     progress=join_progress,
                     sprint_ortho=job_has_sprint(preset_id, options),
-                    sentinel=bool(options.get("output_sentinel")),
+                    sentinel=job_wants_sentinel(preset_id, options),
                     zip_ortho=want_refs,
                 )
             return refs_joined["refs"][0]
