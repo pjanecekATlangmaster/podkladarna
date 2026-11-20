@@ -2114,7 +2114,7 @@ def test_forest_and_mtbo_take_no_dtm_paved_areas_by_default(tmp_path):
     di.parking_path(tmp_path).write_text(json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8")
     for preset in ("forest_10000", "mtbo_10000"):
         assert di.dtm_parking_geometry(tmp_path, 10000, "mixed", preset) is None
-        assert not street_profile.enabled(preset)
+        assert street_profile.enabled(preset) and not street_profile.uses_dtm(preset)  # profil jen ze stání z OSM
     assert di.mtbo_sidewalk_geometry(tmp_path, 10000, "mixed", "mtbo_10000") is None
     assert op.with_dtm_walk_areas(tmp_path, [], "forest_10000", 10000) == []
 

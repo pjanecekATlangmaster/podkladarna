@@ -6261,7 +6261,7 @@ def merge_parking_into_road(
         # Ulice se stáním jako celek (Petr 2026-11-06): stání ke slití nahradí plochy ulic z profilu přesahu
         # (``street_profile``) – rozšíření jen tam, kde je v měřítku vidět, jinak stání pohltí čára.
         return [f for k, f in enumerate(feats) if k not in cands] + street_profile.street_areas(
-            work_dir, roads, list(cands.values()), scale
+            work_dir, roads, list(cands.values()), scale, use_dtm=street_profile.uses_dtm(preset_id)
         )
     absorbed = {
         k for k, g in cands.items() if _parking_overhang_m(g, roads) < mm_to_ground_m(PARKING_ABSORB_MM, scale)

@@ -525,7 +525,7 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   Z DTM zůstávají budovy, ploty, šířky silnic pro volbu symbolu a plochy složitých křižovatek. Parkoviště z DTM jen jednoduchého
   tvaru (`is_simple_area`: obdélník ≥ 85 %, do 8 vrcholů, bez děr), a jen jeho část, kterou OSM nemá, čitelná mimo kresbu silnice
   (šířka ≥ 0,8 mm, plocha ≥ 1 mm², `DTM_PARKING_SIMPLE`). Přepínače `MTBO_SIDEWALK_AREAS`, `MTBO_DTM_PARKING`, `FOREST_DTM_PARKING`,
-  `FOREST_DTM_WALK_AREAS`, `street_profile.MTBO_STREET_PROFILE` / `FOREST_STREET_PROFILE` (True = jako 3.96). Silnice na mostě
+  `FOREST_DTM_WALK_AREAS`, `street_profile.MTBO_STREET_PROFILE_DTM` / `FOREST_STREET_PROFILE_DTM` (profil ulice se stáním zůstává, jen bez vstupů z DTM; True = jako 3.96). Silnice na mostě
   je v lese i MTBO plynulá silnice v tahu (`is_road_bridge_highway`), MTBO u mostů bere symbol navazující cesty (dřív 816).
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,

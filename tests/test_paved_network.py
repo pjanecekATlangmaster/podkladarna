@@ -175,8 +175,9 @@ def test_street_with_parking_profile(tmp_path, monkeypatch, preset, strips, dtm,
 
     from app.pipeline import street_profile
 
-    monkeypatch.setattr(street_profile, "MTBO_STREET_PROFILE", True)  # od 3.100.0 vypnuto, mechanismus zůstává
-    monkeypatch.setattr(street_profile, "FOREST_STREET_PROFILE", True)
+    if dtm:  # DTM vstupy profilu jsou od 3.100.0 vypnuté, mechanismus zůstává; bez DTM se kresba nesmí změnit
+        monkeypatch.setattr(street_profile, "MTBO_STREET_PROFILE_DTM", True)
+        monkeypatch.setattr(street_profile, "FOREST_STREET_PROFILE_DTM", True)
 
     feats = [_area(x0, y0, x1, y1, "parking") for x0, x1, y0, y1 in strips]
     _write_job(tmp_path, feats, [_road([(-60, 0), (200, 0)], "road_3")])
@@ -1200,3 +1201,23 @@ def test_paved_area_on_bridge_gets_edge(tmp_path):
     _write_job(tmp_path, [_area(0, 0, 40, 40, "parking", structure="bridge")], [])
     assert _edge_length(_parts_with_edge(tmp_path)) == pytest.approx(160, abs=2.0)
 
+
+
+@pytest.mark.parametrize("preset", ["forest_10000", "mtbo_10000"])
+def test_street_profile_ignores_dtm_by_default(tmp_path, preset):
+    # Od 3.100.0 profil v lese a MTBO DTM nebere: s DTM vychází stejně jako bez něj (zahraničí a Česko bez DTM beze změny).
+    from shapely.geometry import shape
+
+    strips = [_area(0, 4, 60, 9.5, "parking")]
+    roads = [_road([(-60, 0), (200, 0)], "road_3")]
+
+    def areas(work, with_dtm):
+        work.mkdir()
+        _write_job(work, strips, roads)
+        if with_dtm:
+            _write_dtm(work, "roads.json", [(-60, -3, 200, 3), (0, 3, 80, 9.5)])
+            _write_dtm(work, "parking.json", [(100, 4, 180, 9.5)])
+        out = op.merge_parking_into_road(work, strips, op._paths_features_for_network(work), preset, 10000)
+        return sorted(tuple(round(v) for v in shape(f["geometry"]).bounds) for f in out if (f.get("properties") or {}).get("street"))
+
+    assert areas(tmp_path / "osm", False) == areas(tmp_path / "dtm", True) != []
