@@ -137,7 +137,9 @@ def init_db() -> None:
         # Doména a jazyk zadání (3.35.9, dvě domény: zdarma / placená). NULL u starších řádků
         # = původní doména; starší image sloupce ignoruje.
         # Země výřezu (3.36.2, ISO kód z app.countries). NULL u starších řádků = Česko.
-        for col in ("site", "lang", "country"):
+        # Název API klienta (4.5.2, pojmenované klíče API_CLIENT_KEYS). NULL u starších řádků a u jobů
+        # bez klíče; starší API joby mají api_client = 1 a název NULL (= klient „default“).
+        for col in ("site", "lang", "country", "api_client_name"):
             if col not in origin_cols:
                 conn.execute(f"ALTER TABLE job_origin ADD COLUMN {col} TEXT")
         conn.execute(
@@ -386,9 +388,10 @@ def _record_origin(
         """
         INSERT OR REPLACE INTO job_origin (
             job_id, created_at, ip_tag, ip_net_tag, api_client, private, email_tag,
-            preset_id, map_types, bbox_json, status, est_prep_min, est_maps_min, site, lang, country
+            preset_id, map_types, bbox_json, status, est_prep_min, est_maps_min, site, lang, country,
+            api_client_name
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
         """,
         (
             job_id,
@@ -406,6 +409,7 @@ def _record_origin(
             str(opts.get("site") or "")[:253] or None,
             str(opts.get("lang") or "")[:8] or None,
             str(opts.get("country") or "")[:8].upper() or None,
+            (str(opts.get("api_client_name") or "default")[:32] if opts.get("api_client") else None),
         ),
     )
 

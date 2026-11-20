@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "4.5.1"
+APP_VERSION = "4.5.2"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -145,6 +146,29 @@ RATE_LIMIT_EXEMPT_IPS = _parse_ip_list(os.environ.get("RATE_LIMIT_EXEMPT_IPS", "
 # API klient (Stavitel): sdílený klíč v hlavičce X-Api-Key → soukromý job bez e-mailu,
 # `download_token` v odpovědi. Prázdné = API klíč vypnutý (hlavička se odmítne 401).
 API_CLIENT_KEY = os.environ.get("API_CLIENT_KEY", "").strip()
+# Pojmenované klíče API klientů (Petr 2026-11-20): ``API_CLIENT_KEYS=stavitel:<klíč>,ohry:<klíč>``. Název klienta
+# (písmena, číslice, ``-``, ``_``, do 32 znaků) se uloží do jobu (``options.api_client_name``), do logu a do statistiky
+# původu; hodnota klíče nikdy. Starý ``API_CLIENT_KEY`` platí dál jako klient ``default``.
+_API_CLIENT_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
+
+
+def parse_api_client_keys(raw: str, legacy: str = "") -> dict[str, str]:
+    """Název klienta → klíč. Neplatné položky (bez názvu, prázdný klíč, duplicitní název) se přeskočí."""
+    out: dict[str, str] = {}
+    for item in (raw or "").split(","):
+        name, sep, key = item.strip().partition(":")
+        name, key = name.strip(), key.strip()
+        if not sep or not key or not _API_CLIENT_NAME_RE.match(name) or name in out:
+            continue
+        out[name] = key
+    legacy = (legacy or "").strip()
+    if legacy and "default" not in out and legacy not in out.values():
+        out["default"] = legacy
+    return out
+
+
+# Syrový text; slovník skládá ``parse_api_client_keys`` při každém požadavku (testy mění obě proměnné).
+API_CLIENT_KEYS = os.environ.get("API_CLIENT_KEYS", "").strip()
 # Vlastní limit pro joby s klíčem (místo limitu podle IP).
 API_KEY_MAX_ACTIVE_JOBS = int(os.environ.get("API_KEY_MAX_ACTIVE_JOBS", "3"))
 API_KEY_MAX_JOBS_HOUR = int(os.environ.get("API_KEY_MAX_JOBS_HOUR", "20"))
@@ -274,6 +298,11 @@ SAMPLES_REFRESH = os.environ.get("SAMPLES_REFRESH", "1").strip().lower() not in 
 SAMPLES_REFRESH_HOURS = os.environ.get("SAMPLES_REFRESH_HOURS", "1-5").strip()
 SAMPLES_REFRESH_IDLE_MIN = int(os.environ.get("SAMPLES_REFRESH_IDLE_MIN", "60"))
 SAMPLES_REFRESH_MAX_AGE_DAYS = int(os.environ.get("SAMPLES_REFRESH_MAX_AGE_DAYS", "30"))
+# Nové kolo po změně minor verze (Petr 2026-11-20): na testu B (PODKLADARNA_CHANNEL=test) výchozí vypnuto, minor verze
+# tam přibývají několikrát denně; ukázky se tam přegenerují jen po SAMPLES_REFRESH_MAX_AGE_DAYS nebo na ruční žádost.
+SAMPLES_REFRESH_ON_VERSION = os.environ.get(
+    "SAMPLES_REFRESH_ON_VERSION", "0" if INSTANCE_CHANNEL == "test" else "1"
+).strip().lower() not in {"0", "false", "off", "no"}
 SAMPLES_REFRESH_TZ = os.environ.get("SAMPLES_REFRESH_TZ", "Europe/Prague").strip()
 # Joby ukázek zakládá server sám sobě přes POST /api/jobs (stejné volby jako z webu).
 SAMPLES_REFRESH_URL = os.environ.get("SAMPLES_REFRESH_URL", "http://127.0.0.1:8672").rstrip("/")
