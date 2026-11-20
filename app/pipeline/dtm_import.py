@@ -263,7 +263,11 @@ SIDEWALK_OSM_PARALLEL_M = 10.0  # čára, která z ``SIDEWALK_OSM_PARALLEL_SHARE
 SIDEWALK_OSM_PARALLEL_SHARE = 0.5
 SIDEWALK_BUILDING_NEAR_M = 8.0  # čára, která z ``SIDEWALK_BUILDING_SHARE`` vede do tolika m od budov, obchází dům
 SIDEWALK_BUILDING_SHARE = 0.6
-SIDEWALK_NATURE_SHARE = 0.5  # čára z takového podílu v přírodním krytu OSM (les, louka …) je polní / lesní cesta, ne chodník
+SIDEWALK_NATURE_SHARE = 0.5
+# Jen v zástavbě (Petr 2026-11-20): čára aspoň z ``SIDEWALK_BUILT_SHARE`` do tolika m od budov; mimo zástavbu vede DTM
+# jako chodník i lesní cesty (Barrandov, Klukovice) a cesty kreslí OSM.
+SIDEWALK_BUILT_M = 50.0
+SIDEWALK_BUILT_SHARE = 0.5  # čára z takového podílu v přírodním krytu OSM (les, louka …) je polní / lesní cesta, ne chodník
 
 
 def _sidewalk_near_road_zone(work_dir: Path, preset_id: str, scale: int):
@@ -359,6 +363,7 @@ def _dtm_sidewalk_lines_memo(work_dir: Path, preset_id: str, scale: int):
     osm_band = osm.buffer(SIDEWALK_OSM_PARALLEL_M) if osm is not None else None
     near_band = near.buffer(SIDEWALK_CONNECT_M) if near is not None else None
     bnear = _buildings_zone(work_dir, tol_m=SIDEWALK_BUILDING_NEAR_M)
+    built = _buildings_zone(work_dir, tol_m=SIDEWALK_BUILT_M)
     out = []
     for g in getattr(geom, "geoms", [geom]):
         if g.geom_type != "Polygon" or g.area < min_len:
@@ -377,6 +382,8 @@ def _dtm_sidewalk_lines_memo(work_dir: Path, preset_id: str, scale: int):
             continue
         if bnear is not None and line.intersection(bnear).length >= SIDEWALK_BUILDING_SHARE * line.length:
             continue  # chodník kolem domu
+        if built is None or line.intersection(built).length < SIDEWALK_BUILT_SHARE * line.length:
+            continue  # mimo zástavbu
         coords = [tuple(c[:2]) for c in line.coords]
         ok = True
         for end in (0, -1):
@@ -424,7 +431,12 @@ def _dtm_walk_area_legible_memo(work_dir: Path, preset_id: str, scale: int):
     a = (SIMPLE_VISIBLE_AREA_MM * scale / 1000.0) ** 2
     wide = res[0].buffer(-w / 2.0, join_style=2).buffer(w / 2.0, join_style=2)
     # jen jednoduchý tvar jako u parkovišť (Petr 2026-11-20: složité polygony nechceme)
-    polys = [g for g in getattr(wide, "geoms", [wide]) if g.geom_type == "Polygon" and g.area >= a and is_simple_area(g)]
+    built = _buildings_zone(work_dir, tol_m=SIDEWALK_BUILT_M)  # jen v zástavbě jako čáry
+    polys = [
+        g
+        for g in getattr(wide, "geoms", [wide])
+        if g.geom_type == "Polygon" and g.area >= a and is_simple_area(g) and built is not None and g.intersects(built)
+    ]
     if not polys:
         return None
     from shapely.ops import unary_union

@@ -2142,17 +2142,23 @@ def test_is_simple_area(coords, simple):
         ([(-1.5, 0), (1.5, 0), (1.5, 100), (-1.5, 100)], False, True),  # spojnice dvou ulic bez OSM → čára
         ([(-1.5, 0), (1.5, 0), (1.5, 100), (-1.5, 100)], True, False),  # OSM cestu má → nic
         ([(-80, 12), (80, 12), (80, 15), (-80, 15)], False, False),  # chodník podél ulice → nic
+        ([(-201.5, 0), (-198.5, 0), (-198.5, 100), (-201.5, 100)], False, False),  # mimo zástavbu → nic
     ],
 )
 def test_dtm_sidewalk_connector_line(tmp_path, strip, osm_path, drawn):
     """Petr 2026-11-20: chodník z DTM mimo pás silnice, který OSM nemá, kreslí les a MTBO čárou."""
     from app.pipeline import dtm_import as di
 
-    paths = [_feat([[-100, 0], [100, 0]], "road_3"), _feat([[-100, 100], [100, 100]], "road_3")]
+    paths = [_feat([[-300, 0], [100, 0]], "road_3"), _feat([[-300, 100], [100, 100]], "road_3")]
     if osm_path:
         paths.append(_feat([[0, -5], [0, 105]], "footway"))
     _write_paths(tmp_path, paths)
     _write_polys(tmp_path, di.SIDEWALKS_NAME, [[strip + [strip[0]]]])
+    house = [[[20, 30], [40, 30], [40, 50], [20, 50], [20, 30]]]  # zástavba vedle spojnice
+    (tmp_path / "osm_paths" / "features.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"kind": "building"}, "geometry": {"type": "Polygon", "coordinates": house}}]}),
+        encoding="utf-8",
+    )
     for preset in ("forest_10000", "mtbo_10000"):
         lines = di.dtm_sidewalk_line_features(tmp_path, preset, 10000)
         assert bool(lines) is drawn
@@ -2173,6 +2179,11 @@ def test_dtm_walk_area_legible(tmp_path, square, area):
 
     _write_paths(tmp_path, [_feat([[-100, 0], [100, 0]], "road_3"), _feat([[-100, 100], [100, 100]], "road_3")])
     _write_polys(tmp_path, di.SIDEWALKS_NAME, [[square + [square[0]]]])
+    house = [[[30, 40], [50, 40], [50, 60], [30, 60], [30, 40]]]
+    (tmp_path / "osm_paths" / "features.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"kind": "building"}, "geometry": {"type": "Polygon", "coordinates": house}}]}),
+        encoding="utf-8",
+    )
     for preset in ("forest_10000", "mtbo_10000"):
         feats = op.with_dtm_walk_areas(tmp_path, [], preset, 10000)
         assert bool(feats) is area

@@ -530,7 +530,8 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   Od 3.100.1 se silnice na mostě spojuje se sousedními úseky do jedné čáry a voda (301, 302, 304–306) se pod čárou kreslenou
   po OSM mostě vyřízne v její šířce (`path_clearance.water_under_bridges`; barva vody je v sadě nad výplní silnice).
   Od 3.102.0 (Petr 2026-11-20) les a MTBO berou chodníky z DTM, které OSM nemá, mimo pás silnic (plocha silnic z DTM / osa
-  v kresbě + `CORRIDOR_NEAR_M`), bez okolí budov a přírodního krytu OSM: úzký jako čáru `sidewalk` po střední ose, jen spojnici
+  v kresbě + `CORRIDOR_NEAR_M`), jen v zástavbě (do 50 m od budov, `SIDEWALK_BUILT_M`; mimo ni vede DTM jako chodník i lesní cesty),
+  bez okolí budov a přírodního krytu OSM: úzký jako čáru `sidewalk` po střední ose, jen spojnici
   (oba konce do 6 m od pásu silnice nebo OSM cesty, dotažené k ose; ne souběžně se silnicí ani s OSM cestou do 10 m,
   `dtm_sidewalk_line_features`, `DTM_SIDEWALK_LINES`), široký jen jednoduchého tvaru a čitelný (≥ 0,8 mm) jako pěší plochu
   (`dtm_walk_area_legible_geometry`, `DTM_WALK_AREAS_LEGIBLE`).
