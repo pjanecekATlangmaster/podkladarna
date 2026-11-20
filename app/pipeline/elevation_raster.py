@@ -1338,6 +1338,132 @@ def _zip_range_tile(key: str, east_km: int, north_km: int, *, log=None) -> Path 
     return folder
 
 
+# Šlesvicko-Holštýnsko (LVermGeo SH, CC BY 4.0): index dlaždic 1 km jako GeoJSON (~9 MB, ``link_data``) zvlášť pro
+# DGM1 (text XYZ, středy pixelů na .5, ~28 MB) a obrazový bDOM20 (GeoTIFF 0,2 m, ~105 MB, bez Range). Dlaždice se
+# stáhne, bDOM se převede na 1 m maximem (vrchol koruny), obojí do cache ``de_sh/<E>_<N>``; stažené soubory se mažou.
+SH_INDEX_MAX_AGE_S = 30 * 86400
+SH_INDEX_MAX_BYTES = 60_000_000
+SH_XYZ_MAX_BYTES = 60_000_000
+_SH_INDEX_LOCK = threading.Lock()
+_SH_LINK_RE = re.compile(r"file=[a-z0-9]+_32_(\d{3})_(\d{4})_1_sh_\d{4}\.(?:xyz|tif)(?:&|$)")
+
+
+def parse_sh_index(data: dict) -> dict[str, str]:
+    """{„E_N“ (levý dolní roh v km): URL dlaždice} z GeoJSON indexu hromadného stahování LVermGeo SH."""
+    out: dict[str, str] = {}
+    for feat in data.get("features") or []:
+        url = str((feat.get("properties") or {}).get("link_data") or "")
+        m = _SH_LINK_RE.search(url)
+        if m and url.startswith("https://geodaten.schleswig-holstein.de/"):
+            out[f"{m.group(1)}_{m.group(2)}"] = url
+    return out
+
+
+def _sh_fetch(url: str, max_bytes: int) -> bytes:
+    import urllib.request
+
+    from app.pipeline.fetch_openzu import USER_AGENT
+
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=300) as resp:
+        data = resp.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise RuntimeError(f"odpověď přes {max_bytes // 1_000_000} MB odmítnuta")
+    return data
+
+
+def sh_index(key: str, kind: str, *, fetch=None, log=None) -> dict[str, str]:
+    """Index dlaždic vrstvy (``dtm`` / ``dsm``) z cache ``<klíč>_index`` (30 dní); při výpadku starší index."""
+    import time
+
+    from app.pipeline.reference_de_states import DE_WCS_STATES
+
+    st = DE_WCS_STATES[key]
+    url = (st.dtm if kind == "dtm" else st.dsm)[0]
+    path = settings.CACHE_DIR / f"{key}_index" / f"{kind}.json"
+    with _SH_INDEX_LOCK:
+        try:
+            if time.time() - path.stat().st_mtime < SH_INDEX_MAX_AGE_S:
+                return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+        try:
+            index = parse_sh_index(json.loads((fetch or _sh_fetch)(url, SH_INDEX_MAX_BYTES)))
+            if not index:
+                raise RuntimeError("index dlaždic je prázdný")
+        except Exception as exc:  # noqa: BLE001 – starý index stačí, bez něj výšky nejdou
+            try:
+                old = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                raise ElevationUnavailable(f"{st.name}: index dlaždic nedostupný ({str(exc)[:80]})") from exc
+            log_issue(log, f"{st.name}: index dlaždic se neobnovil, beru starší ({str(exc)[:80]})")
+            return old
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}")
+        tmp.write_text(json.dumps(index), encoding="utf-8")
+        tmp.replace(path)
+        return index
+
+
+def _sh_tile(key: str, east_km: int, north_km: int, *, log=None) -> Path | None:
+    from app.download_cache import touch_last_used
+    from app.pipeline.reference_de_states import DE_WCS_STATES
+
+    st = DE_WCS_STATES[key]
+    folder = settings.CACHE_DIR / key / f"{east_km}_{north_km}"
+    if (folder / ".complete").is_file():
+        touch_last_used(folder)
+        return folder
+    name = f"{east_km}_{north_km}"
+    url = sh_index(key, "dtm", log=log).get(name)
+    if not url:
+        return None
+    folder.mkdir(parents=True, exist_ok=True)
+    tag = f"{os.getpid()}.{threading.get_ident()}"
+    dtm = folder / "dtm.tif"
+    tmp = folder / f".dtm.{tag}.tif"
+    grid, left, top = xyz_grid(_sh_fetch(url, SH_XYZ_MAX_BYTES))
+    _write_tif(tmp, grid, left, top, st.crs)
+    tmp.replace(dtm)
+    index_failed = False
+    try:
+        dsm_url = sh_index(key, "dsm", log=log).get(name)
+    except Exception as exc:  # noqa: BLE001 – bez povrchu mapa vznikne
+        log_issue(log, f"{st.name}: index bDOM nejde načíst ({str(exc)[:80]})")
+        dsm_url, index_failed = None, True
+    complete = True  # .complete jen při hotovém povrchu nebo jeho skutečné absenci v indexu
+    if dsm_url:
+        raw = folder / f".bdom.{tag}.tif"
+        out = folder / f".dsm.{tag}.tif"
+        try:
+            _download_retry(dsm_url, raw, log=log)
+            run_cmd([_gdal_tool("gdalwarp"), "-q", "-overwrite", "-r", "max", "-tr", "1", "1",
+                     "-te", str(east_km * 1000), str(north_km * 1000), str((east_km + 1) * 1000),
+                     str((north_km + 1) * 1000), "-srcnodata", "nan", "-dstnodata", str(NODATA), "-ot", "Float32",
+                     "-co", "COMPRESS=DEFLATE", "-co", "TILED=YES", str(raw), str(out)], log=log)
+            out.replace(folder / "dsm.tif")
+        except Exception as exc:  # noqa: BLE001 – bez povrchu mapa vznikne, dlaždice se příště zkusí znovu
+            log_issue(log, f"{st.name}: bDOM {name} se nestáhl ({str(exc)[:80]}), výška porostu tam chybí")
+            complete = False
+        finally:
+            raw.unlink(missing_ok=True)
+            out.unlink(missing_ok=True)
+    elif not index_failed:
+        log_issue(log, f"{st.name}: bDOM {name} chybí, výška porostu tam chybí")
+    if not complete or index_failed:
+        return folder
+    (folder / ".complete").touch()
+    touch_last_used(folder)
+    if log:
+        log(f"  {st.name} {name}: dlaždice uloženy do cache")
+    return folder
+
+
+def de_sh_provider(key: str) -> Provider:
+    """Provider výšek Šlesvicka-Holštýnska: DGM1 (XYZ) + bDOM20 → 1 m po dlaždicích 1 km v cache."""
+    return _folder_tiles_provider(key, zip_range_tiles, lambda e, n, log: _sh_tile(key, e, n, log=log))
+
+
 def de_zip_range_provider(key: str) -> Provider:
     """Provider výšek z dlaždic 1 km čtených rozsahy z velkých ZIPů (Sársko, Hamburk, Brémy)."""
     return _folder_tiles_provider(key, zip_range_tiles, lambda e, n, log: _zip_range_tile(key, e, n, log=log))
@@ -1376,7 +1502,7 @@ def _register_de_wcs() -> None:
     from app.pipeline.reference_de_states import DE_WCS_STATES
 
     kinds = {"meta4": de_meta4_provider, "bw_zip": de_bw_provider, "sn_zip": de_sn_provider,
-             "zip_range": de_zip_range_provider}
+             "zip_range": de_zip_range_provider, "sh_geojson": de_sh_provider}
     for key, st in DE_WCS_STATES.items():
         PROVIDERS[key] = kinds.get(st.tiles, de_wcs_provider)(key)
 
@@ -3459,6 +3585,7 @@ SOURCE_LABELS = {
     "de_sl": "DGM1 a DOM1, LVGL Saarland",
     "de_hh": "DGM1 a bDOM, LGV Hamburg",
     "de_hb": "DGM1 a DOM1, GeoInformation Bremen",
+    "de_sh": "DGM1 a bDOM20, LVermGeo Schleswig-Holstein",
     "dk_dhm": "DHM terén a povrch, Klimadatastyrelsen",
     "no_hoyde": "Høydemodell DTM a DOM, Kartverket",
     "si_arso": "mračno LiDAR, ARSO",
