@@ -129,3 +129,34 @@ def test_small_dtm_gaps_filled_large_kept():
     out = elevation_raster.fill_small_gaps(grid, 4.0)
     assert out[0, 1] == 100.0 and out[0, 3] == 100.0 and out[0, 6] == 100.0  # do 4 m od země doplněno
     assert out[0, 7] == nd and out[0, 11] == nd  # dál zůstane bez dat (CHM 0, budova)
+
+
+@pytest.mark.parametrize("code, calls, ok", [(503, 2, True), (404, 1, False)])
+def test_get_retries_transient_errors_only(monkeypatch, code, calls, ok):
+    import urllib.error
+
+    seen = []
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b"ok"
+
+    def fake(req, timeout):
+        seen.append(req.full_url)
+        if len(seen) == 1:
+            raise urllib.error.HTTPError(req.full_url, code, "x", {}, None)
+        return _Resp()
+
+    monkeypatch.setattr(reference_us.urllib.request, "urlopen", fake)
+    if ok:
+        assert reference_us._get("https://example.invalid/a", wait_s=0) == b"ok"
+    else:
+        with pytest.raises(urllib.error.HTTPError):
+            reference_us._get("https://example.invalid/a", wait_s=0)
+    assert len(seen) == calls

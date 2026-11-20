@@ -42,6 +42,7 @@ US_WMS_LAYER = "0"
 EPT_INDEX_MAX_AGE_DAYS = 30
 EPT_INDEX_MISS_REFRESH_DAYS = 2  # projekt WESM chybí v seznamu: seznam obnovit, je-li starší
 HTTP_TIMEOUT_S = 60
+HTTP_RETRIES = 3  # opakování přechodné chyby (5xx, 429, síť) jednoho dotazu
 _INDEX_LOCK = threading.Lock()
 
 
@@ -66,12 +67,26 @@ class Workunit:
     geometry: object
 
 
-def _get(url: str, timeout: float = HTTP_TIMEOUT_S) -> bytes:
+def _get(url: str, timeout: float = HTTP_TIMEOUT_S, *, retries: int = HTTP_RETRIES, wait_s: float = 2.0) -> bytes:
+    """GET s opakováním přechodných chyb (5xx, 429, síť): výřez čte stovky až tisíce uzlů EPT a jedno
+    „SlowDown“ z S3 by jinak shodilo celý job."""
+    import urllib.error
+
     from app.pipeline.fetch_openzu import USER_AGENT
 
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
+    for attempt in range(retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as exc:
+            if attempt >= retries or not (exc.code == 429 or exc.code >= 500):
+                raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            if attempt >= retries:
+                raise
+        time.sleep(wait_s * (attempt + 1))
+    raise AssertionError("unreachable")
 
 
 def _esri_polygon(geom: dict):
