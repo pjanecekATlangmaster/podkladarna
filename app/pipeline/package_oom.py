@@ -1054,12 +1054,10 @@ def _prepare_oom_map(
                 **osm_priority_areas,
                 _layer: _mask if _prev is None else _prev.union(_mask),
             }
-        # Sprint: tok 306 pod vodní plochou 301.x se nekreslí (les / MTBO beze změny).
-        osm_water_area = None
-        if preset_id.startswith("sprint"):
-            from app.pipeline.osm_paths import osm_water_area_geometry
+        # Tok 306 pod vodní plochou 301.x (ZABAGED i OSM) se nekreslí – ve všech sadách (les a MTBO od 3.103.1).
+        from app.pipeline.osm_paths import osm_water_area_geometry
 
-            osm_water_area = osm_water_area_geometry(kp_cwd)
+        osm_water_area = osm_water_area_geometry(kp_cwd)
         # Sprint: čáry cest ZABAGED se nekreslí uvnitř ploch chodníků a silnic z DTM.
         dtm_cover = None
         stub_cover = None
@@ -1117,7 +1115,7 @@ def _prepare_oom_map(
             ostatni_as_403=ostatni_as_403,
             water_deck=water_deck,
             osm_water_area=osm_water_area,
-            suppress_waterway_in_water=preset_id.startswith("sprint"),
+            suppress_waterway_in_water=True,  # tok pod vodní plochou ne (les a MTBO od 3.103.1)
             osm_priority_areas=osm_priority_areas or None,
             dtm_cover=dtm_cover,
             stub_cover=stub_cover,
