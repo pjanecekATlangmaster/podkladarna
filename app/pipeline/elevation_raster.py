@@ -338,12 +338,14 @@ def cog_windows(
     *,
     log=None,
     nodata: float | None = None,
+    resolution: str | None = None,
 ) -> Path | None:
     """Okno ``window`` (v ``crs``) z každého vzdáleného COG přes /vsicurl → VRT; None, když žádné okno nevyšlo.
 
     Čte se jen část dlaždice v okně (COG: swisstopo 1 km ~15 MB, BEV 50 km ~10 GB). Dlaždice, která do okna
     nezasahuje, gdal_translate odmítne – přeskočí se. ``nodata`` pro zdroje bez NoData: okno přesahující list se jinak
-    doplní nulou a ta ve VRT přepíše sousední list (Estonsko DSM)."""
+    doplní nulou a ta ve VRT přepíše sousední list (Estonsko DSM). ``resolution`` pro gdalbuildvrt (``highest`` při
+    listech s různým rozlišením; výchozí průměr). Při překryvu má přednost dlaždice později v ``urls``."""
     xmin, ymin, xmax, ymax = window
     nodata_args = ["-a_nodata", f"{nodata:g}"] if nodata is not None else []
     tiles = []
@@ -380,7 +382,8 @@ def cog_windows(
     if not tiles:
         return None
     vrt = out_dir / f"{prefix}.vrt"
-    run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", crs, str(vrt), *map(str, tiles)], log=log)
+    res_args = ["-resolution", resolution] if resolution else []
+    run_cmd([_gdal_tool("gdalbuildvrt"), *res_args, "-a_srs", crs, str(vrt), *map(str, tiles)], log=log)
     if log:
         log(f"  {prefix}: {len(tiles)} dlaždic (okno výřezu)")
     return vrt
@@ -2406,6 +2409,193 @@ def si_arso_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 PROVIDERS["si_arso"] = si_arso_provider
 
 
+# --------------------------------------------------------------------------- GB-SCT: Scottish Remote Sensing Portal
+
+# Skotská vláda (Open Government Licence v3, bez klíče): DTM a DSM z LiDARu po fázích (Phase 1–6 2011–2022, Orkney
+# 2023, National LiDAR Programme 2025, pobřeží 2026), GeoTIFF Float32 dlaždicové s přehledy v S3 bucketu – čte se
+# jen okno výřezu přes /vsicurl. Výšky ODN, EPSG:27700 (nic se nepřevádí). Dlaždice mají jména podle mřížky OS
+# (10 km ``NT27``, 5 km ``NT27NE``, 1 km ``NT2173``) a fáze se překrývají: seznam dlaždic se jednou za
+# ``SCT_INDEX_MAX_AGE_DAYS`` načte z výpisu bucketu do cache a novější fáze má přednost. Sady HES (Historic
+# Environment Scotland) jsou zčásti pod nekomerční licencí NCGL, proto se neberou.
+SCT_BUCKET = "https://srsp-open-data.s3.eu-west-2.amazonaws.com"
+SCT_CRS = "EPSG:27700"
+SCT_BUFFER_M = 20.0
+SCT_INDEX_MAX_AGE_DAYS = 30
+# (složka v bucketu, popis) od nejstarší po nejnovější – ve VRT vyhrává pozdější.
+SCT_DATASETS: tuple[tuple[str, str], ...] = (
+    ("phase-1", "Phase 1 2011–2012"),
+    ("phase-2", "Phase 2 2012–2014"),
+    ("phase-3", "Phase 3 2012–2014"),
+    ("phase-4", "Phase 4 2017–2019"),
+    ("phase-5", "Phase 5 2020–2021"),
+    ("phase-6", "Phase 6 2021–2022"),
+    ("orkney-islands-council-23", "Orkney 2023"),
+    ("national-lidar-programme", "National LiDAR Programme 2025"),
+    ("coastal/coastal-2025-2026", "Coastal 2025–2026"),
+)
+_SCT_INDEX_LOCK = threading.Lock()
+_SCT_REF = re.compile(r"^([A-HJ-Z]{2})(\d*)(NE|NW|SE|SW)?$")
+
+
+def _os_square_origins() -> dict[str, tuple[int, int]]:
+    out = {}
+    for e100 in range(7):
+        for n100 in range(13):
+            letters = os_grid_tile(e100 * 100_000, n100 * 100_000)[:2]
+            out[letters] = (e100 * 100_000, n100 * 100_000)
+    return out
+
+
+_OS_SQUARES = _os_square_origins()
+
+
+def os_ref_bounds(ref: str) -> tuple[float, float, float, float] | None:
+    """Obdélník dlaždice podle jména v mřížce OS (``NT27`` 10 km, ``NT27NE`` 5 km, ``NT2173`` 1 km); None = nečitelné."""
+    m = _SCT_REF.match(ref.upper())
+    if not m or m.group(1) not in _OS_SQUARES or len(m.group(2)) % 2 or not m.group(2):
+        return None
+    e0, n0 = _OS_SQUARES[m.group(1)]
+    digits = m.group(2)
+    k = len(digits) // 2
+    size = 100_000 / 10**k
+    e = e0 + int(digits[:k]) * size
+    n = n0 + int(digits[k:]) * size
+    if m.group(3):
+        size /= 2
+        e += size if m.group(3)[1] == "E" else 0
+        n += size if m.group(3)[0] == "N" else 0
+    return e, n, e + size, n + size
+
+
+def _s3_keys(prefix: str, *, fetch=None) -> list[str]:
+    """Všechny klíče bucketu pod ``prefix`` (ListObjectsV2 po 1000)."""
+    import urllib.parse
+    import urllib.request
+
+    from app.pipeline.fetch_openzu import USER_AGENT
+
+    def default_fetch(url: str) -> str:
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return resp.read(20_000_000).decode("utf-8")
+
+    fetch = fetch or default_fetch
+    keys: list[str] = []
+    token = None
+    while True:
+        q = {"list-type": "2", "prefix": prefix}
+        if token:
+            q["continuation-token"] = token
+        body = fetch(f"{SCT_BUCKET}/?{urllib.parse.urlencode(q)}")
+        keys += re.findall(r"<Key>([^<]+)</Key>", body)
+        m = re.search(r"<NextContinuationToken>([^<]+)</NextContinuationToken>", body)
+        if not m:
+            return keys
+        token = m.group(1)
+
+
+def sct_index(*, fetch=None, max_age_days: float = SCT_INDEX_MAX_AGE_DAYS) -> dict[str, dict[str, list[str]]]:
+    """Seznam dlaždic po sadách: ``{sada: {"dtm": [klíč…], "dsm": [klíč…]}}`` z cache, jinak z výpisu bucketu."""
+    import time
+
+    path = settings.CACHE_DIR / "gb_sct" / "index.json"
+    with _SCT_INDEX_LOCK:
+        try:
+            if time.time() - path.stat().st_mtime < max_age_days * 86400:
+                return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+        index: dict[str, dict[str, list[str]]] = {}
+        for folder, _label in SCT_DATASETS:
+            index[folder] = {}
+            for kind in ("dtm", "dsm"):
+                keys = _s3_keys(f"lidar/{folder}/{kind}/", fetch=fetch)
+                index[folder][kind] = sorted(k for k in keys if k.lower().endswith(".tif") and "/gridded/" in k)
+        if not any(v["dtm"] for v in index.values()):
+            raise RuntimeError("Skotsko: výpis dlaždic LiDARu je prázdný")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}")
+        tmp.write_text(json.dumps(index), encoding="utf-8")
+        tmp.replace(path)
+        return index
+
+
+def sct_tiles(kind: str, window, index) -> list[tuple[str, str, tuple[float, float, float, float]]]:
+    """Dlaždice ``kind`` zasahující do okna: (sada, klíč, obdélník) od nejstarší sady po nejnovější."""
+    xmin, ymin, xmax, ymax = window
+    out = []
+    for folder, _label in SCT_DATASETS:
+        for key in index.get(folder, {}).get(kind, []):
+            box = os_ref_bounds(key.rsplit("/", 1)[-1].split("_", 1)[0])
+            if box and box[0] < xmax and box[2] > xmin and box[1] < ymax and box[3] > ymin:
+                out.append((folder, key, box))
+    return out
+
+
+SCT_COVERAGE_CELL_M = 20.0  # hrubá mřížka pro podíl pokrytí (čte se přehled dlaždice, ne plné rozlišení)
+
+
+def sct_valid_mask(sources: list[str], window, cell_m: float = SCT_COVERAGE_CELL_M) -> np.ndarray:
+    """Maska buněk ``cell_m`` v okně, kde má aspoň jeden zdroj (cesta nebo /vsicurl adresa) platnou výšku.
+
+    Dlaždice fází nejsou plné (Phase 1 ve 10 km čtverci třeba jen ze čtvrtiny), obdélník dlaždice pokrytí přestřelí.
+    gdalwarp do hrubé mřížky čte přehledy dlaždice, ne plné rozlišení."""
+    import tempfile
+
+    xmin, ymin, xmax, ymax = window
+    w = max(1, int(round((xmax - xmin) / cell_m)))
+    h = max(1, int(round((ymax - ymin) / cell_m)))
+    mask = np.zeros((h, w), dtype=bool)
+    with tempfile.TemporaryDirectory(prefix="sct-cov-") as tmp:
+        for k, src in enumerate(sources):
+            dest = Path(tmp) / f"c{k}.tif"
+            run_cmd([_gdal_tool("gdalwarp"), "-q", "--config", "GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR",
+                     "--config", "GDAL_HTTP_MAX_RETRY", "3", "-te", f"{xmin}", f"{ymin}", f"{xmax}", f"{ymax}",
+                     "-ts", str(w), str(h), "-r", "near", "-dstnodata", str(NODATA), "-ot", "Float32", src, str(dest)])
+            arr = _read(dest)
+            if arr.shape == mask.shape:
+                mask |= arr > NODATA / 2
+    return mask
+
+
+def sct_coverage(bbox_wgs84: tuple[float, float, float, float]) -> float:
+    """Podíl výřezu s platným terénem v dlaždicích (z přehledů dlaždic, hrubá mřížka 20 m)."""
+    window = _bounds_in(bbox_wgs84, "EPSG:4326", SCT_CRS)
+    tiles = sct_tiles("dtm", window, sct_index())
+    if not tiles:
+        return 0.0
+    return float(sct_valid_mask([f"/vsicurl/{SCT_BUCKET}/{key}" for _, key, _ in tiles], window).mean())
+
+
+def gb_sct_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """Skotsko: DTM a DSM 0,5–1 m ze Scottish Remote Sensing Portal (okno přes /vsicurl, novější fáze má přednost)."""
+    window = _buffered(bounds, SCT_CRS, SCT_BUFFER_M)
+    index = sct_index()
+    out: dict[str, Path | None] = {}
+    for kind in ("dtm", "dsm"):
+        tiles = sct_tiles(kind, window, index)
+        if log and kind == "dtm" and tiles:
+            labels = dict(SCT_DATASETS)
+            used = sorted({f for f, _, _ in tiles}, key=[f for f, _ in SCT_DATASETS].index)
+            log(f"  Skotsko LiDAR: {', '.join(labels[f] for f in used)}")
+        urls = [f"{SCT_BUCKET}/{key}" for _, key, _ in tiles]
+        out[kind] = cog_windows(urls, window, SCT_CRS, out_dir, f"gb_sct_{kind}", log=log, resolution="highest") if urls else None
+    if out["dtm"] is None:
+        raise ElevationUnavailable("výřez je mimo pokrytí LiDARu Scottish Remote Sensing Portal")
+    # Kontrola před jobem (``elevation_coverage``) mohla nestihnout výpis bucketu – tady už jsou okna stažená.
+    share = float(sct_valid_mask([str(out["dtm"])], window).mean())
+    if share < COVERAGE_MIN_SHARE:
+        raise ElevationUnavailable(
+            f"LiDAR Scottish Remote Sensing Portal pokrývá jen {share:.0%} výřezu; posuňte výřez do pokrytého území"
+        )
+    if out["dsm"] is None:
+        log_issue(log, "Skotsko: povrch (DSM) pro výřez chybí, výška porostu se nespočítá")
+    return SourceRasters(out["dtm"], out["dsm"])
+
+
+PROVIDERS["gb_sct"] = gb_sct_provider
+
+
 # --------------------------------------------------------------------------- DK: DHM terén + povrch (Datafordeler)
 
 # DHM/Terræn a DHM/Overflade (Klimadatastyrelsen, lidar, mřížka 0,4 m, CC BY 4.0) z WCS Datafordeleru v nativním
@@ -2797,6 +2987,7 @@ SOURCE_LABELS = {
     "dk_dhm": "DHM terén a povrch, Klimadatastyrelsen",
     "no_hoyde": "Høydemodell DTM a DOM, Kartverket",
     "si_arso": "mračno LiDAR, ARSO",
+    "gb_sct": "LiDAR DTM a DSM, Scottish Government",
     USER_UPLOAD: "vlastní data zadavatele",
 }
 
@@ -2805,6 +2996,7 @@ SOURCE_LABELS = {
 COVERAGE: dict[str, Callable[[tuple[float, float, float, float]], float]] = {
     "fr_lidarhd": fr_lidarhd_coverage,
     "it_trentino": it_trentino_coverage,
+    "gb_sct": sct_coverage,
 }
 # Strop počtu stahovaných dlaždic výšek na výřez (zdroje po celých velkých dlaždicích): zdroj → (počet, strop).
 TILE_LIMITS: dict[str, Callable[[tuple[float, float, float, float]], tuple[int, int]]] = {

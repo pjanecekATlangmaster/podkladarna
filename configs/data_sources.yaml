@@ -2922,33 +2922,37 @@ sources:
 
 - id: uk_scotland_lidar
   countries:
-  - UK
+  - GB-SCT
   kinds:
   - elevation
   - point_cloud
-  name: Scottish Public Sector LiDAR (DTM, DSM, dlaždice)
-  provider: Scottish Government a JNCC
-  url: https://remotesensingdata.gov.scot/about
-  info: https://registry.opendata.aws/scottish-lidar/
+  name: LiDAR for Scotland Phase 1–6, Orkney 2023, National LiDAR Programme 2025, Coastal 2026 (DTM a DSM, dlaždice)
+  provider: Scottish Government (Scottish Remote Sensing Portal, JNCC)
+  url: https://srsp-open-data.s3.eu-west-2.amazonaws.com/?list-type=2&prefix=lidar/
+  info: https://remotesensingdata.gov.scot/about
   role: výšky
-  status: candidate
+  status: used
+  code: app/pipeline/elevation_raster.py (gb_sct)
+  provider_key: gb_sct
+  probe: sct_elevation
   license:
     class: public
     name: Open Government Licence v3.0
-    url: https://remotesensingdata.gov.scot/about
-    attribution: Crown copyright Scottish Government (podle fáze, viz metadata)
+    url: https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/
+    attribution: Crown copyright Scottish Government, SEPA and Scottish Water (podle fáze, viz metadata)
   access: free
-  checked: 'Grok: 2026-11-16 About portálu (OGL, dlaždice 10 km, WMS) a záznam Open Data on AWS – Claude neověřil · opencode
-    (uk_scotland_lidar): 2026-11-16 AWS Open Data Registry („All data … OGL v3 unless otherwise stated. Currently the exception
-    is only the phase 2 – LAZ files which are under non-commercial government license“, arn:aws:s3:::srsp-open-data, `aws
-    s3 ls --no-sign-request`) – Claude neověřil'
+  checked: 'Claude 2026-11-20: výpis bucketu bez účtu (ListObjectsV2), DTM a DSM GeoTIFF Float32 LZW dlaždicové s přehledy
+    (Phase 1–2 1 m dlaždice 10 km, Phase 3–6 0,5 m dlaždice 5 km, NLP a Orkney 0,5 m 1 km), okno přes /vsicurl; metadata
+    sad z api.remotesensing.data.gov.scot/search/collection/scotland-gov/* (useConstraints: OGL v3 a citace podle fáze;
+    sady HES zčásti NCGL). Pokrytí obdélníky dlaždic ~49 000 z 78 800 km² pevniny. · dřív Grok a opencode 2026-11-16.'
   issues:
-  - Není celý Skotsko, jen plochy jednotlivých fází. WMS https://srsp-ows.jncc.gov.uk/ows je obrázek, ne výšky.
-  - Bucket s3://srsp-open-data se čte bez účtu AWS. Fáze 2 LAZ je výjimka a je nekomerční — samostatný záznam uk_scotland_ph2_laz.
-  - 'opencode navrhuje citaci: „Crown copyright Scottish Government and Fugro (2021); NLP: © Crown copyright and database
-    right (2026)“ – Claude neověřil.'
-  - 'opencode: Veřejný S3 bez AWS účtu = plně automatické stahování po souborech; EPSG:27700, OSGM15.'
-  - 'opencode: Phase-2 LAZ při prodeji map VYNECHAT (nekomerční). Fáze nemají celoplošné pokrytí; NLP 2025–2027 teprve probíhá.'
+  - Není celé Skotsko, jen plochy fází (obdélníky dlaždic ~62 % pevniny, dlaždice bývají jen zčásti plné); výřez pod polovinou pokrytí /api/sheets odmítne (``elevation_coverage`` z přehledů dlaždic) a job také.
+  - 'Phase 2 a 3 (DTM a DSM) mají v metadatech „Copyright Scottish Government and SEPA (2014). Fugro retain the commercial
+    copyright. Open Government Licence v3“ – vztah ke komerčnímu užití nejasný, před prodejem ověřit. LAZ Phase 2 je
+    NCGL (nepoužito).'
+  - Sady HES (Historic Environment Scotland) se neberou – část je pod Non-Commercial Government Licence.
+  - Fáze se překrývají a mají různý rok i roční období; novější má ve VRT přednost, terén a povrch mohou být z různých let
+    jen tam, kde novější sada pokrývá jen jeden z nich.
 
 - id: uk_scotland_ph2_laz
   countries:
