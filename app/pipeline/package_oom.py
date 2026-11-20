@@ -1535,6 +1535,12 @@ def _prepare_oom_map(
     from app.pipeline.path_clearance import paved_fill_outside_olive
 
     object_parts = paved_fill_outside_olive(object_parts, preset_id=preset_id, scale=scale)
+    # Les a MTBO: voda se pod silnicí / cestou na mostě vyřízne (barva vody je v sadě nad výplní silnice).
+    from app.pipeline.path_clearance import water_under_bridges
+
+    object_parts = water_under_bridges(
+        object_parts, kp_cwd, preset_id=preset_id, scale=scale, ref_x=ref_x, ref_y=ref_y, grivation_deg=grivation
+    )
     aoi_part = build_aoi_boundary_part(
         bbox_wgs84,
         preset_id=preset_id,
