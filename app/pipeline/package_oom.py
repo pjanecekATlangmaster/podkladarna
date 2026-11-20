@@ -1490,6 +1490,10 @@ def _prepare_oom_map(
         ref_y=ref_y,
         grivation_deg=grivation,
     )
+    # USA planimetrics: okraje zpevněných ploch se o budovy neořezávají – uvnitř hotových budov se nekreslí.
+    from app.pipeline.path_clearance import clip_edges_in_buildings
+
+    object_parts = clip_edges_in_buildings(object_parts, kp_cwd, preset_id=preset_id, scale=scale)
     # Sprint: kupky, prohlubně a jámy jen v lese a na loukách (ne v zástavbě).
     object_parts = sprint_knolls_outside_town(object_parts, preset_id=preset_id, scale=scale)
     # Sprint: ulice historických center jako zpevněná plocha 501 z parcel katastru (pod ostatními objekty).

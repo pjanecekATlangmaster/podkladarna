@@ -31,11 +31,11 @@ SOURCE_CRS = "EPSG:4326"
 WORKERS = 4
 HTTP_TIMEOUT_S = 180
 HTTP_RETRIES = 3
-MAX_RESPONSE_BYTES = 300_000_000
+MAX_RESPONSE_BYTES = 80_000_000  # na stránku; 4 vrstvy souběžně → nejvýš ~320 MB v paměti (review PR 461)
 MAX_PAGES = 40
 
 NYC_SODA = "https://data.cityofnewyork.us/resource"
-NYC_PAGE = 50000
+NYC_PAGE = 20000
 DC_PLANIMETRICS = "https://maps2.dcgis.dc.gov/dcgis/rest/services/DCGIS_DATA/Planimetrics_2023/MapServer"
 DC_PAGE = 2000
 
