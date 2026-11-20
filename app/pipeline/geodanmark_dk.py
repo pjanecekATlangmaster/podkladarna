@@ -7,7 +7,9 @@ GeoDanmark je celostátní topografická databáze ve velkém měřítku (obce j
 - ``parkering`` → parkoviště (obrys je uzavřená čára),
 - vozovky: GeoDanmark nemá plochy silnic, jen okraje (``vejkant``) a osy (``vejmidte``). Vozovka vznikne z kolmých
   řezů po ``ROAD_STEP_M`` podél osy silnice k nejbližšímu okraji vozovky po každé straně (medián v okně, kusy bez
-  okraje na obou stranách vynechá) – tam ji pak kreslí plochou / podle šířky jako české DTM. Chodníky a stezky
+  okraje na obou stranách vynechá) – tam ji pak kreslí plochou / podle šířky jako české DTM. Osy se spojí přes zlomy,
+  ústí vedlejší ulice (řez tam okraj nenajde) do ``ROAD_GAP_MAX_M`` se přemostí šířkou ze sousedních řezů a střed
+  křižovatky je stěna okrajů vozovek kolem uzlu os (``junction_polygons``). Chodníky a stezky
   (okraje ``Sti`` / ``Cykelsti``) zatím ne.
 
 WFS Datafordeleru s API klíčem (``reference_dk``), EPSG:25832, GeoJSON, stránkování po ``PAGE_SIZE``. Licence CC BY 4.0,
@@ -49,6 +51,15 @@ ROAD_MIN_SIDE_M = 1.0
 ROAD_WIDTH_M = (2.5, 30.0)
 ROAD_MEDIAN_WIN = 5  # okno mediánu šířek (řezů)
 ROAD_MIN_RUN = 3  # nejkratší souvislý kus vozovky (řezů)
+# Křižovatky: v ústí vedlejší ulice kolmý řez okraj nenajde (obrubník zahýbá do ulice), střed křižovatky by zůstal
+# bílý. V uzlu os (stupeň ≥ 3) se vezme plocha ohraničená okraji vozovek v kruhu o poloměru
+# půl šířky nejširší ulice + ``JUNCTION_EXTRA_M`` (stěna, ve které leží uzel), omezená pásem os ±(půl šířky + ``JUNCTION_SIDE_M``).
+JUNCTION_EXTRA_M = 10.0
+ROAD_GAP_MAX_M = 30.0  # krátký úsek osy bez okrajů (ústí ulice) se přemostí šířkou ze sousedních řezů
+JUNCTION_MAX_R_M = 25.0
+JUNCTION_SIDE_M = 2.5
+JUNCTION_ARM_MIN_VALID = 0.5  # podíl platných řezů osy, aby byla ramenem křižovatky
+JUNCTION_NEAR_M = 30.0  # šířky ulic pro uzel z řezů do této vzdálenosti
 # Sonda: 1 budova u Aarhusu (klíč dosadí ``source_status`` až při dotazu).
 GEODK_PROBE = (
     f"{GEODK_WFS}?apikey={KEY_PLACEHOLDER}&service=WFS&version=2.0.0&request=GetFeature"
@@ -126,34 +137,47 @@ def _props(feat: dict) -> dict:
 def road_polygons(axes: list[list[tuple[float, float]]], edges: list[list[tuple[float, float]]]) -> list:
     """Plochy vozovek z os a okrajů: kolmé řezy po ``ROAD_STEP_M``, vzdálenost k nejbližšímu okraji na obou stranách
     (medián v okně), z dvojic sousedních platných řezů čtyřúhelníky sloučené po osách. Vrací shapely polygony."""
-    from shapely.geometry import LineString, Polygon
-    from shapely.ops import unary_union
+    from shapely.geometry import LineString, Point, Polygon
+    from shapely.ops import linemerge, unary_union
     from shapely.strtree import STRtree
 
     edge_lines = [LineString(e) for e in edges if len(e) >= 2]
     if not edge_lines:
         return []
     tree = STRtree(edge_lines)
+    # osy spojené přes uzly stupně 2 (jinak na každém zlomu osy zůstala až 2m bílá štěrbina)
+    merged_axes = linemerge([LineString(a) for a in axes if len(a) >= 2 and LineString(a).length > 0])
+    lines = [g for g in getattr(merged_axes, "geoms", [merged_axes]) if not g.is_empty]
+    ltree = STRtree(lines)
+
+    def at_junction(li: int, pt) -> bool:
+        """Konec osy leží na jiné ose (křižovatka), ne slepý konec."""
+        q = Point(pt)
+        return any(int(k) != li and lines[int(k)].distance(q) <= 1.0 for k in ltree.query(q.buffer(1.0)))
+
     out = []
-    for axis in axes:
-        if len(axis) < 2:
-            continue
-        line = LineString(axis)
+    widths = []  # (osa, x, y, šířka) platných řezů pro křižovatky
+    for li, line in enumerate(lines):
         length = line.length
         n = int(length // ROAD_STEP_M)
         if n < ROAD_MIN_RUN:
             continue
         samples = []  # (x, y, nx, ny, levá, pravá) nebo None
-        for i in range(n + 1):
-            d = min(length, i * ROAD_STEP_M)
+        geo = []  # (x, y, nx, ny) každého řezu (i neplatného) nebo None
+        dists = [i * ROAD_STEP_M for i in range(n + 1)]
+        if length - dists[-1] > 0.05:
+            dists.append(length)  # řez i na konci osy
+        for d in dists:
             p = line.interpolate(d)
             a, b = line.interpolate(max(0.0, d - 0.5)), line.interpolate(min(length, d + 0.5))
             dx, dy = b.x - a.x, b.y - a.y
             norm = math.hypot(dx, dy)
             if norm == 0:
                 samples.append(None)
+                geo.append(None)
                 continue
             nx, ny = -dy / norm, dx / norm
+            geo.append((p.x, p.y, nx, ny))
             sides = []
             for s in (1.0, -1.0):
                 cut = LineString([(p.x, p.y), (p.x + s * nx * ROAD_REACH_M, p.y + s * ny * ROAD_REACH_M)])
@@ -173,12 +197,18 @@ def road_polygons(axes: list[list[tuple[float, float]]], edges: list[list[tuple[
         # medián v okně přes platné řezy (jednotlivé odskoky k vjezdům a zálivům se neprojeví)
         half = ROAD_MEDIAN_WIN // 2
         smooth = []
+        line_widths = []
         for i, sm in enumerate(samples):
             if sm is None:
                 smooth.append(None)
                 continue
             win = [samples[j] for j in range(max(0, i - half), min(len(samples), i + half + 1)) if samples[j]]
             smooth.append((sm[0], sm[1], sm[2], sm[3], median(w[4] for w in win), median(w[5] for w in win)))
+            line_widths.append((li, sm[0], sm[1], smooth[-1][4] + smooth[-1][5]))
+        if len(line_widths) >= JUNCTION_ARM_MIN_VALID * len(samples):
+            # rameno křižovatky a přemostění ústí jen u osy, která je převážně změřená vozovka
+            widths.extend(line_widths)
+            _bridge_gaps(smooth, geo, dists, at_junction(li, line.coords[0]), at_junction(li, line.coords[-1]))
         quads, run = [], []
 
         def flush():
@@ -198,10 +228,127 @@ def road_polygons(axes: list[list[tuple[float, float]]], edges: list[list[tuple[
         flush()
         if quads:
             out.append(unary_union(quads))
+    out.extend(junction_polygons(lines, edge_lines, tree, widths))
     if not out:
         return []
     merged = unary_union(out).buffer(0.1, join_style=2).buffer(-0.1, join_style=2)
     return [g for g in getattr(merged, "geoms", [merged]) if g.area >= 10.0]
+
+
+def _bridge_gaps(smooth: list, geo: list, dists: list[float], start_junction: bool, end_junction: bool) -> None:
+    """Úseky bez okraje do ``ROAD_GAP_MAX_M`` doplní šířkou ze sousedních platných řezů (uvnitř osy lineárně,
+    na konci osy v křižovatce konstantně až do uzlu). Slepé konce a delší úseky zůstanou bez vozovky."""
+    valid, run = [], []
+    for i, sm in enumerate(smooth + [None]):
+        if sm is not None:
+            run.append(i)
+            continue
+        if len(run) >= ROAD_MIN_RUN:  # kotvou jsou jen souvislé kusy vozovky, ne osamělý řez
+            valid.extend(run)
+        run = []
+    if not valid:
+        return
+
+    def put(i: int, left: float, right: float) -> None:
+        if geo[i] is not None:
+            smooth[i] = (*geo[i], left, right)
+
+    for a, b in zip(valid, valid[1:]):
+        gap = dists[b] - dists[a]
+        if b - a > 1 and gap <= ROAD_GAP_MAX_M:
+            for i in range(a + 1, b):
+                t = (dists[i] - dists[a]) / gap
+                put(i, smooth[a][4] + t * (smooth[b][4] - smooth[a][4]), smooth[a][5] + t * (smooth[b][5] - smooth[a][5]))
+    first, last = valid[0], valid[-1]
+    if start_junction and first > 0 and dists[first] <= ROAD_GAP_MAX_M:
+        for i in range(first):
+            put(i, smooth[first][4], smooth[first][5])
+    if end_junction and last < len(smooth) - 1 and dists[-1] - dists[last] <= ROAD_GAP_MAX_M:
+        for i in range(last + 1, len(smooth)):
+            put(i, smooth[last][4], smooth[last][5])
+
+
+def junction_nodes(lines: list) -> list[tuple[float, float]]:
+    """Uzly os stupně ≥ 3 (i „T“ na průběžné ose a křížení) z naodkovaných os, sloučené do 2 m."""
+    from collections import Counter
+
+    from shapely.ops import unary_union
+
+    noded = unary_union(lines)
+    deg: Counter = Counter()
+    for seg in getattr(noded, "geoms", [noded]):
+        if seg.geom_type != "LineString" or seg.is_empty:
+            continue
+        c = seg.coords
+        deg[(round(c[0][0], 2), round(c[0][1], 2))] += 1
+        deg[(round(c[-1][0], 2), round(c[-1][1], 2))] += 1
+    nodes: list[tuple[float, float]] = []
+    for pt, k in deg.items():
+        if k >= 3 and all(math.dist(pt, q) > 2.0 for q in nodes):
+            nodes.append(pt)
+    return nodes
+
+
+def _closed_by_curbs(face, disk, arms: list) -> bool:
+    """Stěna je uzavřená okraji vozovek: každý její oblouk na hranici kruhu je ústí ulice – protne ho osa ramene
+    a není delší než šířka ramene (+ rezerva na šikmý průchod a zaoblení obrubníku)."""
+    from shapely.ops import linemerge
+
+    arcs = face.boundary.intersection(disk.exterior.buffer(0.01))
+    pieces = [g for g in getattr(arcs, "geoms", [arcs]) if g.geom_type in ("LineString", "MultiLineString") and g.length > 0.05]
+    if not pieces:
+        return True
+    merged = linemerge(pieces) if len(pieces) > 1 else pieces[0]
+    for arc in getattr(merged, "geoms", [merged]):
+        widths = [w for ln, w in arms if arc.buffer(0.05).intersects(ln)]
+        if not widths or arc.length > 1.5 * max(widths) + 2 * JUNCTION_SIDE_M:
+            return False
+    return True
+
+
+def junction_polygons(lines: list, edge_lines: list, tree, widths: list[tuple[int, float, float, float]]) -> list:
+    """Plochy středů křižovatek: stěna okrajů vozovek obsahující uzel os v kruhu kolem uzlu, omezená pásem os
+    vstupujících do uzlu (každá podle své změřené šířky; osa bez změřené vozovky pás nedává)."""
+    from shapely.geometry import Point
+    from shapely.ops import polygonize, unary_union
+    from shapely.strtree import STRtree
+
+    if not lines or not widths:
+        return []
+    width_pts = [Point(x, y) for _, x, y, _ in widths]
+    wtree = STRtree(width_pts)
+    ltree = STRtree(lines)
+    out = []
+    for x, y in junction_nodes(lines):
+        node = Point(x, y)
+        near = node.buffer(JUNCTION_NEAR_M)
+        per_line: dict[int, list[float]] = {}
+        for k in wtree.query(near):
+            li, wx, wy, w = widths[int(k)]
+            if math.dist((wx, wy), (x, y)) <= JUNCTION_NEAR_M:
+                per_line.setdefault(li, []).append(w)
+        arms = [
+            (lines[int(li)], median(per_line[int(li)])) for li in ltree.query(node.buffer(0.5))
+            if int(li) in per_line and lines[int(li)].distance(node) <= 0.5
+        ]
+        if not arms:
+            continue  # uzel bez změřené vozovky (pěší / bez okrajů)
+        r = min(JUNCTION_MAX_R_M, max(w for _, w in arms) / 2.0 + JUNCTION_EXTRA_M)
+        disk = node.buffer(r, 32)
+        cut = [edge_lines[int(k)].intersection(disk) for k in tree.query(disk)]
+        cut = [g for g in cut if not g.is_empty]
+        faces = [f for f in polygonize(unary_union(cut + [disk.exterior])) if f.contains(node)]
+        if faces and _closed_by_curbs(faces[0], disk, arms):
+            band = unary_union([ln.buffer(w / 2.0 + JUNCTION_SIDE_M, cap_style="flat") for ln, w in arms])
+            face = faces[0].intersection(band).intersection(disk)
+        else:
+            # okraje vozovky v kruhu nejsou souvislé (stěna by vytekla mimo ulici): jen pásy os podle šířky
+            face = unary_union([ln.buffer(w / 2.0) for ln, w in arms]).intersection(disk)
+            if faces:
+                face = face.intersection(faces[0])
+        if not face.is_empty and face.area >= 1.0:
+            out.append(face)
+    return out
 
 
 def _shapely_to_rings(geom) -> list:

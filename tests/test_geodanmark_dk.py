@@ -1,11 +1,13 @@
 """Dánsko: GeoDanmark z WFS Datafordeleru – klíč jen při dotazu, třídění vrstev a vozovky z okrajů silnic."""
 
 import io
+import math
 import urllib.error
 import urllib.parse
 
 import pytest
-from shapely.geometry import Polygon
+from shapely.geometry import Point, Polygon
+from shapely.ops import unary_union
 
 from app.pipeline import geodanmark_dk as gd
 from app.pipeline import reference_dk
@@ -75,3 +77,32 @@ def test_classify_layers():
     assert len(out["fences"]) == 1 and out["fences"][0].oid == "7"
     assert len(out["roads"]) == 1  # stezka se okraji stezky nestane vozovkou
     assert Polygon(out["roads"][0][0]).area == pytest.approx(700, rel=0.05)
+
+
+def _corner(sx, sy, h=4.0, r=3.0, reach=40.0):
+    """Obrubník rohu křižovatky dvou ulic šířky 2h v kvadrantu (sx, sy): zaoblený roh poloměru r."""
+    cx, cy = sx * (h + r), sy * (h + r)
+    arc = [(cx - sx * r * math.cos(t), cy - sy * r * math.sin(t)) for t in [i * math.pi / 2 / 8 for i in range(9)]]
+    return [(sx * reach, sy * h)] + arc[::-1] + [(sx * h, sy * reach)]
+
+
+@pytest.mark.parametrize("axes", [
+    [[(-40.0, 0.0), (0.0, 0.0)], [(0.0, 0.0), (40.0, 0.0)], [(0.0, -40.0), (0.0, 0.0)], [(0.0, 0.0), (0.0, 40.0)]],  # X, osy dělené v uzlu
+    [[(-40.0, 0.0), (40.0, 0.0)], [(0.0, -40.0), (0.0, 40.0)]],  # X, průběžné osy
+    [[(-40.0, 0.0), (-10.0, 0.0), (40.0, 0.0)], [(0.0, -40.0), (0.0, 40.0)]],  # zlom osy mimo uzel
+])
+def test_junction_centre_filled_within_curbs(axes):
+    edges = [_corner(sx, sy) for sx in (1, -1) for sy in (1, -1)]
+    unary = unary_union(gd.road_polygons(axes, edges))
+    for pt in [(0, 0), (3.5, 3.5), (-3.5, 3.5), (5.5, 0), (0, -5.5), (-10.0, 0), (15, 0)]:
+        assert unary.contains(Point(pt)), pt  # střed, rohy středu, ústí a místo zlomu osy
+    assert not unary.intersects(Point(7.5, 7.5).buffer(1.0))  # za zaobleným obrubníkem nic
+
+
+def test_t_junction_mouth_bridged_dead_end_not():
+    # průběžná ulice 8 m, vedlejší ulice zprava; obrubník průběžné ulice je v ústí přerušený
+    axes = [[(-50.0, 0.0), (50.0, 0.0)], [(0.0, 0.0), (0.0, -40.0)]]
+    edges = [[(-55.0, 4.0), (55.0, 4.0)], _corner(1, -1), _corner(-1, -1, reach=55.0)]
+    road = unary_union(gd.road_polygons(axes, edges))
+    assert road.contains(Point(0, 0)) and road.contains(Point(0, -3.9)) and road.contains(Point(3.0, -3.0))
+    assert not road.contains(Point(52.0, 0))  # slepý konec bez okrajů se neprodlužuje
