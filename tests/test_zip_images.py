@@ -41,7 +41,7 @@ def test_every_reference_key_has_one_source_and_status():
 @pytest.mark.parametrize(
     "country, expected",
     # osm_tiles: obrázek nahrazuje vlastní render osm.png (osm_render), vysvětlení v ZIPu nepotřebuje
-    [("CZ", []), ("AT", []), ("IT", ["it_wms"])],
+    [("CZ", []), ("AT", []), ("IT", ["it_wms"]), ("SK", ["sk_ortho"])],
 )
 def test_withheld_sources_per_country(country, expected):
     assert zip_images.withheld_sources(country) == expected

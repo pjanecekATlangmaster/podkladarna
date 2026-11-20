@@ -44,6 +44,7 @@ SK:
   citation: "Base map: Omapic · ÚGKK SR · OSM, [year]"
   attribution:
     - "DMR 5.0 a DMP 1.0 © ÚGKK SR – CC BY 4.0."
+    - "Templates: orthophoto GKÚ Bratislava, NLC (online only); ESKN cadastral map © ÚGKK SR and ZBGIS © GKÚ Bratislava – CC BY 4.0."
     - "OSM © OpenStreetMap contributors (ODbL)."
 NL:
   name: {cs: Nizozemsko, en: Netherlands, nl: Nederland}
