@@ -23,6 +23,12 @@ WALK_AREA_MIN_MM = 0.5
 # Šířka se měří kolmými řezy po tolika metrech; do výsledku jen řezy, jejichž bod leží v ploše.
 SAMPLE_STEP_M = 5.0
 MAX_HALF_M = 25.0
+# Velké plochy (GeoDanmark: celá síť vozovek výřezu jako jeden polygon s 77 000 vrcholy) se pro řezy předem ořežou
+# do dlaždic s okrajem ≥ délky řezu: průnik krátkého řezu s celou plochou stál O(vrcholů) na každý řez (Dánsko
+# 64063551bad6: 14 min ve skládání mapy). Řez leží celý uvnitř dlaždice; šířka se může lišit jen v 10. desetinném
+# místě (hrana rozdělená okrajem dlaždice), volbu symbolu podle prahů to nezmění.
+TILE_M = 64.0
+TILE_MIN_VERTICES = 20000  # v Česku je plocha DTM jeden objekt ZPS (Barrandov nejvýš 1 467 vrcholů) → beze změny
 # Šířka platí, když v ploše DTM leží aspoň tolik řezů (zbytek čáry DTM nezná nebo vede mimo).
 MIN_INSIDE_SHARE = 0.5
 # Stejný druh cesty – symbol z DTM jen pro (ne mosty / tunely / schody):
@@ -39,8 +45,28 @@ class WidthIndex:
         self.polys = [p for p in polys if p is not None and not p.is_empty]
         self.prepared = [prep(p) for p in self.polys]
         self.tree = STRtree(self.polys) if self.polys else None
+        self._big = {i for i, p in enumerate(self.polys) if _vertex_count(p) >= TILE_MIN_VERTICES}
+        self._tiles: dict[tuple[int, int, int], object] = {}
         # Šířka čáry podle souřadnic – během sestavení mapy se tytéž silnice měří mnohokrát (pás silnic, síť ploch…).
         self._line_cache: dict[tuple, float | None] = {}
+
+    def _cut(self, i: int, x: float, y: float, reach: float):
+        """Plocha ``i`` pro řez z bodu (x, y) dlouhý nejvýš ``reach`` na každou stranu: u velké plochy dlaždice s okrajem."""
+        if i not in self._big or reach > MAX_HALF_M + 0.5:
+            return self.polys[i]
+        tx, ty = math.floor(x / TILE_M), math.floor(y / TILE_M)
+        key = (i, tx, ty)
+        g = self._tiles.get(key)
+        if g is None:
+            from shapely.geometry import MultiPolygon, box
+
+            m = MAX_HALF_M + 1.0
+            g = self.polys[i].intersection(box(tx * TILE_M - m, ty * TILE_M - m, (tx + 1) * TILE_M + m, (ty + 1) * TILE_M + m))
+            if g.geom_type == "GeometryCollection":  # dotyk s okrajem dlaždice: jen plošné části
+                polys = [p for q in g.geoms for p in getattr(q, "geoms", [q]) if p.geom_type == "Polygon" and not p.is_empty]
+                g = MultiPolygon(polys)
+            self._tiles[key] = g
+        return g
 
     def width_at(self, x: float, y: float, nx: float, ny: float, max_half: float = MAX_HALF_M) -> float | None:
         """Šířka plochy v bodě (x, y) ve směru normály (nx, ny); None, když bod neleží v ploše."""
@@ -50,7 +76,8 @@ class WidthIndex:
 
         p = Point(x, y)
         seg = LineString([(x - nx * max_half, y - ny * max_half), (x + nx * max_half, y + ny * max_half)])
-        hits = [self.polys[i] for i in self.tree.query(p) if self.prepared[i].covers(p)]
+        reach = max_half * max(abs(nx), abs(ny))
+        hits = [self._cut(i, x, y, reach) for i in self.tree.query(p) if self.prepared[i].covers(p)]
         if not hits:
             return None
         if len(hits) == 1:
@@ -121,6 +148,13 @@ class WidthIndex:
         if kept == 0 or len(widths) < MIN_INSIDE_SHARE * kept:
             return None
         return statistics.median(widths)
+
+
+def _vertex_count(poly) -> int:
+    try:
+        return len(poly.exterior.coords) + sum(len(r.coords) for r in poly.interiors)
+    except AttributeError:  # MultiPolygon po buffer(0)
+        return sum(_vertex_count(g) for g in getattr(poly, "geoms", []))
 
 
 def width_line_code(highway: str, width_m: float | None, tag_code: str) -> str:

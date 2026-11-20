@@ -14,7 +14,7 @@ from app.pipeline.oom_import import (
     _pyogrio_layer_rows,
     _wkb_parts,
 )
-from app.pipeline.oom_symbol_map import preset_uses_catalog, symbol_index_for_code
+from app.pipeline.oom_symbol_map import _has_symbol, preset_uses_catalog, symbol_index_for_code
 from app.pipeline.prepare_lidar import find_tool, log_step, run_cmd
 from app.pipeline.reference_layers import _fill_dem_nodata, _pdal_dem_from_laz
 
@@ -1249,6 +1249,19 @@ def build_gdal_contour_parts(
     return parts
 
 
+def slope_line_codes(preset_id: str, scale: int) -> dict[str, str]:
+    """{kód vrstevnice: kód spádnice} pro sadu presetu.
+
+    ISMTBOM 2022 nemá spádnici na doplňkové vrstevnici (103.1) – v MTBO se proto na 103
+    nedotazujeme (dřív to dalo v logu falešné „!!! … 103.1×1“; kresba stejná, spádnice
+    na 103 v MTBO nevznikala ani dřív).
+    """
+    out = {"101": "101.1"}
+    if _has_symbol(preset_id, scale, "103.1"):
+        out["103"] = "103.1"
+    return out
+
+
 def _slope_line_objects(
     work_dir: Path,
     rings: list[tuple[str, float, list[tuple[float, float]]]],
@@ -1265,10 +1278,9 @@ def _slope_line_objects(
 
     if not cs.SLOPE_LINES or not rings:
         return []
-    sym = {
-        "101": symbol_index_for_code(preset_id, scale, "101.1"),
-        "103": symbol_index_for_code(preset_id, scale, "103.1"),
-    }
+    codes = slope_line_codes(preset_id, scale)
+    sym = {k: symbol_index_for_code(preset_id, scale, c) for k, c in codes.items()}
+    sym.setdefault("103", None)
     sym["102"] = sym["101"]
     if not any(v is not None for v in sym.values()):
         return []
