@@ -12,6 +12,7 @@ from app.pipeline import elevation_raster
 LILLE = (3.050, 50.625, 3.070, 50.640)
 MARAIS = (2.350, 48.855, 2.362, 48.861)
 LYON = (4.825, 45.754, 4.840, 45.762)
+NANTES = (-1.560, 47.210, -1.545, 47.218)  # jen pro chybu služby (LILLE může držet běžící pomalou sondu)
 
 
 @pytest.fixture
@@ -58,6 +59,25 @@ def test_slow_source_does_not_block(fr, monkeypatch):
     finally:
         gate.set()
     assert result["block"] is None and result["elevation"]["status"] == "unknown"
+
+
+def test_elevation_pending_and_unverified(fr, monkeypatch):
+    """Nulové pokrytí s nasnímaným, ale nezveřejněným projektem má vlastní hlášku; chyba služby jen varuje."""
+    monkeypatch.setitem(elevation_raster.COVERAGE, "fr_lidarhd", lambda _b: 0.0)
+    monkeypatch.setitem(elevation_raster.COVERAGE_PENDING, "fr_lidarhd", lambda _b: ["NY_NHGaps_1_D24 (2025)"])
+    result = area_probe.probe(fr, LYON)
+    assert result["verdict"] == "block"
+    assert "NY_NHGaps_1_D24 (2025)" in i18n.localize(result["block"], "en")
+    assert "not been published" in i18n.localize(result["block"], "en")
+
+    def broken(_b):
+        raise OSError("timeout")
+
+    monkeypatch.setattr(elevation_raster, "_COVERAGE_CACHE", {})
+    monkeypatch.setitem(elevation_raster.COVERAGE, "fr_lidarhd", broken)
+    result = area_probe.probe(fr, NANTES)
+    assert result["block"] is None and result["elevation"]["status"] == "failed"
+    assert any("nepodařilo ověřit" in t for t in _texts(result))
 
 
 @pytest.mark.parametrize(

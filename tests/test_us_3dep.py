@@ -63,6 +63,53 @@ def test_candidates_skip_missing_ept_and_coverage(tmp_path, monkeypatch):
     assert reference_us.coverage_share((0.0, 0.0, 1.0, 1.0), []) == 0.0
 
 
+def _footprints(*rows):
+    return {"type": "FeatureCollection", "features": [
+        {"type": "Feature", "properties": {"name": name, "count": count},
+         "geometry": {"type": "MultiPolygon", "coordinates": [[[[w, s], [e, s], [e, n], [w, n], [w, s]]]]}}
+        for name, count, (w, s, e, n) in rows
+    ]}
+
+
+def test_candidates_from_ept_footprints(tmp_path, monkeypatch):
+    """New York: mračno města ve WESM není a projekt WESM (Sandy 2013) v bucketu chybí – rozhodne obrys mračna."""
+    monkeypatch.setattr(settings, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(reference_us, "_FOOTPRINTS", {})
+    monkeypatch.setattr(reference_us, "_PENDING", {})
+    cell = (-74.0, 40.7, -73.99, 40.71)  # ~0,94 km²
+    km2 = 0.94e6
+    wesm = _wesm(("NY_CMPG_2013", "QL 2", 1_398_000_000_000, cell),
+                 ("OLD_OTHER_2009", "Other", 1_240_000_000_000, cell))
+    names = {"OLD_OTHER_2009": "Other"}  # obrys WESM výřez míjí, kvalitu najde dotaz podle jména
+    foot = _footprints(("NY_NewYorkCity", int(4 * km2), cell),  # mimo WESM, 4 b/m² → bere se
+                       ("IA_FullState", int(1.1 * km2), cell),  # mimo WESM, řídké → ne
+                       ("USGS_LPC_OLD_OTHER_2009_LAS_2012", int(9 * km2), cell),  # WESM „Other“ → ne
+                       ("FAR_2020", int(9 * km2), (-100.0, 30.0, -99.9, 30.1)))  # mimo výřez
+    bucket = b"<ListBucketResult><CommonPrefixes><Prefix>NY_NewYorkCity/</Prefix></CommonPrefixes></ListBucketResult>"
+    calls = []
+
+    def fetch(url):
+        calls.append(url)
+        if "githubusercontent" in url:
+            return json.dumps(foot).encode()
+        if "index.nationalmap.gov" in url:
+            if "UPPER" in url:
+                assert "IA_FULLSTATE" in url and "NY_NEWYORKCITY" in url
+                return json.dumps({"features": [{"attributes": {"workunit": k, "ql": v}} for k, v in names.items()]}).encode()
+            return json.dumps(wesm if "1%3D1" in url else _wesm()).encode()
+        return bucket
+
+    cands = reference_us.candidates(cell, fetch=fetch)
+    assert [(n, wu.year) for n, wu in cands] == [("NY_NewYorkCity", 2017)]
+    assert reference_us.coverage_share(cell, cands) == pytest.approx(1.0)
+    assert reference_us.pending_workunits(cell) == ["NY_CMPG_2013 (2014)"]  # nasnímáno, mračno zatím chybí
+    n = len(calls)
+    reference_us.candidates(cell, fetch=fetch)
+    assert not any("githubusercontent" in u for u in calls[n:])  # obrysy z cache
+    assert reference_us._name_year("NY_X") == 0 and reference_us._name_year("GA_Central_1_2018") == 2018 and reference_us._name_year("UT_WestEast_1_B22") == 2022
+    assert reference_us.ept_workunit("USGS_LPC_NY_LongIsland_Z18_2014_LAS_2015") == "NY_LongIsland_Z18_2014"
+
+
 def test_ept_nodes_window_and_depth_limit():
     ept = {"bounds": [0, 0, 0, 1024, 1024, 1024], "span": 128}
     hier = {"0-0-0-0": 10, "1-0-0-0": 5, "1-1-0-0": 5, "2-0-0-0": -1, "3-0-0-0": 7}
