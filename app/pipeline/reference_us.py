@@ -352,12 +352,14 @@ def candidates(bbox_wgs84, *, fetch=_get) -> list[tuple[str, Workunit]]:
     except Exception:  # noqa: BLE001 – bez WESM rozhodnou obrysy a hustota; bez obrysů nelze nic
         if not footprints:
             raise
-        wesm = []
+        wesm = None
+    wesm_ok = wesm is not None
+    wesm = wesm or []
     by_norm = {_norm(w.name): w for w in wesm}
     known = {fp.name for fp in footprints}
     hits = [fp for fp in footprints if fp.geometry.intersects(area)]
     missing = [ept_workunit(fp.name) for fp in hits if _norm(ept_workunit(fp.name)) not in by_norm]
-    if missing:  # obrys WESM výřez míjí, nebo jméno ve WESM není vůbec
+    if missing and wesm_ok:  # obrys WESM výřez míjí, nebo jméno ve WESM není vůbec
         try:
             by_norm.update({k: v for k, v in wesm_by_name(missing, fetch=fetch).items() if k not in by_norm})
         except Exception:  # noqa: BLE001 – bez dotazu rozhodne hustota
