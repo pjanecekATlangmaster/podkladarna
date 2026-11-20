@@ -130,6 +130,8 @@ def probe(
     if "elevation" in futures:
         elev_share = _result("elevation")
         elev_status = "unknown" if elev_share is None else "checked"
+        if elev_share is None and futures["elevation"].done():
+            elev_status = "failed"  # služba pokrytí neodpověděla (nestihnuto = jen „unknown“, doběhne do cache)
     elif country.code != countries.DEFAULT_COUNTRY:
         # Celoplošný národní zdroj (NL, CH, AT…) končí na hranici země: přesah výřezu za ni je bez terénu
         # a porostu. Česko beze změny (mimo polygon tam varuje kontrola listů LiDARu).
@@ -153,9 +155,17 @@ def probe(
     if block is None and elev_share is not None and elev_status == "checked":
         pct = int(round(elev_share * 100))
         if elev_share < elevation_raster.COVERAGE_MIN_SHARE:
-            block = i18n.Msg("api.sheets.no_elevation", source=elev_label, share=pct)
+            pending = elevation_raster.coverage_pending(country.elevation, box)
+            if pending:  # nasnímáno, ale zdroj data ještě nezveřejnil (USA: mračno 3DEP na AWS)
+                block = i18n.Msg("api.sheets.no_elevation_pending", source=elev_label, share=pct,
+                                 projects=", ".join(pending[:3]))
+            else:
+                block = i18n.Msg("api.sheets.no_elevation", source=elev_label, share=pct)
         elif elev_share < PARTIAL_SHARE:
             warnings.append(i18n.Msg("api.probe.elevation_partial", source=elev_label, share=pct))
+
+    if block is None and elev_status == "failed":
+        warnings.append(i18n.Msg("api.probe.elevation_unverified", source=elev_label))
 
     # Technická mapa: obrysy z countries.yaml; v Česku navíc kvalita DTM obcí (živě z velikosti balíků).
     tech: dict[str, Any] = {"key": tech_key or "none", "share": None}
