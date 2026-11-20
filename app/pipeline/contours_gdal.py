@@ -22,6 +22,8 @@ CONTOUR_META_NAME = "contour_meta.json"
 # Souhrn adaptivního vyhlazení posledního běhu podle složky (pro contour_meta).
 _LAST_ADAPTIVE: dict[str, dict | None] = {}
 FORMLINES_ALL_NAME = "formlines_all.shp"
+# Kroužky ve ¼ a ¾ ekvidistance – kandidáti uzavřené pomocné (contour_shapes, jen sparse / more).
+FORMLINES_QUARTER_NAME = "formlines_quarter.shp"
 
 # Pomocné vrstevnice 103 (volba jobu contour_formlines, viz job_options).
 # Výběr: kreslit jen kde půlová linie není uprostřed mezi sousedními
@@ -649,13 +651,14 @@ def _run_gdal_contour(
     *,
     interval_m: float,
     offset_m: float = 0.0,
+    label: str = "Kandidáti pomocných vrstevnic (půl ekvidistance)",
     log=None,
 ) -> Path:
     gdal_contour = find_tool("gdal_contour")
     for suffix in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
         dest_shp.with_suffix(suffix).unlink(missing_ok=True)
     if offset_m:
-        log_step(log, "Kandidáti pomocných vrstevnic (půl ekvidistance)")
+        log_step(log, label)
     else:
         log_step(log, "Kreslím vrstevnice z DEM (ekvidistance do mapy)")
     run_cmd(
@@ -879,6 +882,10 @@ def _formline_candidates(
 ) -> Path | None:
     """Půlové linie ze stejného vyhlazeného DEM jako vrstevnice (výběr až v OOM)."""
     dest = contours_dir / FORMLINES_ALL_NAME
+    quarter = contours_dir / FORMLINES_QUARTER_NAME
+    if mode not in _FORMLINE_PARAMS:
+        for suffix in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
+            quarter.with_suffix(suffix).unlink(missing_ok=True)
     if not _formlines_on(mode):
         for suffix in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
             dest.with_suffix(suffix).unlink(missing_ok=True)
@@ -891,9 +898,23 @@ def _formline_candidates(
         dem_smooth = contours_dir / "dem_smooth.tif"
     if not dem_smooth.is_file():
         return None
-    return _run_gdal_contour(
+    out = _run_gdal_contour(
         dem_smooth, dest, interval_m=interval_m, offset_m=interval_m / 2.0, log=log
     )
+    if mode in _FORMLINE_PARAMS:
+        # Úrovně k+¼ a k+¾: interval I/2 s posunem I/4.
+        try:
+            _run_gdal_contour(
+                dem_smooth,
+                quarter,
+                interval_m=interval_m / 2.0,
+                offset_m=interval_m / 4.0,
+                label="Kandidáti uzavřených pomocných vrstevnic (¼ a ¾ ekvidistance)",
+                log=log,
+            )
+        except Exception as exc:  # noqa: BLE001 – bez nich jen bez uzavřených 103
+            log_step(log, f"Varování: kandidáti uzavřených pomocných selhali ({exc})")
+    return out
 
 
 def _iter_contour_rows(shp: Path):
@@ -997,6 +1018,7 @@ def _contour_geometry(
 
     simplify_tol = contour_simplify_tol_m(scale)
     smoothed_by_key: list[tuple[str, list]] = []
+    rings_by_key: list[tuple[str, float, list]] = []
     for (code, _elev), lines in by_key.items():
         refined = refine_contour_polylines(
             lines, min_length_m=min_len, stitch_gap_m=stitch_gap
@@ -1010,10 +1032,12 @@ def _contour_geometry(
             closed = is_closed_polyline(pts)
             smoothed.append(("line", pts, closed))
         smoothed_by_key.append((code, smoothed))
+        rings_by_key.extend((code, _elev, p[1]) for p in smoothed if p[2] and _elev is not None)
 
     entry = {
         "by_key": by_key,
         "smoothed": smoothed_by_key,
+        "rings": rings_by_key,
         "simplify_tol": simplify_tol,
         "chaikin_iters": chaikin_iters,
         "formlines": {},
@@ -1032,9 +1056,15 @@ def _formline_geometry(
     interval_m: float,
     scale: int,
     mode: str,
-) -> tuple[list, int]:
-    """(vyhlazené kusy 103, počet půlových linií) – v rámci položky cache."""
-    fkey = (str(formline_shp.resolve()), _file_stamp(formline_shp), mode)
+) -> tuple[list, int, list, int]:
+    """(vyhlazené kusy 103, počet půlových linií, uzavřené kusy (výška, body), počet
+    uzavřených ze ¼ / ¾) – v rámci položky cache."""
+    fkey = (
+        str(formline_shp.resolve()),
+        _file_stamp(formline_shp),
+        _file_stamp(formline_shp.with_name(FORMLINES_QUARTER_NAME)),
+        mode,
+    )
     cached = entry["formlines"].get(fkey)
     if cached is not None:
         return cached
@@ -1056,13 +1086,39 @@ def _formline_geometry(
     pieces = select_formlines(
         candidates, main_lines, interval_m=interval_m, scale=scale, mode=mode
     )
+    n_half = len(pieces)
+    quarter_shp = formline_shp.with_name(FORMLINES_QUARTER_NAME)
+    if mode in _FORMLINE_PARAMS and quarter_shp.is_file():
+        from app.pipeline.contour_shapes import select_closed_formlines
+
+        quarter: list[tuple[float, list[tuple[float, float]]]] = []
+        for props, wkb in _iter_contour_rows(quarter_shp):
+            elev = _elev_from_props(props)
+            if elev is None:
+                continue
+            geom_parts, _ = _wkb_parts(wkb)
+            for part in geom_parts:
+                if part[0] == "line" and len(part[1]) >= 5:
+                    quarter.append((elev, list(part[1])))  # type: ignore[arg-type]
+        pieces = pieces + select_closed_formlines(
+            quarter,
+            main_lines,
+            [pts for _e, pts, _c in pieces],
+            interval_m=interval_m,
+            scale=scale,
+            mode=mode,
+        )
     smoothed = []
-    for _elev, pts, _closed in pieces:
+    rings = []
+    for elev, pts, _closed in pieces:
         pts = chaikin(pts, iterations=entry["chaikin_iters"])
         pts = simplify_contour_polyline(pts, entry["simplify_tol"])
         if len(pts) >= 2:
-            smoothed.append(("line", pts, is_closed_polyline(pts)))
-    result = (smoothed, len(candidates))
+            closed = is_closed_polyline(pts)
+            smoothed.append(("line", pts, closed))
+            if closed:
+                rings.append((elev, pts))
+    result = (smoothed, len(candidates), rings, len(pieces) - n_half)
     entry["formlines"][fkey] = result
     return result
 
@@ -1140,14 +1196,15 @@ def build_gdal_contour_parts(
 
     formline_shp = work_dir / "contours" / FORMLINES_ALL_NAME
     symbol_103 = symbol_index_for_code(preset_id, scale, "103")
+    formline_rings: list = []
     if _formlines_on(formlines) and formline_shp.is_file() and symbol_103 is not None:
-        smoothed, n_candidates = _formline_geometry(
+        smoothed, n_candidates, formline_rings, extra = _formline_geometry(
             entry, formline_shp, interval_m=interval_m, scale=scale, mode=formlines
         )
         if log:
             log(
                 f"Pomocné vrstevnice 103 ({formlines}): {len(smoothed)} kusů "
-                f"z {n_candidates} půlových linií"
+                f"z {n_candidates} půlových linií, z toho {extra} uzavřených ve ¼ / ¾"
             )
         if smoothed:
             grouped["103"].extend(
@@ -1162,6 +1219,18 @@ def build_gdal_contour_parts(
                 )
             )
 
+    slope = _slope_line_objects(
+        work_dir,
+        [(code, elev, pts) for code, elev, pts in entry.get("rings", [])]
+        + [("103", elev, pts) for elev, pts in formline_rings],
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation_deg,
+        log=log,
+    )
+
     parts: list[OomObjectPart] = []
     for code in ("101", "102", "103"):
         objects = grouped[code]
@@ -1173,4 +1242,61 @@ def build_gdal_contour_parts(
                     count=len(objects),
                 )
             )
+    if slope:
+        parts.append(
+            OomObjectPart(name="Spádnice (GDAL)", objects_xml="\n".join(slope), count=len(slope))
+        )
     return parts
+
+
+def _slope_line_objects(
+    work_dir: Path,
+    rings: list[tuple[str, float, list[tuple[float, float]]]],
+    *,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+    log=None,
+) -> list[str]:
+    """Spádnice 101.1 / 103.1 na uzavřených vrstevnicích prohlubní (contour_shapes)."""
+    from app.pipeline import contour_shapes as cs
+
+    if not cs.SLOPE_LINES or not rings:
+        return []
+    sym = {
+        "101": symbol_index_for_code(preset_id, scale, "101.1"),
+        "103": symbol_index_for_code(preset_id, scale, "103.1"),
+    }
+    sym["102"] = sym["101"]
+    if not any(v is not None for v in sym.values()):
+        return []
+    dem = cs.load_dem(work_dir / "contours")
+    if dem is None:
+        return []
+    from app.pipeline.oom_import import projected_to_map_coord
+
+    def to_map(x: float, y: float) -> tuple[int, int]:
+        return projected_to_map_coord(
+            x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg
+        )
+
+    out: list[str] = []
+    n_dep = 0
+    for code, elev, pts in rings:
+        symbol_index = sym.get(code)
+        if symbol_index is None or not cs.is_depression(dem, pts, elev):
+            continue
+        n_dep += 1
+        for x, y, dx, dy in cs.slope_ticks(pts, scale=scale):
+            mx, my = to_map(x, y)
+            rot = cs.ocad_rotation(to_map, x, y, dx, dy)
+            out.append(
+                f'            <object type="0" symbol="{symbol_index}" rotation="{rot:.6f}">\n'
+                f'                <coords count="1">{mx} {my};</coords>\n'
+                f"            </object>"
+            )
+    if log and out:
+        log(f"Spádnice: {len(out)} na {n_dep} uzavřených vrstevnicích prohlubní")
+    return out

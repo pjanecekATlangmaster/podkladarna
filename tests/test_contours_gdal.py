@@ -377,3 +377,72 @@ def test_build_gdal_contour_parts_reuses_geometry_between_maps(tmp_path, monkeyp
     os.utime(shp, ns=(shp.stat().st_atime_ns, shp.stat().st_mtime_ns + 10**9))
     cg.build_gdal_contour_parts(tmp_path, preset_id="forest_10000", **kw)
     assert reads == ["contours.shp", "contours.shp"]
+
+
+def _ring_at(cx, cy, r, n=72):
+    return [(cx + x, cy + y) for x, y in _circle(r, n)]
+
+
+@pytest.mark.parametrize(
+    "candidates, inner, expect",
+    [
+        # kopeček s vrcholem mezi ¼ a ½: kroužek ve ¼
+        ([(6.25, _ring_at(0, 0, 40.0))], [], [6.25]),
+        # dva soustředné kroužky téhož tvaru (¼ a ¾): jen jeden (stejně blízko půlce → větší)
+        ([(6.25, _ring_at(0, 0, 40.0)), (8.75, _ring_at(0, 0, 25.0))], [], [6.25]),
+        # malý kroužek (pod 3 mm² na papíře) nic
+        ([(6.25, _ring_at(0, 0, 8.0))], [], []),
+        # vrstevnice uvnitř kroužku → tvar už ukazuje základní
+        ([(6.25, _ring_at(0, 0, 60.0))], [(10.0, _ring_at(0, 0, 20.0))], []),
+        # těsně u vrstevnice (pod 0,35 mm) se nevejde
+        ([(6.25, _ring_at(0, 0, 87.0))], [], []),
+        # už vybraná půlová 103 v témže tvaru → druhá ne
+        ([(6.25, _ring_at(0, 0, 40.0))], "half", []),
+    ],
+)
+def test_closed_formline_between_levels(candidates, inner, expect):
+    """Uzavřená 103 ve ¼ / ¾ jen kde tvar minou vrstevnice i půlová 103, nejvýš jedna na tvar."""
+    from app.pipeline.contour_shapes import select_closed_formlines
+
+    contours = [(5.0, _circle(90.0)), (0.0, _circle(300.0))]
+    selected = []
+    if inner == "half":
+        selected = [_ring_at(0, 0, 30.0)]
+    else:
+        contours += inner
+    got = select_closed_formlines(candidates, contours, selected, interval_m=5, scale=10000, mode="sparse")
+    assert [e for e, _p, closed in got if closed] == expect
+
+
+def test_slope_lines_on_depression_ring(tmp_path):
+    """Spádnice na uzavřené vrstevnici prohlubně, směr dovnitř; na kopečku žádná."""
+    import math
+
+    import numpy as np
+
+    from app.pipeline import contour_shapes as cs
+
+    ring = _ring_at(100.0, 100.0, 30.0)
+    ticks = cs.slope_ticks(ring, scale=10000)
+    assert len(ticks) == 1
+    x, y, dx, dy = ticks[0]
+    # směr k středu kroužku
+    assert (100.0 - x) * dx + (100.0 - y) * dy > 0
+    # OOM: 0 = čárka k severu, kladně proti směru hodinových ručiček (mapa y dolů)
+    to_map = lambda px, py: (int(px * 100), int(-py * 100))  # noqa: E731
+    assert cs.ocad_rotation(to_map, 0, 0, 0.0, 1.0) == pytest.approx(0.0)
+    assert cs.ocad_rotation(to_map, 0, 0, -1.0, 0.0) == pytest.approx(math.pi / 2)
+    # opačný směr obíhání dá stejný směr spádnice
+    x2, y2, dx2, dy2 = cs.slope_ticks(list(reversed(ring)), scale=10000)[0]
+    assert (100.0 - x2) * dx2 + (100.0 - y2) * dy2 > 0
+
+    gdal = pytest.importorskip("osgeo.gdal")
+    yy, xx = np.mgrid[0:200, 0:200]
+    r = np.hypot(xx + 0.5 - 100.0, (200 - yy - 0.5) - 100.0)
+    for sign, depression in ((1.0, True), (-1.0, False)):
+        path = tmp_path / f"dem{sign}.tif"
+        ds = gdal.GetDriverByName("GTiff").Create(str(path), 200, 200, 1, gdal.GDT_Float32)
+        ds.SetGeoTransform((0.0, 1.0, 0.0, 200.0, 0.0, -1.0))
+        ds.GetRasterBand(1).WriteArray((100.0 + sign * 0.1 * r).astype("float32"))
+        ds = None
+        assert cs.is_depression(cs._Dem(path), ring, 100.0 + sign * 3.0) is depression
