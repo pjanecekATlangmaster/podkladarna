@@ -242,6 +242,7 @@ ELEVATION_LABELS = {"user_upload": "vlastních dat zadavatele", "nl_ahn": "AHN (
     "dk_dhm": "DHM terén a povrch Klimadatastyrelsen (Datafordeler, 1 m)",
     "no_hoyde": "Høydemodell DTM a DOM Kartverket (1 m)",
     "si_arso": "klasifikovaného mračna LiDAR ARSO (2011–2015)",
+    "us_3dep": "mračna LiDAR USGS 3DEP (QL 0 – QL 2)",
     "fi_mml": "Korkeusmalli MML (2 m) a výška porostu Metsäkeskus (1 m)",
     "lu_act": "LiDAR 2024 MNT a MNS ACT Luxembourg (0,5 m)",
 }

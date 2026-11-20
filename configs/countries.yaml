@@ -2,7 +2,7 @@
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`, a jen na doméně se zemí v SITES – nikdy na české `:CZ`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
 # Zahraniční mapy dělá mezinárodní verze Omapic: citace a attribution anglicky; citace „Base map: Omapic · …, [year]“ (jako anglická licence).
-# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | no_hoyde | si_arso | gb_sct | fr_lidarhd | lu_act | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
+# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | no_hoyde | si_arso | gb_sct | fr_lidarhd | lu_act | us_3dep | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
@@ -15,7 +15,7 @@
 # elevation_years: roky snímkování výšek (text do upozornění před buildem); data_notes: důsledky dat ukázané před buildem,
 #   v logu, README a poznámce .omap (old = data starší ~10 let, coarse = terén hrubší než 1 m; photo plyne z green) – app/data_notes.py.
 #   Uvádět jen tam, kde to opravdu mění kresbu; Česko žádné.
-# view: výchozí pohled mapy [jih, západ, sever, východ]; crs: CRS jobu (zatím jen informativní).
+# view: výchozí pohled mapy [jih, západ, sever, východ]; crs: CRS jobu (UTM-NAD83 = NAD83 / UTM zóna středu výřezu, USA).
 CZ:
   name: {cs: Česko, en: Czechia}
   status: live
@@ -522,4 +522,19 @@ SI:
   citation: "Base map: Omapic · ARSO · OSM, [year]"
   attribution:
     - "Elevation: LiDAR point cloud (GKOT) 2011–2015, Agencija Republike Slovenije za okolje (ARSO), processed."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+US:
+  name: {cs: Spojené státy, en: United States}
+  status: beta              # kontinentální USA a Havaj (2026-11-20); mračno 3DEP bez klíče, kresba z OSM
+  crs: UTM-NAD83            # NAD83 / UTM zóna podle středu výřezu (EPSG:26904–26919), země nemá jeden systém
+  boundary: countries/us.geojson  # GISCO 1 : 1 M (© EuroGeographics), jen kontinentální USA a Havaj, +1,5 km, zjednodušeno 800 m
+  view: [24.4, -125.0, 49.5, -66.9]
+  elevation: us_3dep        # mračno LiDAR USGS 3DEP (EPT na AWS), jen projekty QL 0 – QL 2 podle indexu WESM → terén a povrch 1 m, výšky NAVD88
+  technical_map: none       # obdoba DTM celostátně není (budovy a silnice z OSM)
+  cz_sources: false
+  # Licence: data USGS jsou public domain, uvádí se „Courtesy of the U.S. Geological Survey“ (ověřeno 2026-11-20).
+  citation: "Base map: Omapic · USGS · OSM, [year]"
+  attribution:
+    - "Elevation: USGS 3D Elevation Program (3DEP) lidar point cloud, courtesy of the U.S. Geological Survey (public domain), processed."
+    - "Templates: USGS Imagery (NAIP) and USGS Topo, The National Map, courtesy of the U.S. Geological Survey (public domain)."
     - "OSM © OpenStreetMap contributors (ODbL)."
