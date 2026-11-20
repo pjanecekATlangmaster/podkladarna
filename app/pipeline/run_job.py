@@ -119,7 +119,11 @@ from app.pipeline.source_meta import collect_lidar_source_meta
 from app.pipeline.cliffs_dem import generate_job_cliffs_dem
 from app.pipeline.knolls_dem import generate_job_knolls
 from app.pipeline.boulders_dem import generate_job_boulders
-from app.pipeline.vegetation_chm import generate_job_vegetation_chm, regenerate_leafoff_vegetation
+from app.pipeline.vegetation_chm import (
+    generate_job_vegetation_chm,
+    generate_vegetation_from_osm,
+    regenerate_leafoff_vegetation,
+)
 from app.pipeline.vegetation_density import (
     DEFAULT_PARAMS as DEFAULT_DENSITY_PARAMS,
     generate_job_vegetation_density,
@@ -1088,6 +1092,7 @@ def run_job_pipeline(
             log(f"Úklid cache LiDARu selhal: {exc}")
 
     surfaces: SurfacesPrep | None = None
+    no_surface = False  # zdroj výšek bez modelu povrchu: vegetace z OSM (``generate_vegetation_from_osm``)
     if grid_bounds is not None and raster_elevation:
         progress.begin("výškové modely")
         try:
@@ -1104,6 +1109,9 @@ def run_job_pipeline(
         except Exception as exc:
             # Bez terénu nejsou vrstevnice ani srázy: job skončí srozumitelnou chybou, ne pádem PDAL ve vrstevnicích.
             raise RuntimeError(f"Výšková data ({elevation}) nejsou k dispozici: {exc}") from exc
+        from app.pipeline.elevation_raster import surface_missing
+
+        no_surface = surface_missing(work_dir)
         try:  # rastry jsou už v work/dem; cache dlaždic (Berlín) pod stropem ``LIDAR_CACHE_MAX_GB``
             prune_lidar_cache(log=log)
         except Exception as exc:  # úklid cache nesmí shodit job
@@ -1262,7 +1270,9 @@ def run_job_pipeline(
             )
         except Exception as exc:
             log(f"CHM vegetace: přeskočeno ({exc})")
-        if vege_shp is None:
+        if vege_shp is None and no_surface:
+            log("Vegetace: bez modelu povrchu – vznikne z přírodního krytu OSM po přípravě OSM.")
+        elif vege_shp is None:
             log_issue(log, "Vegetace: nevznikla (hustota bodů ani CHM)")
     progress.done()
 
@@ -1331,7 +1341,12 @@ def run_job_pipeline(
             write_osm_manual_shapefiles(work_dir, log=log)
         except Exception as exc:
             log_issue(log, f"OSM: přeskočeno ({exc})")
-        if veg_leafoff:
+        if no_surface:
+            try:
+                generate_vegetation_from_osm(work_dir, log=log)
+            except Exception as exc:
+                log_issue(log, f"Vegetace z OSM: přeskočeno ({exc})")
+        elif veg_leafoff:
             try:
                 regenerate_leafoff_vegetation(work_dir, log=log)
             except Exception as exc:

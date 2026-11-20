@@ -192,15 +192,70 @@ def test_raster_surfaces_unknown_source(tmp_path):
         elevation_raster.prepare_raster_surfaces(tmp_path, (0, 0, 10, 10), source="none")
 
 
-def test_raster_surfaces_require_dsm(tmp_path, monkeypatch):
-    """Bez modelu povrchu by vegetace chyběla: zdroj jen s terénem je chyba, ne bílá mapa."""
+def test_raster_surfaces_without_dsm_degrade(tmp_path, monkeypatch):
+    """Zdroj bez modelu povrchu (Ålandy bez latvusmalli) job neshodí: terén ano, povrch a CHM ne, značka a ⚠."""
     from app.pipeline import elevation_raster
 
     monkeypatch.setitem(
         elevation_raster.PROVIDERS, "test_dtm_only", lambda b, d, log=None: elevation_raster.SourceRasters(tmp_path / "dtm.tif")
     )
-    with pytest.raises(elevation_raster.ElevationUnavailable, match="povrchu"):
-        elevation_raster.prepare_raster_surfaces(tmp_path, (0, 0, 10, 10), source="test_dtm_only")
+
+    def fake_warp(src, dest, *_a, **_k):
+        dest.write_bytes(b"x")
+        return dest
+
+    monkeypatch.setattr(elevation_raster, "_warp_to_grid", fake_warp)
+    monkeypatch.setattr(elevation_raster, "_fill", lambda src, dest, log=None: fake_warp(src, dest))
+    monkeypatch.setattr(elevation_raster, "_valid_share", lambda _p: 1.0)
+    lines: list[str] = []
+    work = tmp_path / "work"
+    res = elevation_raster.prepare_raster_surfaces(work, (0, 0, 10, 10), source="test_dtm_only", log=lines.append)
+    assert res.dem_filled.is_file()
+    assert res.dsm_raw is None and res.chm is None
+    assert not (work / "dem" / "chm.tif").exists()
+    assert elevation_raster.surface_missing(work)
+    assert any(line.startswith("⚠") and "povrchu" in line for line in lines)
+
+
+@pytest.mark.parametrize(
+    "covers, expected",
+    [
+        (["forest"], 0),  # les bez výšky porostu bílý
+        (["forest", "meadow"], 1),  # louka v lese je louka (401)
+        (["grassland"], 1),
+        (["heath"], 5),  # 403
+        (["scrub"], 2),  # 406
+        (["farmland"], 0),  # pole kreslí OSM vrstva 412, ne vegetace
+    ],
+)
+def test_vegetation_from_osm_cover(tmp_path, monkeypatch, covers, expected):
+    import json
+
+    import numpy as np
+
+    from app.pipeline import gdal_cli_raster, vegetation_chm
+
+    (tmp_path / "dem").mkdir()
+    (tmp_path / "dem" / "dem_filled.tif").write_bytes(b"x")
+    (tmp_path / "osm_paths").mkdir()
+    ring = [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]
+    feats = [{"type": "Feature", "properties": {"cover": c}, "geometry": {"type": "Polygon", "coordinates": [ring]}}
+             for c in covers]
+    (tmp_path / "osm_paths" / "natural_cover.geojson").write_text(json.dumps({"features": feats}), encoding="utf-8")
+    gt = (0.0, 1.0, 0.0, 10.0, 0.0, -1.0)
+    monkeypatch.setattr(gdal_cli_raster, "read_float32_geotiff", lambda *_a, **_k: (np.zeros((10, 10), "float32"), gt, None))
+    got = {}
+
+    def fake_polygonize(classified, _gt, dest, **_k):
+        got["cls"] = classified
+        return dest
+
+    monkeypatch.setattr(vegetation_chm, "polygonize_vegetation_classes", fake_polygonize)
+    out = vegetation_chm.generate_vegetation_from_osm(tmp_path)
+    if expected:
+        assert out is not None and int(np.bincount(got["cls"].ravel()).argmax()) == expected
+    else:
+        assert out is None and "cls" not in got
 
 
 def test_api_beta_country_without_sheets(client, monkeypatch, sk_beta):
