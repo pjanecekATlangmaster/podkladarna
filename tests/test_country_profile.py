@@ -478,7 +478,7 @@ def test_job_crs_from_env_and_worker(monkeypatch):
         ("DE-HB", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_de_hb_dop"},
          "online_de_hb_dop", "geodienste.bremen.de", "dop10_2025_HB,dop10_2025_BHV"),
         ("SK", (-450000.0, -1250000.0, -449000.0, -1249000.0), {"online_sk_ortho", "online_sk_zbgis", "online_sk_cadastre"},
-         "online_sk_ortho", "zbgisws.skgeodesy.sk", "1,2,3"),
+         "online_sk_ortho", "zbgisws.skgeodesy.sk", "3,2,1"),
     ],
 )
 def test_foreign_online_templates(tmp_path, monkeypatch, country, bounds, keys, ortho, host, layer):
