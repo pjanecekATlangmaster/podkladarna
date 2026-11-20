@@ -74,10 +74,12 @@ ORTHO_KEYS = {
     "DE-HE": "de_he_dop",
     "DE-SL": "de_sl_dop",
     "DE-HB": "de_hb_dop",
+    "DE-SH": "de_sh_dop",
     "DE-BY": "de_by_dop",
     "PL": "pl_ortho",
     "NL": "nl_luchtfoto",
     "ES-NC": "es_ortho",
+    "ES-PV": "es_ortho",
 }
 
 # Kandidát z ortofota (prahy změřené na 9 mapách ze 4 zemí).

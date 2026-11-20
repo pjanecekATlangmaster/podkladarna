@@ -30,6 +30,8 @@ class DeWcsState:
                                  # | sn_zip = ZIP po 2 km s jedním GeoTIFF (DGM1 i DOM1 absolutně), cache
                                  # | zip_range = GeoTIFF po 1 km čtené rozsahy z velkých ZIPů (``dtm`` = (šablona
                                  #   URL s ``{part}``, předpona souboru), díly v ``parts``)
+                                 # | sh_geojson = dlaždice 1 km podle GeoJSON indexu (``dtm`` XYZ, ``dsm`` bDOM 0,2 m),
+                                 #   převod a cache na serveru (Šlesvicko-Holštýnsko)
     parts: tuple[str, ...] = ("",)  # díly ZIPů u ``zip_range`` (okresy Sárska)
     axes: tuple[str, str] = ("x", "y")  # popisky os WCS v SUBSET (Hesensko „E N“)
 
@@ -59,6 +61,8 @@ HH_ARCHIVE = "https://archiv.transparenz.hamburg.de/hmbtgarchive/HMDK"
 HH_DATA = "https://www.daten-hamburg.de/opendata"
 HB_DATA = "https://gdi2.geo.bremen.de/inspire/download"
 HB_WMS = "https://geodienste.bremen.de/wms_dop_lb"
+SH_DL = "https://geodaten.schleswig-holstein.de/gaialight-sh/_apps/dladownload/single.php"
+SH_WMS = "https://dienste.gdi-sh.de/WMS_SH_DOP20col_OpenGBD"
 
 # Sasko-Anhaltsko (LVermGeo ST): Datenlizenz Deutschland – Namensnennung 2.0, poskytovatel „© GeoBasis-DE / LVermGeo ST“
 # (Nutzungsbedingungen v5.0, 1. 3. 2024, bod 2). WCS ``ows_WCS_ST_DGM1`` / ``ows_WCS_ST_DOM1`` (coverage ``Coverage1``,
@@ -253,6 +257,22 @@ DE_WCS_STATES: dict[str, DeWcsState] = {
         tiles="zip_range",
         parts=("2017_HB", "2015_BHV"),
     ),
+    # Šlesvicko-Holštýnsko (LVermGeo SH): CC BY 4.0, Quellenvermerk „© GeoBasis-DE/LVermGeo SH/CC BY 4.0“ (Fees WMS DOP20,
+    # Open-Data-Portal SH, ověřeno 2026-11-20). Hromadné stahování po 1 km podle GeoJSON indexu: DGM1 jako XYZ (lety
+    # 2005–2025, ~28 MB), obrazový bDOM20 GeoTIFF 0,2 m z letů 2023–24 (~105 MB) → green: photo. Převod a cache na serveru.
+    "de_sh": DeWcsState(
+        code="DE-SH",
+        name="Šlesvicko-Holštýnsko",
+        crs="EPSG:25832",
+        dtm=(f"{SH_DL}?file=DGM1_SH__Massendownload.geojson&id=4", "dgm1"),
+        dsm=(f"{SH_DL}?file=bDOM_SH_Massendownload.geojson&id=4", "bdom20nc"),
+        probe_box=(580000, 5980000, 580016, 5980016),  # Segeberger Forst
+        wms=(
+            ("de_sh_dop", "dop_schleswig_holstein.xml", "DOP20 Schleswig-Holstein (ortofoto)", SH_WMS, "sh_dop20_rgb",
+             "image/jpeg", False, 0.2),
+        ),
+        tiles="sh_geojson",
+    ),
 }
 
 
@@ -301,6 +321,8 @@ def elevation_probe(key: str) -> str:
         return bw_zip_url(st.dtm, int(st.probe_box[0] // 1000), int(st.probe_box[1] // 1000))
     if st.tiles == "zip_range":
         return zip_range_parts(st, "dtm")[-1]
+    if st.tiles == "sh_geojson":
+        return st.dtm[0]
     if st.tiles == "sn_zip":
         return sn_zip_url(st.dtm, int(st.probe_box[0] // 2000) * 2, int(st.probe_box[1] // 2000) * 2)
     return wcs_coverage_url(st.dtm, st.probe_box, st.axes)

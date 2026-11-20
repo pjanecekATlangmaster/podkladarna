@@ -355,6 +355,7 @@ def wms_layers_for(country: str) -> tuple[tuple[str, str, str, str, str, str, bo
         "GB-ENG": GB_ONLINE_WMS_LAYERS,
         "GB-WLS": GB_ONLINE_WMS_LAYERS,  # INSPIRE Index Polygons HMLR kryjí Anglii i Wales
         "ES-NC": ES_ONLINE_WMS_LAYERS,
+        "ES-PV": ES_ONLINE_WMS_LAYERS,
         "NO": NO_ONLINE_WMS_LAYERS,
         "US": US_ONLINE_WMS_LAYERS,
         **{st.code: st.wms for st in DE_WCS_STATES.values()},
@@ -749,6 +750,7 @@ ONLINE_LABELS_EN = {
     "de_he_dtk": "DTK25 Hessen (topographic map 1 : 25 000)",
     "de_sl_dop": "DOP20 Saarland (orthophoto)",
     "de_hb_dop": "DOP10 Bremen (orthophoto)",
+    "de_sh_dop": "DOP20 Schleswig-Holstein (orthophoto)",
     "at_cadastre": "BEV cadastre (DKM – parcels)",
     "fi_cadastre": "Kiinteistörajat MML (parcels, kartat.kapsi.fi)",
     "gb_cadastre": "INSPIRE Index Polygons (HM Land Registry, parcels)",
