@@ -1374,6 +1374,7 @@ const BUILD_STEP_LABELS = {
   "data GRB": t("web.js.step.grb"),
   "data YLRE": t("web.js.step.ylre"),
   "data GeoDanmark": t("web.js.step.geodanmark"),
+  "data Planimetrics": t("web.js.step.planimetrics"),
   "polohopis a vegetace": t("web.js.step.map_planimetry"),
   "silnice a cesty": t("web.js.step.map_roads"),
   "ploty, budovy a oliva": t("web.js.step.map_fences"),
@@ -1425,6 +1426,7 @@ const BACKGROUND_KEYS = {
   "Data GRB (Digitaal Vlaanderen)": "be_grb",
   "Data YLRE (Helsingin kaupunki)": "fi_hel",
   "Data GeoDanmark (Datafordeler)": "dk_geodanmark",
+  "Planimetrics (NYC, Washington DC)": "us_city",
 };
 
 function backgroundLabel(name) {
@@ -1472,6 +1474,7 @@ const BUILD_SOURCE_LABELS = {
   be_grb: t("web.js.source.be_grb"),
   fi_hel: t("web.js.source.fi_hel"),
   dk_geodanmark: t("web.js.source.dk_geodanmark"),
+  us_city: t("web.js.source.us_city"),
   ruian: t("web.js.source.ruian"),
   aopk: t("web.js.source.aopk"),
   katastr: t("web.js.source.katastr"),
@@ -1491,7 +1494,7 @@ const NUTS_KRAJ = {
 /** Řádek o přípravě DTM na pozadí (DTM se připravuje souběžně; v plánu je krok „DTM kraje“ = čekání na ni před sestavením map). */
 function dtmBackgroundText(bg) {
   if (!bg) return "";
-  const foreign = { nl_bgt: "bgt", ch_av: "av", at_fmzk: "fmzk", de_sb: "sb", fr_pdv: "pdv", ee_etak: "etak", sk_zbgis: "zbgis", be_grb: "grb", fi_hel: "ylre" }[bg.source];  // obdoba DTM v cizině (app/pipeline/technical_maps.py)
+  const foreign = { nl_bgt: "bgt", ch_av: "av", at_fmzk: "fmzk", de_sb: "sb", fr_pdv: "pdv", ee_etak: "etak", sk_zbgis: "zbgis", be_grb: "grb", fi_hel: "ylre", us_city: "planimetrics" }[bg.source];  // obdoba DTM v cizině (app/pipeline/technical_maps.py)
   if (foreign) {
     if (bg.failed) return t(`web.js.${foreign}.failed`);
     return t(`web.js.${foreign}.text`, { n: bg.objects || 0, dur: formatDuration(bg.seconds) || "0 s" });

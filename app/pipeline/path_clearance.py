@@ -1226,6 +1226,100 @@ def sprint_building_passages(
     return out_parts
 
 
+# Okraj zpevněné plochy (501.100) z technické mapy, která se o budovy neořezává (USA planimetrics: chodník vede
+# i pod budovou, dvorem a průchodem, kresba budov je z OSM a ze sloučených bloků). Čára se kreslí nad budovou.
+EDGE_CODE = "501.100"
+EDGE_CLIP_SOURCES = frozenset({"us_city"})
+# Pás kolem budovy (mm mapy), ve kterém okraj zmizí také – leží-li na zdi, kreslí ho obrys budovy.
+EDGE_CLIP_BUILDING_MM = 0.05
+
+
+def technical_map_source(work_dir: Path) -> str | None:
+    """Zdroj technické mapy jobu (``source`` ve ``dtm/fences.json``), jinak None."""
+    import json
+
+    from app.pipeline import dtm_import
+
+    try:
+        return json.loads(dtm_import.fences_path(work_dir).read_text(encoding="utf-8")).get("source")
+    except Exception:  # bez technické mapy / starý job
+        return None
+
+
+def clip_edges_in_buildings(
+    parts: list[OomObjectPart],
+    work_dir: Path,
+    *,
+    preset_id: str,
+    scale: int,
+) -> list[OomObjectPart]:
+    """Čáry okraje zpevněné plochy 501.100 uvnitř kreslených budov (521) se nekreslí – jen u technických map
+    z ``EDGE_CLIP_SOURCES`` (USA), Česko a ostatní země beze změny. Volá se nad hotovými budovami (po sloučení bloků)."""
+    if not parts or technical_map_source(work_dir) not in EDGE_CLIP_SOURCES:
+        return parts
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union
+
+    from app.pipeline.oom_symbols import symbol_set_path
+
+    try:
+        codes = _symbol_codes(symbol_set_path(preset_id, scale))
+    except Exception:  # kosmetika, mapa se kreslí i bez ní
+        return parts
+    building_ids = {i for i, c in codes.items() if c == BUILDING_CODE}
+    edge_ids = {i for i, c in codes.items() if c == EDGE_CODE}
+    if not building_ids or not edge_ids:
+        return parts
+    try:
+        polys = []
+        for part in parts:
+            for m in _OBJECT_RE.finditer(part.objects_xml):
+                if m.group(2) == "1" and int(m.group(3)) in building_ids:
+                    cm = _COORDS_RE.search(m.group(4))
+                    poly = _polygon(_rings(_parse_coords(cm.group(1)))) if cm else None
+                    if poly is not None and not poly.is_empty:
+                        polys.append(poly)
+        if not polys:
+            return parts
+        zone = unary_union(polys).buffer(EDGE_CLIP_BUILDING_MM * 1000.0)
+    except Exception:  # kosmetika, mapa se kreslí i bez ní
+        return parts
+
+    def edit(match: re.Match) -> str:
+        head, otype, sym, body, tail = match.groups()
+        if otype != "1" or int(sym) not in edge_ids:
+            return match.group(0)
+        cm = _COORDS_RE.search(body)
+        if not cm:
+            return match.group(0)
+        try:
+            line = LineString(_flatten(_parse_coords(cm.group(1))))
+            if line.is_empty or not line.intersects(zone):
+                return match.group(0)
+            rest = line.difference(zone)
+            pieces = [
+                g for g in getattr(rest, "geoms", [rest])
+                if g.geom_type == "LineString" and g.length >= SPRINT_PATH_PIECE_MIN_UM
+            ]
+            return "\n".join(
+                head + body[: cm.start()] + _format_coords([[round(x), round(y), 0] for x, y in g.coords]) + body[cm.end() :] + tail
+                for g in pieces
+            )
+        except Exception:  # jeden objekt se nepovede → zůstane, jak byl
+            return match.group(0)
+
+    out_parts = []
+    for part in parts:
+        xml = _OBJECT_RE.sub(edit, part.objects_xml)
+        if xml == part.objects_xml:
+            out_parts.append(part)
+        else:
+            count = len(_OBJECT_RE.findall(xml))
+            if count:
+                out_parts.append(OomObjectPart(name=part.name, objects_xml=xml, count=count))
+    return out_parts
+
+
 # Sprint: slučování navazujících budov (zavírání mezer užších než 0,4 mm mapy, zalití dvorků).
 SPRINT_BUILDING_GAP_MM = 0.4
 # Mezera / dvůr, kterým vede kreslená čára cesty, se nezavírá: pás kolem čáry (m v terénu).

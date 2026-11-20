@@ -595,11 +595,15 @@ US:
   boundary: countries/us.geojson  # GISCO 1 : 1 M (© EuroGeographics), jen kontinentální USA a Havaj, +1,5 km, zjednodušeno 800 m
   view: [24.4, -125.0, 49.5, -66.9]
   elevation: us_3dep        # mračno LiDAR USGS 3DEP (EPT na AWS), jen projekty QL 0 – QL 2 podle indexu WESM → terén a povrch 1 m, výšky NAVD88
-  technical_map: none       # obdoba DTM celostátně není (budovy a silnice z OSM)
+  technical_map: us_city    # celostátní obdoba DTM není; Planimetrics měst (NYC, Washington DC): budovy, vozovky, chodníky, parkoviště
+  technical_map_area: countries/us_cities.geojson  # jen New York City a Washington DC; jinde kresba z OSM
   cz_sources: false
   # Licence: data USGS jsou public domain, uvádí se „Courtesy of the U.S. Geological Survey“ (ověřeno 2026-11-20).
+  # NYC Open Data: „There are no restrictions on the use of Open Data“ (FAQ nyc.gov/opendata); DC GIS: CC BY 4.0.
   citation: "Base map: Omapic · USGS · OSM, [year]"
   attribution:
     - "Elevation: USGS 3D Elevation Program (3DEP) lidar point cloud, courtesy of the U.S. Geological Survey (public domain), processed."
     - "Templates: USGS Imagery (NAIP) and USGS Topo, The National Map, courtesy of the U.S. Geological Survey (public domain)."
+    - "New York City only: NYC Planimetric Database and Building Footprints, NYC Office of Technology and Innovation via NYC Open Data (no restrictions on use), processed."
+    - "Washington DC only: Planimetrics 2023, DC GIS / Office of the Chief Technology Officer (CC BY 4.0), processed."
     - "OSM © OpenStreetMap contributors (ODbL)."

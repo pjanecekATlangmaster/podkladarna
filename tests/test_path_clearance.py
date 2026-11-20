@@ -516,3 +516,23 @@ def test_water_cut_under_road_bridge(tmp_path, preset):
     # bez mostu beze změny
     (tmp_path / "osm_paths" / "paths_bridges.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8")
     assert _objects(water_under_bridges(parts, tmp_path, **kw)) == _objects(parts)
+
+
+@pytest.mark.parametrize("source, kept_m", [("us_city", [9.8, 9.8]), ("fi_hel", [40.0]), (None, [40.0])])
+def test_edge_lines_inside_buildings_clipped_only_for_us_planimetrics(tmp_path, source, kept_m):
+    """Okraj 501.100 z planimetrics USA uvnitř budovy (chodník pod domem) se nekreslí; jiné země a Česko beze změny."""
+    from app.pipeline.oom_import import _path_object
+    from app.pipeline.path_clearance import clip_edges_in_buildings
+
+    def to_map(pts):
+        return [projected_to_map_coord(x, y, ref_x=0.0, ref_y=0.0, scale=4000, grivation_deg=0.0) for x, y in pts]
+
+    if source:
+        (tmp_path / "dtm").mkdir()
+        (tmp_path / "dtm" / "fences.json").write_text(json.dumps({"source": source, "fences": []}), encoding="utf-8")
+    building = _area_object_with_holes(symbol_index_for_code("sprint_2m", 4000, "521"), [to_map(_rect(0, 0, 20, 20))])
+    edge = _path_object(symbol_index_for_code("sprint_2m", 4000, "501.100"), to_map([(-10, 10), (30, 10)]))
+    parts = [OomObjectPart(name="x", objects_xml="\n".join([building, edge]), count=2)]
+    out = clip_edges_in_buildings(parts, tmp_path, preset_id="sprint_2m", scale=4000)
+    assert _line_lengths_m(out, "501.100") == pytest.approx(kept_m, abs=0.1)
+    assert building.strip() in out[0].objects_xml  # budova se nemění

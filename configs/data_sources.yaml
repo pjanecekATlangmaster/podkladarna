@@ -2043,6 +2043,52 @@ sources:
   issues:
   - ImageServer 3DEP na elevation.nationalmap.gov občas vrací 502 – proto se terén nebere z něj, ale z mračna.
 
+- id: us_nyc_planimetrics
+  countries: ["US"]
+  kinds: [technical_map, buildings]
+  name: NYC Planimetric Database (roadbed, sidewalk, plaza, parking lot, median) a Building Footprints – NYC Open Data (Socrata)
+  provider: City of New York, Office of Technology and Innovation (OTI)
+  url: https://data.cityofnewyork.us/resource/
+  info: https://github.com/CityOfNewYork/nyc-planimetrics
+  role: kresba
+  status: used
+  code: app/pipeline/city_us.py
+  provider_key: us_city
+  probe: us_nyc
+  license:
+    class: public
+    name: NYC Open Data – bez omezení použití („There are no restrictions on the use of Open Data“); sada Parking Lot uvádí public domain
+    url: https://www.nyc.gov/opendata/get-started/FAQs
+    attribution: NYC Office of Technology and Innovation, NYC Open Data
+  access: free
+  checked: "Claude 2026-11-20: dotaz intersects(the_geom, POLYGON) bez klíče, výřez 0,8 km² Midtown 2 029 objektů, 4,8 MB, 6–9 s;
+    planimetrie ze snímků 2022 (vydáno 2024), budovy průběžně (2025)."
+  issues:
+  - Socrata bez app tokenu je škrcená (sdílený limit podle IP); při velkém výřezu se stránkuje po 20 000 objektech.
+  - Budovy OSM v NYC jsou z importu téže sady (2013–14); duplicitu řeší kresba DTM (budova DTM + OSM bez protějšku).
+- id: us_dc_planimetrics
+  countries: ["US"]
+  kinds: [technical_map, buildings]
+  name: DC Planimetrics 2023 (Roads, Sidewalks, Building Footprints) – ArcGIS MapServer DC GIS
+  provider: District of Columbia, Office of the Chief Technology Officer (DC GIS)
+  url: https://maps2.dcgis.dc.gov/dcgis/rest/services/DCGIS_DATA/Planimetrics_2023/MapServer
+  info: https://opendata.dc.gov/
+  role: kresba
+  status: used
+  code: app/pipeline/city_us.py
+  provider_key: us_city
+  probe: us_dc
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://opendata.dc.gov/
+    attribution: DC GIS / Office of the Chief Technology Officer
+  access: free
+  checked: "Claude 2026-11-20: dotaz podle obálky (inSR 4326, f=geojson) bez klíče, 0,6 km² u Bílého domu 692 objektů, 2,7 MB, 1 s;
+    stránkování po 2 000."
+  issues:
+  - Planimetrie po dvou letech (2023 je nejnovější); „hidden“ plochy pod mosty a přechody se neberou.
+
 - id: us_imagery
   countries: ["US"]
   kinds: [orthophoto]

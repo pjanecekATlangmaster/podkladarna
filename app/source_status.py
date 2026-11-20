@@ -46,6 +46,8 @@ from app.pipeline.reference_fr import FR_LIDAR_PROBE, FR_ORTHO_PROBE, FR_PDV_PRO
 from app.pipeline.reference_ee import EE_ELEVATION_PROBE, EE_ETAK_PROBE, EE_ORTHO_PROBE
 from app.pipeline.zbgis_sk import DATASETS as SK_ZBGIS_DATASETS
 from app.pipeline.reference_it import TN_ELEVATION_PROBE, TN_ORTHO_PROBE
+from app.pipeline.city_us import DC_PROBE as US_DC_PROBE
+from app.pipeline.city_us import NYC_PROBE as US_NYC_PROBE
 from app.pipeline.geodanmark_dk import GEODK_PROBE
 from app.pipeline.reference_dk import DK_ELEVATION_PROBE, with_key as dk_with_key
 from app.pipeline.reference_no import NO_ELEVATION_PROBE
@@ -407,6 +409,23 @@ PROBES: tuple[Probe, ...] = (
         (US_ELEVATION_PROBE,),
         "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
         fatal=True,
+        countries=("US",),
+    ),
+    # USA: planimetrická data měst (jen výřezy v New Yorku a Washingtonu DC, ``technical_map_area``), jeden objekt.
+    Probe(
+        "us_nyc",
+        "Planimetrics a budovy New Yorku (NYC Open Data)",
+        (US_NYC_PROBE,),
+        "Budovy, vozovky, chodníky a parkoviště v New Yorku se nakreslí jen z OSM.",
+        needs="dtm",
+        countries=("US",),
+    ),
+    Probe(
+        "us_dc",
+        "Planimetrics Washington DC (DC GIS)",
+        (US_DC_PROBE,),
+        "Budovy, vozovky, chodníky a parkoviště ve Washingtonu DC se nakreslí jen z OSM.",
+        needs="dtm",
         countries=("US",),
     ),
     # Skotsko: HEAD malé dlaždice terénu v S3 bucketu Scottish Remote Sensing Portal.

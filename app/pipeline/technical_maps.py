@@ -107,6 +107,14 @@ FOREIGN: dict[str, TechnicalMap] = {
         content="budovy, uliční prostor, vozovky, chodníky, parkoviště, schody, trávníky",
         module="app.pipeline.ylre_fi",
     ),
+    "us_city": TechnicalMap(
+        key="us_city",
+        short="Planimetrics",
+        step="data Planimetrics",
+        background="Planimetrics (NYC, Washington DC)",
+        content="budovy, vozovky, chodníky, pěší plochy, parkoviště, ostrůvky",
+        module="app.pipeline.city_us",
+    ),
 }
 
 
