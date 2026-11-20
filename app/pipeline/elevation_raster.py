@@ -2222,6 +2222,190 @@ def no_hoyde_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 PROVIDERS["no_hoyde"] = no_hoyde_provider
 
 
+# --------------------------------------------------------------------------- SI: mračno LiDAR ARSO (GKOT) po listech 1 km
+
+# Klasifikované mračno 2011–2015 (``reference_si``): list LAZ ~50 MB se jednou převede na terén (průměr bodů země
+# v buňce 1 m) a povrch (nejvyšší bod tříd 2–6 v buňce, bez šumu 7 a nezařazených 0/1) a drží v cache jako GeoTIFF;
+# LAZ se po převodu maže. Díry terénu (budovy, voda) doplní ``_fill`` jako u ostatních rastrů.
+SI_TILE_KM = 1
+SI_BUFFER_M = 20.0
+SI_MAX_LAZ_BYTES = 300_000_000  # list má 30–80 MB; víc je chyba služby
+SI_GROUND_CLASS = 2
+SI_SURFACE_CLASSES = (2, 3, 4, 5, 6)
+SI_BLOCKS_FILE = "blocks.json"
+_SI_BLOCKS_LOCK = threading.Lock()
+
+
+def si_tiles(window: tuple[float, float, float, float]) -> list[tuple[int, int]]:
+    """Listy 1 km (E, N levého dolního rohu v km, D96/TM), které zasahují do okna."""
+    import math
+
+    xmin, ymin, xmax, ymax = window
+    return [(e, n) for e in range(math.floor(xmin / 1000), math.ceil(xmax / 1000))
+            for n in range(math.floor(ymin / 1000), math.ceil(ymax / 1000))]
+
+
+def si_cache_dir() -> Path:
+    """Cache listů (``<E>_<N>/dtm.tif``, ``dsm.tif``) a mapa bloků; úklid ``download_cache.prune_lidar_cache``."""
+    return settings.CACHE_DIR / "si_arso"
+
+
+def _http_status(url: str, *, method: str = "HEAD") -> int | None:
+    """Kód odpovědi; None = síťová chyba (nelze rozlišit „list neexistuje“)."""
+    import urllib.error
+    import urllib.request
+
+    from app.pipeline.fetch_openzu import USER_AGENT
+
+    try:
+        req = urllib.request.Request(url, method=method, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return int(resp.status)
+    except urllib.error.HTTPError as exc:
+        return int(exc.code)
+    except Exception:
+        return None
+
+
+def si_tile_block(east_km: int, north_km: int, *, status=_http_status) -> str | None:
+    """Blok listu z cache, jinak HEAD po blocích (nejdřív bloky sousedních listů); None = list neexistuje."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.pipeline.reference_si import SI_BLOCKS, gkot_url
+
+    key = f"{east_km}_{north_km}"
+    index_path = si_cache_dir() / SI_BLOCKS_FILE
+    with _SI_BLOCKS_LOCK:
+        try:
+            index = json.loads(index_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            index = {}
+    if key in index:
+        return index[key] or None
+    near = [index.get(f"{east_km + de}_{north_km + dn}") for de in (-1, 0, 1) for dn in (-1, 0, 1)]
+    order = list(dict.fromkeys([b for b in near if b] + list(SI_BLOCKS)))
+    found: str | None = None
+    unknown = False
+    first = order[: len([b for b in near if b])]
+    for batch in (first, [b for b in order if b not in first]):
+        if not batch:
+            continue
+        with ThreadPoolExecutor(max_workers=8, thread_name_prefix="si-block") as ex:
+            codes = list(ex.map(lambda b: status(gkot_url(b, east_km, north_km)), batch))
+        unknown = unknown or any(c is None or c >= 500 for c in codes)
+        hits = [b for b, c in zip(batch, codes) if c is not None and 200 <= c < 300]
+        if hits:
+            found = hits[0]
+            break
+    if found is None and unknown:
+        raise RuntimeError(f"Slovinsko: blok listu {key} nejde zjistit (server ARSO neodpovídá)")
+    with _SI_BLOCKS_LOCK:
+        try:
+            index = json.loads(index_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            index = {}
+        index[key] = found or ""
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = index_path.with_name(f".{index_path.name}.{os.getpid()}.{threading.get_ident()}")
+        tmp.write_text(json.dumps(index, sort_keys=True), encoding="utf-8")
+        tmp.replace(index_path)
+    return found
+
+
+def si_laz_grids(laz: Path, east_km: int, north_km: int) -> tuple[np.ndarray, np.ndarray]:
+    """Terén (průměr bodů země) a povrch (maximum tříd 2–6) v buňkách 1 m listu; prázdné buňky NODATA."""
+    import laspy
+
+    side = SI_TILE_KM * 1000
+    left, bottom = east_km * 1000.0, north_km * 1000.0
+    total = np.zeros(side * side, dtype="float64")
+    count = np.zeros(side * side, dtype="int64")
+    top = np.full(side * side, -np.inf, dtype="float64")
+    with laspy.open(str(laz)) as reader:
+        for pts in reader.chunk_iterator(2_000_000):
+            x, y, z = np.asarray(pts.x), np.asarray(pts.y), np.asarray(pts.z)
+            cls = np.asarray(pts.classification)
+            col = np.floor(x - left).astype(np.int64)
+            row = np.floor(bottom + side - y).astype(np.int64)
+            inside = (col >= 0) & (col < side) & (row >= 0) & (row < side)
+            idx = row * side + col
+            g = inside & (cls == SI_GROUND_CLASS)
+            total += np.bincount(idx[g], weights=z[g], minlength=side * side)
+            count += np.bincount(idx[g], minlength=side * side)
+            sfc = inside & np.isin(cls, SI_SURFACE_CLASSES)
+            np.maximum.at(top, idx[sfc], z[sfc])
+    dtm = np.where(count > 0, total / np.maximum(count, 1), NODATA).astype("float32").reshape(side, side)
+    dsm = np.where(np.isfinite(top), top, NODATA).astype("float32").reshape(side, side)
+    return dtm, dsm
+
+
+def _si_tile(east_km: int, north_km: int, *, log=None) -> Path | None:
+    """Složka listu s ``dtm.tif`` a ``dsm.tif`` z cache, jinak stáhne LAZ a převede; None = list neexistuje."""
+    import tempfile
+    import urllib.request
+
+    from app.download_cache import touch_last_used
+    from app.pipeline.fetch_openzu import USER_AGENT
+    from app.pipeline.reference_si import SI_CRS, gkot_url
+
+    folder = si_cache_dir() / f"{east_km}_{north_km}"
+    if (folder / ".complete").is_file():
+        touch_last_used(folder)
+        return folder
+    block = si_tile_block(east_km, north_km)
+    if block is None:
+        return None
+    folder.mkdir(parents=True, exist_ok=True)
+    fd, lname = tempfile.mkstemp(prefix=".gkot-", suffix=".laz", dir=folder)
+    os.close(fd)
+    lpath = Path(lname)
+    try:
+        req = urllib.request.Request(gkot_url(block, east_km, north_km), headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=600) as resp, lpath.open("wb") as fh:
+            size = 0
+            while chunk := resp.read(1 << 20):
+                size += len(chunk)
+                if size > SI_MAX_LAZ_BYTES:
+                    raise RuntimeError(f"Slovinsko {east_km}_{north_km}: LAZ větší než {SI_MAX_LAZ_BYTES // 1_000_000} MB")
+                fh.write(chunk)
+        dtm, dsm = si_laz_grids(lpath, east_km, north_km)
+        top = (north_km + SI_TILE_KM) * 1000.0
+        for name, grid in (("dtm", dtm), ("dsm", dsm)):
+            tmp = folder / f".{name}.{os.getpid()}.{threading.get_ident()}.tif"
+            _write_tif(tmp, grid, east_km * 1000.0, top, SI_CRS)
+            tmp.replace(folder / f"{name}.tif")
+        (folder / ".complete").touch()
+    finally:
+        lpath.unlink(missing_ok=True)
+    touch_last_used(folder)
+    if log:
+        log(f"  Slovinsko LiDAR {east_km}_{north_km} ({block}): {size / 1e6:.0f} MB převedeno do cache")
+    return folder
+
+
+def si_arso_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """Slovinsko: terén a povrch 1 m z klasifikovaného mračna ARSO (listy 1 km, cache)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.pipeline.reference_si import SI_CRS
+
+    window = _buffered(bounds, SI_CRS, SI_BUFFER_M)
+    with ThreadPoolExecutor(max_workers=3, thread_name_prefix="si-gkot") as ex:
+        folders = [f for f in ex.map(lambda t: _si_tile(t[0], t[1], log=log), si_tiles(window)) if f]
+    if not folders:
+        raise ElevationUnavailable("výřez je mimo pokrytí LiDAR ARSO (Slovinsko)")
+    out: dict[str, Path] = {}
+    for kind in ("dtm", "dsm"):
+        vrt = out_dir / f"si_arso_{kind}.vrt"
+        run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", SI_CRS, str(vrt), *(str(f / f"{kind}.tif") for f in folders)],
+                log=log)
+        out[kind] = vrt
+    return SourceRasters(out["dtm"], out["dsm"])
+
+
+PROVIDERS["si_arso"] = si_arso_provider
+
+
 # --------------------------------------------------------------------------- DK: DHM terén + povrch (Datafordeler)
 
 # DHM/Terræn a DHM/Overflade (Klimadatastyrelsen, lidar, mřížka 0,4 m, CC BY 4.0) z WCS Datafordeleru v nativním
@@ -2612,6 +2796,7 @@ SOURCE_LABELS = {
     "de_hb": "DGM1 a DOM1, GeoInformation Bremen",
     "dk_dhm": "DHM terén a povrch, Klimadatastyrelsen",
     "no_hoyde": "Høydemodell DTM a DOM, Kartverket",
+    "si_arso": "mračno LiDAR, ARSO",
     USER_UPLOAD: "vlastní data zadavatele",
 }
 

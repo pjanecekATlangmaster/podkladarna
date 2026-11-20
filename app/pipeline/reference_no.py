@@ -19,3 +19,10 @@ NO_ELEVATION_PROBE = (
     f"{NO_WCS['dtm']}?SERVICE=WCS&VERSION=1.0.0&REQUEST=GetCoverage&COVERAGE={NO_COVERAGES['dtm']}"
     f"&CRS={NO_CRS}&BBOX=261000,6656000,261008,6656008&WIDTH=8&HEIGHT=8&FORMAT=GeoTIFF"
 )
+
+# Šablony Kartverket (WMS Geonorge, EPSG:25833): topografická mapa (CC BY 4.0) a matrikkelkart (hranice a čísla parcel).
+# Licence matrikkelkart WMS je v metadatech nejednotná (CC BY 4.0 / CC BY-NC 4.0 / „Norge digitalt“) → jen online šablona.
+NO_TOPO_WMS = "https://wms.geonorge.no/skwms1/wms.topo"
+NO_TOPO_LAYER = "topo"
+NO_MATRIKKEL_WMS = "https://wms.geonorge.no/skwms1/wms.matrikkelkart"
+NO_MATRIKKEL_LAYER = "eiendomsgrense,teig"

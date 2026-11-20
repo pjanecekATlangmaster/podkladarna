@@ -827,6 +827,28 @@ sources:
     - "Jen Vídeň (technical_map_area)."
     - "Server převádí do jiných EPSG bez posunu data MGI (~290 m vedle) → stahovat v nativním EPSG:31256 a převádět PROJ."
 
+- id: at_bev_kataster
+  countries: [AT]
+  kinds: [cadastre]
+  name: Katastr BEV – DKM parcely (WMS)
+  provider: BEV – Bundesamt für Eich- und Vermessungswesen
+  url: https://data.bev.gv.at/geoserver/BEVdataKAT/wms
+  info: https://data.bev.gv.at/geonetwork/srv/metadata/a341eaaf-5cdb-459d-bfe2-892d23e4566f
+  role: šablona
+  reference_keys: ["online_at_cadastre*"]
+  image_in_zip: allowed
+  status: used
+  code: app/pipeline/reference_at.py
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://data.bev.gv.at/geonetwork/srv/metadata/a341eaaf-5cdb-459d-bfe2-892d23e4566f
+    attribution: "Datenquelle: BEV – Bundesamt für Eich- und Vermessungswesen"
+  access: free
+  checked: "Claude 2026-11-20: GetCapabilities a GetMap 600 × 600 px z cloudu (obrázek s parcelami); EPSG:25833 proti nativnímu EPSG:31256 ve Vídni posun pod 2 m (server převádí MGI správně)."
+  issues:
+    - "Jen hranice a čísla parcel (DKM_GST), vlastníci ne. Aktuální data INSPIRE služeb podle rmDATA vyžadují registraci – tato WMS je bez ní."
+
 - id: at_basemap
   countries:
   - AT
@@ -1500,7 +1522,7 @@ sources:
   url: https://tiles.kartat.kapsi.fi/ortokuva
   info: https://www.maanmittauslaitos.fi/en/opendata-licence-cc40
   role: šablona, kresba
-  reference_keys: ["online_fi_ortho*", "online_fi_basemap*"]
+  reference_keys: ["online_fi_ortho*", "online_fi_basemap*", "online_fi_cadastre*"]
   image_in_zip: allowed
   image_in_zip_note: "Petr 2026-11-16: přibalovat (zákaz nenalezen). Data MML jsou CC BY 4.0 (dovoluje šíření), dlaždice ale servíruje neoficiální zrcadlo kartat.kapsi.fi bez vlastních podmínek – doporučeno povolit."
   status: used
@@ -1665,6 +1687,38 @@ sources:
   - Mračno LAZ po listech 1 : 1250 má ~155 MB (Varšava 2023, 12 b/m²), LAZ 1.2 bez COPC → nepoužito.
   - Katastr KIEG (integracja.gugik.gov.pl) je rozcestník na servery okresů, Varšava vrací reset spojení → šablona nepoužita.
 
+- id: gb_hmlr_inspire
+  countries: [GB-ENG]
+  kinds: [cadastre]
+  name: INSPIRE Index Polygons – parcely (WMS HM Land Registry)
+  provider: HM Land Registry
+  url: https://inspire.landregistry.gov.uk/inspire/ows
+  info: https://use-land-property-data.service.gov.uk/datasets/inspire
+  role: šablona
+  reference_keys: ["online_gb_cadastre*"]
+  image_in_zip: forbidden
+  image_in_zip_note: "Data HMLR pod OGL, ale geometrie je © Crown copyright a database rights Ordnance Survey (INSPIRE end user licence, obrázek WMS nese vodoznak podmínek) → obrázek do ZIPu ne, online šablona zůstává."
+  zip_notice:
+    cs:
+      name: INSPIRE Index Polygons (HM Land Registry)
+      why: Geometrie parcel je chráněná autorským a databázovým právem Ordnance Survey a smí se používat jen podle licence INSPIRE pro koncové uživatele.
+      online: V .omap je online šablona (references/inspire_parcels_hmlr.xml), WMS https://inspire.landregistry.gov.uk/inspire/ows (EPSG:27700).
+    en:
+      name: INSPIRE Index Polygons (HM Land Registry)
+      why: The parcel geometry is Crown copyright and Ordnance Survey database right and may only be used under the INSPIRE end user licence.
+      online: The .omap contains an online template (references/inspire_parcels_hmlr.xml), WMS https://inspire.landregistry.gov.uk/inspire/ows (EPSG:27700).
+  status: used
+  code: app/pipeline/reference_gb.py
+  license:
+    class: restricted
+    name: Open Government Licence v3 + INSPIRE end user licence (Ordnance Survey)
+    url: https://www.ordnancesurvey.co.uk/documents/licensing/inspire-end-user-licence.pdf
+    attribution: "© Crown copyright and database rights Ordnance Survey AC0000851063; HM Land Registry (OGL)"
+  access: free
+  checked: "Claude 2026-11-20: GetCapabilities a GetMap 600 × 600 px z cloudu (obrázek s parcelami) s textem podmínek OS v obrázku."
+  issues:
+    - "Index Polygons nejsou právní hranice pozemků (HMLR: jen přibližná poloha registrovaných titulů)."
+
 - id: uk_ea
   countries:
   - GB-ENG
@@ -1766,6 +1820,59 @@ sources:
   - 'opencode: Ythöjdmodell (dsm-cog) je z obrazové korelace – bez prostupnosti porostu; kolekce má v STAC `license: other`.'
   - 'opencode: GDPR: příjemce mračna je personuppgiftsansvarig.'
 
+- id: no_wms_topo
+  countries: ["NO"]
+  kinds: [map]
+  name: Topografisk norgeskart (WMS Kartverket)
+  provider: Kartverket
+  url: https://wms.geonorge.no/skwms1/wms.topo
+  info: https://www.kartverket.no/en/api-and-data/terms-of-use
+  role: šablona
+  reference_keys: ["online_no_topo*"]
+  image_in_zip: allowed
+  status: used
+  code: app/pipeline/reference_no.py
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.kartverket.no/en/api-and-data/terms-of-use
+    attribution: "©Kartverket"
+  access: free
+  checked: "Claude 2026-11-20: GetCapabilities a GetMap 600 × 600 px z cloudu (obrázek s parcelami) (topografická mapa)."
+  issues: []
+
+- id: no_matrikkelkart
+  countries: ["NO"]
+  kinds: [cadastre]
+  name: Matrikkelkart – parcely (WMS Kartverket)
+  provider: Kartverket
+  url: https://wms.geonorge.no/skwms1/wms.matrikkelkart
+  info: https://kartkatalog.geonorge.no/metadata/30dda4c6-2cba-4378-b2e7-26f644df9d99
+  role: šablona
+  reference_keys: ["online_no_cadastre*"]
+  image_in_zip: forbidden
+  image_in_zip_note: "Licence matrikkelkart WMS je v metadatech nejednotná (CC BY 4.0, CC BY-NC 4.0, Fees „Norge digital“) → obrázek do ZIPu ne, online šablona zůstává."
+  zip_notice:
+    cs:
+      name: Matrikkelkart (Kartverket)
+      why: Podmínky použití katastrální mapy nejsou v metadatech Kartverket jednoznačné (otevřená licence i omezení), proto obrázek nepřibalujeme.
+      online: V .omap je online šablona (references/matrikkelkart.xml), WMS https://wms.geonorge.no/skwms1/wms.matrikkelkart (EPSG:25833).
+    en:
+      name: Matrikkelkart (Kartverket)
+      why: The terms of use of the cadastral map are not consistent in the Kartverket metadata (open licence as well as restrictions), so the image is not included.
+      online: The .omap contains an online template (references/matrikkelkart.xml), WMS https://wms.geonorge.no/skwms1/wms.matrikkelkart (EPSG:25833).
+  status: used
+  code: app/pipeline/reference_no.py
+  license:
+    class: unknown
+    name: nejednotné (CC BY 4.0 / CC BY-NC 4.0 / Norge digitalt)
+    url: https://kartkatalog.geonorge.no/metadata/30dda4c6-2cba-4378-b2e7-26f644df9d99
+    attribution: "©Kartverket"
+  access: free
+  checked: "Claude 2026-11-20: GetCapabilities a GetMap 600 × 600 px z cloudu (obrázek s parcelami) (hranice a čísla parcel eiendomsgrense, teig); licence přes vyhledávání metadat Geonorge."
+  issues:
+    - "Jen hranice a čísla parcel, vlastníci ne."
+
 - id: no_geonorge
   countries:
   - 'NO'
@@ -1854,6 +1961,37 @@ sources:
   - 'opencode: „WCS jen 5 m int16“ – int16/celé metry se nepodařilo ověřit (neověřeno); nové MDT02/MDT50cm/MDS50cm jsou soubory,
     ne WCS: https://pnoa.ign.es/web/portal/pnoa-lidar/productos-a-descarga'
   - 'opencode: Catastro zákaz hromadného stahování patří jinému poskytovateli: https://www.catastro.hacienda.gob.es/es-ES/wms.html'
+
+- id: si_arso
+  countries:
+  - SI
+  kinds:
+  - point_cloud
+  - elevation
+  name: Klasifikované mračno LiDAR GKOT 2011–2015 (listy 1 km LAZ)
+  provider: Agencija Republike Slovenije za okolje (ARSO)
+  url: https://gis.arso.gov.si/lidar/gkot/laz/
+  info: https://kazalci.arso.gov.si/en/content/legal-note
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (si_arso), app/pipeline/reference_si.py
+  provider_key: si_arso
+  probe: si_elevation
+  license:
+    class: public
+    name: opakované užití veřejných informací ARSO i komerčně s uvedením zdroje (právní upozornění ARSO)
+    url: https://kazalci.arso.gov.si/en/content/legal-note
+    attribution: Agencija Republike Slovenije za okolje (ARSO)
+  access: free
+  checked: '2026-11-20 Claude: list b_35/D96TM/TM_462_101.laz bez klíče (48,6 MB, LAS 1.2, 12,2 bodu/m², země 4,7/m², třídy
+    2–7), HEAD v blocích b_23, b_24, b_26, b_33, b_35, b_37; právní upozornění ARSO („reuse of public information … for
+    commercial or non-commercial purposes … subject to citation of the source, is permitted“)'
+  issues:
+  - Licence je obecné právní upozornění webů ARSO, u dat LiDAR samotných konkrétní licence uvedená není (OSM komunita 2015
+    na totéž upozorňovala). Před ostrým provozem ověřit u ARSO.
+  - Blok listu v adrese nejde spočítat, zjišťuje se HEAD po blocích (cache blocks.json). Index listů (fishnet) na gis.arso.gov.si
+    vrací 503.
+  - Data 2011–2015, část listů ze snímkování bez listí – výška porostu listnáčů může být nižší.
 
 - id: si_clss
   countries:

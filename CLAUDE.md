@@ -520,7 +520,7 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   `SAMPLES_REFRESH_HOURS` (1-5, Europe/Prague) hned, přes den po `SAMPLES_REFRESH_IDLE_MIN` (60) min bez nového jobu. ZIP a popisek
   v `samples.json` se vymění atomicky jen po `done` ve správném jazyce a u `dtm: true` s balíky DTM; jinak zůstane stará ukázka,
   další pokus za den, nejvýš 3 za kolo. Stav `DATA_ROOT/samples/.refresh_state.json`, vypínač `SAMPLES_REFRESH=0`.
-- **Les a MTBO bez zpevněných ploch z DTM** (3.97.0, Petr 2026-11-20, Harrachov 1:10 000 / 1:15 000): chodníky, parkoviště
+- **Les a MTBO bez zpevněných ploch z DTM** (3.99.0, Petr 2026-11-20, Harrachov 1:10 000 / 1:15 000): chodníky, parkoviště
   a profil ulice se stáním z DTM daly v měřítku cáry podél silnic a černé cesty na nich končily; zpevněné plochy kreslí OSM.
   Z DTM zůstávají budovy, ploty, šířky silnic pro volbu symbolu a plochy složitých křižovatek. Parkoviště z DTM jen jednoduchého
   tvaru (`is_simple_area`: obdélník ≥ 85 %, do 8 vrcholů, bez děr), a jen jeho část, kterou OSM nemá, čitelná mimo kresbu silnice

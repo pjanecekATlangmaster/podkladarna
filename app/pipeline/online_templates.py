@@ -20,6 +20,8 @@ from app.pipeline.reference_at import (
     AT_BASEMAP_GRAU_URL,
     AT_BASEMAP_ORTHO_URL,
     AT_BASEMAP_RELIEF_URL,
+    AT_BEV_KAT_LAYER,
+    AT_BEV_KAT_WMS,
     AT_FMZK_WMS_LAYERS,
     AT_WIEN_LB_TILE_URL,
     AT_WIEN_LB_ZOOM,
@@ -49,6 +51,8 @@ from app.pipeline.reference_fi import (
     FI_HEL_WMS,
     FI_KAPSI_BASEMAP_LAYER,
     FI_KAPSI_BASEMAP_WMS,
+    FI_KAPSI_CADASTRE_LAYER,
+    FI_KAPSI_CADASTRE_WMS,
     FI_KAPSI_ORTHO_LAYER,
     FI_KAPSI_ORTHO_WMS,
 )
@@ -68,6 +72,8 @@ from app.pipeline.reference_by import (
     BY_DOP_LAYER,
     BY_DOP_WMS,
 )
+from app.pipeline.reference_gb import GB_HMLR_LAYER, GB_HMLR_WMS
+from app.pipeline.reference_no import NO_MATRIKKEL_LAYER, NO_MATRIKKEL_WMS, NO_TOPO_LAYER, NO_TOPO_WMS
 from app.pipeline.reference_pl import PL_ORTHO_LAYER, PL_ORTHO_WMS, PL_TOPO_LAYER, PL_TOPO_WMS
 from app.pipeline.reference_sk import (
     SK_CADASTRE_LAYERS,
@@ -137,7 +143,10 @@ ZOOM_VARIANTS: tuple[tuple[str, float, str], ...] = (
 NO_DEFAULT_STYLE_HOSTS = ("dmvs.cuzk.gov.cz", "geoportal.cuzk.gov.cz", "data.wien.gv.at", "gdi.berlin.de",
                           "data.geopf.fr", "gsavalik.envir.ee", "siat.provincia.tn.it",
                           "geo.api.vlaanderen.be", "kartta.hel.fi", "tiles.kartat.kapsi.fi", "www.wms.nrw.de",
-                          "geoservices.bayern.de", "zbgisws.skgeodesy.sk", "kataster.skgeodesy.sk")
+                          "geoservices.bayern.de", "zbgisws.skgeodesy.sk", "kataster.skgeodesy.sk",
+                          # ALKIS WMS AdV (BB, SN, MV, ST), BEV a HMLR odmítají „default“ (část cesty – DOP téhož serveru ho bere)
+                          "/ows/alkis_wms", "wms_geosn_alkis-adv", "/dienste/alkis_wms", "ALKIS_WMS_AdV_konform",
+                          "/BEVdataKAT/", "inspire.landregistry.gov.uk")
 
 # Vrstvy jen online (bez staženého rastru): přidají se i se zapnutým „Stáhnout referenční šablony předem“.
 ONLINE_ONLY_KEYS = frozenset({"orthophoto_archiv"})
@@ -194,6 +203,8 @@ CH_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ..
 AT_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
     ("at_fmzk", "fmzk_wien.xml", "FMZK Wien (Flächen-Mehrzweckkarte)", AT_WIEN_WMS, AT_FMZK_WMS_LAYERS,
      "image/png", True, 0.25),
+    ("at_cadastre", "katastr_bev.xml", "Katastr BEV (DKM – parcely)", AT_BEV_KAT_WMS, AT_BEV_KAT_LAYER, "image/png", True,
+     0.25),
 )
 WMS_NATIVE_CRS = {"at_fmzk": "EPSG:31256"}
 # CRS, jejichž osy jsou v EPSG sever–východ: WMS 1.3.0 chce BBOX v tomto pořadí (jinak prázdný obrázek), GDAL ho samo neotočí.
@@ -241,6 +252,8 @@ FI_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ..
      False, 0.5),
     ("fi_basemap", "peruskartta_mml.xml", "Peruskartta MML 1 : 20 000 (kartat.kapsi.fi)", FI_KAPSI_BASEMAP_WMS,
      FI_KAPSI_BASEMAP_LAYER, "image/png", False, 1.0),
+    ("fi_cadastre", "kiinteistorajat_mml.xml", "Kiinteistörajat MML (parcely, kartat.kapsi.fi)", FI_KAPSI_CADASTRE_WMS,
+     FI_KAPSI_CADASTRE_LAYER, "image/png", True, 0.25),
     ("fi_hel_ortho", "ortoilmakuva_helsinki.xml", "Ortoilmakuva Helsinki (5 cm)", FI_HEL_WMS, FI_HEL_ORTHO_LAYER,
      "image/jpeg", False, 0.25),
     ("fi_hel_basemap", "kantakartta_helsinki.xml", "Kantakartta Helsinki", FI_HEL_WMS, FI_HEL_BASEMAP_LAYER,
@@ -281,6 +294,18 @@ SK_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ..
     ("sk_cadastre", "katastr_eskn.xml", "Katastrální mapa ESKN (parcely)", SK_CADASTRE_WMS, SK_CADASTRE_LAYERS, "image/png",
      True, 0.25),
 )
+# Anglie: parcely HM Land Registry (INSPIRE, obrázek do ZIPu ne – geometrie OS pod INSPIRE end user licence).
+GB_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
+    ("gb_cadastre", "inspire_parcels_hmlr.xml", "INSPIRE Index Polygons (HM Land Registry, parcely)", GB_HMLR_WMS,
+     GB_HMLR_LAYER, "image/png", True, 0.25),
+)
+# Norsko (Kartverket): topografická mapa a matrikkelkart (obrázek matrikkelkart do ZIPu ne – nejasná licence).
+NO_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
+    ("no_topo", "topo_kartverket.xml", "Topografisk norgeskart (Kartverket)", NO_TOPO_WMS, NO_TOPO_LAYER, "image/png",
+     False, 1.0),
+    ("no_cadastre", "matrikkelkart.xml", "Matrikkelkart (Kartverket, parcely)", NO_MATRIKKEL_WMS, NO_MATRIKKEL_LAYER,
+     "image/png", True, 0.25),
+)
 # Dlaždicové služby v EPSG:3857 (GDAL TMS + okno výřezu jako VRT): klíč, soubor, popisek, URL, úroveň, m/px, snímek (JPEG).
 AT_ONLINE_TMS: tuple[tuple[str, str, str, str, int, float, bool], ...] = (
     ("at_ortho", "orthofoto_at.vrt", "basemap.at Orthofoto (Rakousko)", AT_BASEMAP_ORTHO_URL, 19, 0.25, True),
@@ -316,6 +341,8 @@ def wms_layers_for(country: str) -> tuple[tuple[str, str, str, str, str, str, bo
         "PL": PL_ONLINE_WMS_LAYERS,
         "DE-BY": DE_BY_ONLINE_WMS_LAYERS,
         "SK": SK_ONLINE_WMS_LAYERS,
+        "GB-ENG": GB_ONLINE_WMS_LAYERS,
+        "NO": NO_ONLINE_WMS_LAYERS,
         **{st.code: st.wms for st in DE_WCS_STATES.values()},
     }.get(country, ())
 
@@ -648,7 +675,7 @@ def online_labels() -> dict[str, str]:
             *ONLINE_WMS_LAYERS, *NL_ONLINE_WMS_LAYERS, *CH_ONLINE_WMS_LAYERS, *AT_ONLINE_WMS_LAYERS,
             *DE_ONLINE_WMS_LAYERS, *FR_ONLINE_WMS_LAYERS, *EE_ONLINE_WMS_LAYERS, *IT_ONLINE_WMS_LAYERS,
             *BE_ONLINE_WMS_LAYERS, *FI_ONLINE_WMS_LAYERS, *LU_ONLINE_WMS_LAYERS, *DE_NW_ONLINE_WMS_LAYERS,
-            *PL_ONLINE_WMS_LAYERS, *DE_BY_ONLINE_WMS_LAYERS, *SK_ONLINE_WMS_LAYERS,
+            *PL_ONLINE_WMS_LAYERS, *DE_BY_ONLINE_WMS_LAYERS, *SK_ONLINE_WMS_LAYERS, *GB_ONLINE_WMS_LAYERS, *NO_ONLINE_WMS_LAYERS,
             *(w for st in DE_WCS_STATES.values() for w in st.wms),
         )
     ] + [(NL_ONLINE_BGT[0], NL_ONLINE_BGT[2]), (ONLINE_OSM[0], ONLINE_OSM[2])]
@@ -707,6 +734,17 @@ ONLINE_LABELS_EN = {
     "de_he_dtk": "DTK25 Hessen (topographic map 1 : 25 000)",
     "de_sl_dop": "DOP20 Saarland (orthophoto)",
     "de_hb_dop": "DOP10 Bremen (orthophoto)",
+    "at_cadastre": "BEV cadastre (DKM – parcels)",
+    "fi_cadastre": "Kiinteistörajat MML (parcels, kartat.kapsi.fi)",
+    "gb_cadastre": "INSPIRE Index Polygons (HM Land Registry, parcels)",
+    "no_topo": "Topografisk norgeskart (Kartverket)",
+    "no_cadastre": "Matrikkelkart (Kartverket, parcels)",
+    "de_st_alkis": "ALKIS Sachsen-Anhalt – parcels",
+    "de_mv_alkis": "ALKIS Mecklenburg-Vorpommern – parcels",
+    "de_bb_alkis": "ALKIS Brandenburg – parcels",
+    "de_bw_alkis": "ALKIS Baden-Württemberg – parcels",
+    "de_sn_alkis": "ALKIS Sachsen – parcels",
+    "de_he_alkis": "Liegenschaftskarte Hessen (ALKIS)",
     "sk_ortho": "Orthophotomosaic of Slovakia (ZBGIS)",
     "sk_zbgis": "ZBGIS (topographic map, ÚGKK SR)",
     "sk_cadastre": "ESKN cadastral map (parcels)",

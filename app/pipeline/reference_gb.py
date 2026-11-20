@@ -19,3 +19,8 @@ GB_EA_PRODUCTS = {"dtm": "lidar_composite_dtm/2022/1", "dsm": "lidar_composite_f
 
 # Sonda: HEAD na dlaždici terénu (Leeds); server HEAD nepodporuje a odpoví 405, výpadek = timeout / 5xx.
 GB_EA_PROBE = f"{GB_EA_TILES}/{GB_EA_PRODUCTS['dtm']}/SE2530"
+
+# Katastr: INSPIRE Index Polygons HM Land Registry (WMS, EPSG:27700). Data HMLR pod OGL, geometrie © Crown copyright
+# a database rights Ordnance Survey (INSPIRE end user licence, obrázek s vodoznakem podmínek) → jen online šablona.
+GB_HMLR_WMS = "https://inspire.landregistry.gov.uk/inspire/ows"
+GB_HMLR_LAYER = "inspire:CP.CadastralParcel"
