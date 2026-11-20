@@ -53,6 +53,8 @@ HTTP_TIMEOUT_S = 60
 HTTP_RETRIES = 3  # opakování přechodné chyby (5xx, 429, síť) jednoho dotazu
 _INDEX_LOCK = threading.Lock()
 _FOOTPRINT_LOCK = threading.Lock()
+_FOOTPRINT_FAILED: dict[str, float] = {}  # cache → čas posledního neúspěšného stažení obrysů (monotonic)
+FOOTPRINT_RETRY_S = 600.0
 _FOOTPRINTS: dict = {}  # v procesu: {"fetched": čas cache, "items": [Footprint], "tree": STRtree}
 _PENDING: dict[tuple, list[str]] = {}  # výřez → projekty QL 0 – QL 2, jejichž mračno v bucketu ještě není
 
@@ -305,11 +307,13 @@ def ept_footprints(*, max_age_days: float = EPT_INDEX_MAX_AGE_DAYS, fetch=_get) 
         except (OSError, ValueError):
             cached = {}
         fresh = cached.get("items") and time.time() - float(cached.get("fetched") or 0) < max_age_days * 86400
-        if not fresh:
+        if not fresh and time.monotonic() - _FOOTPRINT_FAILED.get(str(path), -1e9) > FOOTPRINT_RETRY_S:
             try:
                 items = parse_footprints(json.loads(fetch(US_EPT_BOUNDARIES)))
             except Exception:  # noqa: BLE001 – výpadek: poslouží starý seznam, jinak výběr jen podle WESM
                 items = []
+            if not items:  # další pokus až za chvíli, ať sondy a joby nečekají na zámku při každém dotazu
+                _FOOTPRINT_FAILED[str(path)] = time.monotonic()
             if items:
                 cached = {"fetched": time.time(), "items": items}
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -335,9 +339,14 @@ def candidates(bbox_wgs84, *, fetch=_get) -> list[tuple[str, Workunit]]:
     from shapely.geometry import box
 
     area = box(*(float(v) for v in bbox_wgs84))
-    wesm = wesm_workunits(bbox_wgs84, fetch=fetch, qualities=None)
-    by_norm = {_norm(w.name): w for w in wesm}
     footprints = ept_footprints(fetch=fetch)
+    try:
+        wesm = wesm_workunits(bbox_wgs84, fetch=fetch, qualities=None)
+    except Exception:  # noqa: BLE001 – bez WESM rozhodnou obrysy a hustota; bez obrysů nelze nic
+        if not footprints:
+            raise
+        wesm = []
+    by_norm = {_norm(w.name): w for w in wesm}
     known = {fp.name for fp in footprints}
     hits = [fp for fp in footprints if fp.geometry.intersects(area)]
     missing = [ept_workunit(fp.name) for fp in hits if _norm(ept_workunit(fp.name)) not in by_norm]
