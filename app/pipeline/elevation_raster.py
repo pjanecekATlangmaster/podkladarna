@@ -20,6 +20,7 @@ Kde DTM z měření chybí (AHN: budovy a voda), je CHM 0.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import subprocess
@@ -2432,6 +2433,241 @@ def si_arso_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 PROVIDERS["si_arso"] = si_arso_provider
 
 
+# --------------------------------------------------------------------------- US: USGS 3DEP (mračno EPT na AWS)
+
+# Terén (průměr bodů země) a povrch (maximum bodů mimo šum) 1 m přímo z mračna 3DEP v souřadnicích jobu
+# (NAD83 / UTM), stejně jako u Slovinska. Projekty vybírá index WESM (jen QL 0 – QL 2, od nejnovějšího), mračno
+# se čte z EPT po uzlech oktalového stromu, které zasahují do výřezu (``reference_us``). Výšky NAVD88 v metrech.
+US_BUFFER_M = 20.0
+# Nejjemnější čtená úroveň EPT: rozestup buněk uzlu na zemi aspoň tolik metrů. Hustší úrovně QL 1 (> 8 bodů/m²)
+# se nečtou – pro mřížku 1 m nic nepřidají a objem by rostl (QL 2 vyjde celé, ~90 MB/km² LAZ).
+US_MIN_SPACING_M = 0.3
+US_MAX_POINTS = 600_000_000  # strop bodů na výřez (~5 GB LAZ); výřez nad ním skončí hláškou
+US_MAX_WORKUNITS = 3  # nejvýš tolik projektů na výřez (nejnovější, každý musí přidat pokrytí)
+US_GROUND_CLASS = 2
+US_NOISE_CLASSES = (7, 18)
+US_FETCH_WORKERS = 8
+US_OLD_YEARS = 10  # mračno starší než tolik let: upozornění v logu (porost se mohl změnit)
+# Díry v terénu do tolika metrů od bodu země (pod hustým porostem QL 1 chybí země v ~28 % buněk 1 m) se doplní
+# nejbližší zemí; jinak by z nich byl CHM 0 (louka v lese). Větší díry (budovy, voda) zůstanou bez dat.
+US_DTM_GAP_M = 4.0
+
+
+def fill_small_gaps(grid: np.ndarray, max_px: float) -> np.ndarray:
+    """Buňky bez dat do ``max_px`` od platné buňky dostanou hodnotu nejbližší platné buňky."""
+    from scipy import ndimage
+
+    missing = grid <= NODATA / 2
+    if not missing.any() or missing.all():
+        return grid
+    dist, (ri, ci) = ndimage.distance_transform_edt(missing, return_indices=True)
+    near = missing & (dist <= max_px)
+    out = grid.copy()
+    out[near] = grid[ri[near], ci[near]]
+    return out
+
+
+def ept_nodes(base: str, ept: dict, window: tuple[float, float, float, float], lat: float, *,
+              fetch) -> list[tuple[str, int]]:
+    """Uzly EPT (klíč D-X-Y-Z, počet bodů), jejichž krychle zasahuje do okna (EPSG:3857), do úrovně
+    s rozestupem ≥ ``US_MIN_SPACING_M`` na zemi (měřítko Mercatoru cos φ)."""
+    b = ept["bounds"]
+    size0 = float(b[3]) - float(b[0])
+    span = float(ept.get("span") or 128)
+    scale = math.cos(math.radians(lat))
+    x0, y0, x1, y1 = window
+    out: list[tuple[str, int]] = []
+
+    def walk(hier: dict, key: str) -> None:
+        d, x, y, _z = (int(v) for v in key.split("-"))
+        size = size0 / 2 ** d
+        nx, ny = float(b[0]) + x * size, float(b[1]) + y * size
+        if nx > x1 or nx + size < x0 or ny > y1 or ny + size < y0:
+            return
+        count = hier.get(key)
+        if count is None:
+            return
+        if size / span * scale < US_MIN_SPACING_M:
+            return
+        if count == -1:
+            hier = json.loads(fetch(f"{base}/ept-hierarchy/{key}.json"))
+            count = hier.get(key, 0)
+        if count > 0:
+            out.append((key, int(count)))
+        _d, _x, _y, _zz = d + 1, 2 * x, 2 * y, 2 * _z
+        for dx in (0, 1):
+            for dy in (0, 1):
+                for dz in (0, 1):
+                    walk(hier, f"{_d}-{_x + dx}-{_y + dy}-{_zz + dz}")
+
+    walk(json.loads(fetch(f"{base}/ept-hierarchy/0-0-0-0.json")), "0-0-0-0")
+    return out
+
+
+class _UsGrid:
+    """Součet a počet bodů země a maximum povrchu v buňkách 1 m okna jobu."""
+
+    def __init__(self, left: float, top: float, width: int, height: int):
+        self.left, self.top, self.width, self.height = left, top, width, height
+        n = width * height
+        self.gsum = np.zeros(n, dtype="float64")
+        self.gcount = np.zeros(n, dtype="uint32")
+        self.top_z = np.full(n, -np.inf, dtype="float32")
+
+    def add(self, x: np.ndarray, y: np.ndarray, z: np.ndarray, cls: np.ndarray, withheld: np.ndarray) -> None:
+        col = np.floor(x - self.left).astype(np.int64)
+        row = np.floor(self.top - y).astype(np.int64)
+        inside = (col >= 0) & (col < self.width) & (row >= 0) & (row < self.height)
+        idx = row * self.width + col
+        g = inside & (cls == US_GROUND_CLASS) & ~withheld
+        if g.any():
+            u, inv = np.unique(idx[g], return_inverse=True)
+            self.gsum[u] += np.bincount(inv, weights=z[g])
+            self.gcount[u] += np.bincount(inv).astype("uint32")
+        s = inside & ~np.isin(cls, US_NOISE_CLASSES) & ~withheld
+        if s.any():
+            si, sz = idx[s], z[s].astype("float32")
+            order = np.argsort(si, kind="stable")
+            si, sz = si[order], sz[order]
+            starts = np.flatnonzero(np.r_[True, si[1:] != si[:-1]])
+            cells = si[starts]
+            self.top_z[cells] = np.maximum(self.top_z[cells], np.maximum.reduceat(sz, starts))
+
+    def grids(self) -> tuple[np.ndarray, np.ndarray]:
+        shape = (self.height, self.width)
+        dtm = np.where(self.gcount > 0, self.gsum / np.maximum(self.gcount, 1), NODATA).astype("float32")
+        dsm = np.where(np.isfinite(self.top_z), self.top_z, NODATA).astype("float32")
+        return dtm.reshape(shape), dsm.reshape(shape)
+
+
+def _las_arrays(raw: bytes):
+    import io
+
+    import laspy
+
+    las = laspy.read(io.BytesIO(raw))
+    try:
+        withheld = np.asarray(las.withheld, dtype=bool)
+    except (AttributeError, ValueError):
+        withheld = np.zeros(len(las.points), dtype=bool)
+    return (np.asarray(las.x), np.asarray(las.y), np.asarray(las.z), np.asarray(las.classification), withheld)
+
+
+def us_ept_grids(base: str, window_job: tuple[float, float, float, float], *, fetch=None, log=None,
+                 label: str = "") -> tuple[np.ndarray, np.ndarray, float, float, int, int]:
+    """(dtm, dsm, left, top, bodů, bajtů) mřížky 1 m okna v souřadnicích jobu z EPT ``base``."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from pyproj import Transformer
+
+    from app.pipeline.crs_5514 import CRS_PROJ4
+    from app.pipeline.reference_us import _get
+
+    fetch = fetch or _get
+    xmin, ymin, xmax, ymax = window_job
+    left, top = math.floor(xmin), math.ceil(ymax)
+    width, height = int(math.ceil(xmax) - left), int(top - math.floor(ymin))
+    to_web = Transformer.from_crs(CRS_PROJ4, "EPSG:3857", always_xy=True)
+    to_job = Transformer.from_crs("EPSG:3857", CRS_PROJ4, always_xy=True)
+    to_ll = Transformer.from_crs(CRS_PROJ4, "EPSG:4326", always_xy=True)
+    edge = np.linspace(0.0, 1.0, 9)
+    px = np.r_[xmin + edge * (xmax - xmin), np.full(9, xmax), xmax - edge * (xmax - xmin), np.full(9, xmin)]
+    py = np.r_[np.full(9, ymin), ymin + edge * (ymax - ymin), np.full(9, ymax), ymax - edge * (ymax - ymin)]
+    wx, wy = to_web.transform(px, py)
+    window = (float(np.min(wx)), float(np.min(wy)), float(np.max(wx)), float(np.max(wy)))
+    lat = to_ll.transform((xmin + xmax) / 2.0, (ymin + ymax) / 2.0)[1]
+    ept = json.loads(fetch(f"{base}/ept.json"))
+    nodes = ept_nodes(base, ept, window, lat, fetch=fetch)
+    total = sum(c for _k, c in nodes)
+    if total > US_MAX_POINTS:
+        raise RuntimeError(f"USA: výřez má v mračnu {total / 1e6:.0f} mil. bodů, strop je {US_MAX_POINTS / 1e6:.0f} mil.")
+    grid = _UsGrid(float(left), float(top), width, height)
+    size = 0
+    points = 0
+
+    def load(key: str):
+        raw = fetch(f"{base}/ept-data/{key}.laz")
+        return len(raw), _las_arrays(raw)
+
+    with ThreadPoolExecutor(max_workers=US_FETCH_WORKERS, thread_name_prefix="us-ept") as ex:
+        for nbytes, (x, y, z, cls, withheld) in ex.map(load, [k for k, _c in nodes]):
+            size += nbytes
+            m = (x >= window[0]) & (x <= window[2]) & (y >= window[1]) & (y <= window[3])
+            if not m.any():
+                continue
+            jx, jy = to_job.transform(x[m], y[m])
+            grid.add(np.asarray(jx), np.asarray(jy), z[m], cls[m], withheld[m])
+            points += int(m.sum())
+    if log:
+        log(f"  USA 3DEP {label}: {len(nodes)} uzlů EPT, {points / 1e6:.1f} mil. bodů ve výřezu, {size / 1e6:.0f} MB")
+    dtm, dsm = grid.grids()
+    return dtm, dsm, float(left), float(top), points, size
+
+
+def us_3dep_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """USA: terén a povrch 1 m z mračna USGS 3DEP (EPT na AWS), projekty QL 0 – QL 2 podle WESM."""
+    import time as _time
+
+    from pyproj import Transformer
+
+    from app.pipeline.crs_5514 import CRS_PROJ4
+    from app.pipeline.gdal_cli_raster import write_float32_geotiff
+    from app.pipeline.reference_us import candidates, ept_url
+
+    xmin, ymin, xmax, ymax = (float(v) for v in bounds)
+    window = (xmin - US_BUFFER_M, ymin - US_BUFFER_M, xmax + US_BUFFER_M, ymax + US_BUFFER_M)
+    to_ll = Transformer.from_crs(CRS_PROJ4, "EPSG:4326", always_xy=True)
+    lons, lats = to_ll.transform([window[0], window[2], window[0], window[2]], [window[1], window[1], window[3], window[3]])
+    bbox_wgs84 = (min(lons), min(lats), max(lons), max(lats))
+    from shapely.geometry import box
+
+    area = box(*bbox_wgs84)
+    chosen = []
+    covered = None
+    for name, wu in candidates(bbox_wgs84):
+        part = wu.geometry.intersection(area)
+        if part.is_empty:
+            continue
+        gain = part.area if covered is None else part.difference(covered).area
+        if gain < 0.01 * area.area:
+            continue
+        chosen.append((name, wu))
+        covered = part if covered is None else covered.union(part)
+        if covered.area >= 0.995 * area.area or len(chosen) >= US_MAX_WORKUNITS:
+            break
+    if not chosen:
+        raise ElevationUnavailable("výřez je mimo pokrytí kvalitním mračnem LiDAR USGS 3DEP (QL 0 – QL 2)")
+    dtm = dsm = None
+    left = top = 0.0
+    for name, wu in chosen:
+        g_dtm, g_dsm, left, top, _pts, _size = us_ept_grids(ept_url(name), window, log=log,
+                                                            label=f"{wu.name} ({wu.ql}, {wu.year})")
+        if dtm is None:
+            dtm, dsm = g_dtm, g_dsm
+        else:  # starší projekt jen doplní buňky bez dat
+            dtm = np.where(dtm > NODATA / 2, dtm, g_dtm)
+            dsm = np.where(dsm > NODATA / 2, dsm, g_dsm)
+    dtm = fill_small_gaps(dtm, US_DTM_GAP_M)
+    years = sorted({wu.year for _n, wu in chosen if wu.year})
+    if years and years[0] <= _time.gmtime().tm_year - US_OLD_YEARS:
+        log_issue(log, f"Výškové modely: mračno USGS 3DEP z roku {years[0]} – porost a stavby se od té doby mohly změnit")
+    out: dict[str, Path] = {}
+    gt = (left, 1.0, 0.0, top, 0.0, -1.0)
+    for kind, grid in (("dtm", dtm), ("dsm", dsm)):
+        out[kind] = write_float32_geotiff(out_dir / f"us_3dep_{kind}.tif", grid, gt, srs_wkt=CRS_WKT, nodata=NODATA)
+    return SourceRasters(out["dtm"], out["dsm"])
+
+
+def us_3dep_coverage(bbox_wgs84: tuple[float, float, float, float]) -> float:
+    """Podíl výřezu s mračnem 3DEP QL 0 – QL 2, které je v bucketu EPT."""
+    from app.pipeline.reference_us import candidates, coverage_share
+
+    return coverage_share(bbox_wgs84, candidates(bbox_wgs84))
+
+
+PROVIDERS["us_3dep"] = us_3dep_provider
+
+
 # --------------------------------------------------------------------------- GB-SCT: Scottish Remote Sensing Portal
 
 # Skotská vláda (Open Government Licence v3, bez klíče): DTM a DSM z LiDARu po fázích (Phase 1–6 2011–2022, Orkney
@@ -3010,6 +3246,7 @@ SOURCE_LABELS = {
     "dk_dhm": "DHM terén a povrch, Klimadatastyrelsen",
     "no_hoyde": "Høydemodell DTM a DOM, Kartverket",
     "si_arso": "mračno LiDAR, ARSO",
+    "us_3dep": "mračno LiDAR 3DEP, USGS",
     "gb_sct": "LiDAR DTM a DSM, Scottish Government",
     USER_UPLOAD: "vlastní data zadavatele",
 }
@@ -3020,6 +3257,7 @@ COVERAGE: dict[str, Callable[[tuple[float, float, float, float]], float]] = {
     "fr_lidarhd": fr_lidarhd_coverage,
     "it_trentino": it_trentino_coverage,
     "gb_sct": sct_coverage,
+    "us_3dep": us_3dep_coverage,
 }
 # Strop počtu stahovaných dlaždic výšek na výřez (zdroje po celých velkých dlaždicích): zdroj → (počet, strop).
 TILE_LIMITS: dict[str, Callable[[tuple[float, float, float, float]], tuple[int, int]]] = {

@@ -420,8 +420,9 @@ def _job_env(job_id: str) -> dict:
     try:
         from app.pipeline.country_profile import job_country
 
-        country = job_country(db.get_job(job_id).get("options") or {})
-        crs = (country.crs if country else "") or KROVAK_LABEL
+        options = db.get_job(job_id).get("options") or {}
+        country = job_country(options)
+        crs = (country.job_crs(options.get("bbox_wgs84")) if country else "") or KROVAK_LABEL
     except Exception:  # noqa: BLE001 – job bez záznamu / starý formát: S-JTSK jako dosud
         crs = KROVAK_LABEL
     if crs != KROVAK_LABEL:

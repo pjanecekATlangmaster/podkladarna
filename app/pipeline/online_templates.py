@@ -74,6 +74,7 @@ from app.pipeline.reference_by import (
 )
 from app.pipeline.reference_gb import GB_HMLR_LAYER, GB_HMLR_WMS
 from app.pipeline.reference_no import NO_MATRIKKEL_LAYER, NO_MATRIKKEL_WMS, NO_TOPO_LAYER, NO_TOPO_WMS
+from app.pipeline.reference_us import US_IMAGERY_WMS, US_TOPO_WMS, US_WMS_LAYER
 from app.pipeline.reference_pl import PL_ORTHO_LAYER, PL_ORTHO_WMS, PL_TOPO_LAYER, PL_TOPO_WMS
 from app.pipeline.reference_sk import (
     SK_CADASTRE_LAYERS,
@@ -306,6 +307,11 @@ NO_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ..
     ("no_cadastre", "matrikkelkart.xml", "Matrikkelkart (Kartverket, parcely)", NO_MATRIKKEL_WMS, NO_MATRIKKEL_LAYER,
      "image/png", True, 0.25),
 )
+US_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
+    ("us_ortho", "orthophoto_usgs.xml", "USGS Imagery (NAIP, ortofoto)", US_IMAGERY_WMS, US_WMS_LAYER, "image/jpeg",
+     False, 0.5),
+    ("us_topo", "topo_usgs.xml", "USGS Topo (The National Map)", US_TOPO_WMS, US_WMS_LAYER, "image/png", False, 1.0),
+)
 # Dlaždicové služby v EPSG:3857 (GDAL TMS + okno výřezu jako VRT): klíč, soubor, popisek, URL, úroveň, m/px, snímek (JPEG).
 AT_ONLINE_TMS: tuple[tuple[str, str, str, str, int, float, bool], ...] = (
     ("at_ortho", "orthofoto_at.vrt", "basemap.at Orthofoto (Rakousko)", AT_BASEMAP_ORTHO_URL, 19, 0.25, True),
@@ -343,6 +349,7 @@ def wms_layers_for(country: str) -> tuple[tuple[str, str, str, str, str, str, bo
         "SK": SK_ONLINE_WMS_LAYERS,
         "GB-ENG": GB_ONLINE_WMS_LAYERS,
         "NO": NO_ONLINE_WMS_LAYERS,
+        "US": US_ONLINE_WMS_LAYERS,
         **{st.code: st.wms for st in DE_WCS_STATES.values()},
     }.get(country, ())
 
