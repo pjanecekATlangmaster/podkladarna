@@ -24,6 +24,7 @@ def test_unknown_key_is_none():
         (4000, ["sprint"], {"ISSprOM_2019_4000.ocd"}),
         (7500, ["les", "mtbo"], {"ISOM_2017_10000.ocd", "ISMTBOM_2022_7500.ocd"}),
         (15000, ["les", "mtbo"], {"ISOM_2017_15000.ocd", "ISMTBOM_2022_15000.ocd"}),
+        (10000, ["forest"], {"ISOM_2017_10000.ocd"}),  # anglický výstup (Omapic)
     ],
 )
 def test_zip_gets_matching_sets(tmp_path, scale, tags, expected):

@@ -239,7 +239,7 @@ def _write_ocad_symbol_sets(
 ) -> None:
     """Originální OCAD sady symbolů (``ocad_symboly/``) k ``.omap`` v ZIPu.
 
-    Disciplína z přípony ``*-sprint|les|mtbo.omap``, měřítko z metadat; každá
+    Disciplína z přípony ``*-sprint|les|forest|mtbo.omap``, měřítko z metadat; každá
     kombinace má vlastní sadu, stejná se do ZIPu přidá jen jednou.
     """
     from app.pipeline.oom_symbols import ocad_symbol_set_path
@@ -253,6 +253,7 @@ def _write_ocad_symbol_sets(
             continue
         stem = omap_path.stem.removesuffix(CERTAIN_TAG)
         tag = stem.rsplit("-", 1)[-1].lower()
+        tag = {v: k for k, v in DISCIPLINE_FILE_TAGS_EN.items()}.get(tag, tag)
         path = ocad_symbol_set_path(tag, scale)
         if path is None or path in seen:
             continue
@@ -418,11 +419,24 @@ def omap_variant_filename(
     map_name: str = "",
     *,
     certain_only: bool = False,
+    lang: str = "cs",
 ) -> str:
     # Jediná kresba cest (viz ``OOM_PATH_VARIANTS``) – bez přípony cesty_*.
     del path_tag
     suffix = CERTAIN_TAG if certain_only else ""
-    return f"{omap_map_stem(map_name)}-{discipline_tag}{suffix}.omap"
+    tag = discipline_file_tag(discipline_tag, lang)
+    return f"{omap_map_stem(map_name)}-{tag}{suffix}.omap"
+
+
+# Anglický výstup (Omapic, jazyk zadání en): les → forest v názvu souboru; česky beze změny.
+DISCIPLINE_FILE_TAGS_EN = {"les": "forest"}
+
+
+def discipline_file_tag(discipline_tag: str, lang: str = "cs") -> str:
+    """Tag disciplíny v názvu ``.omap`` / ``.ocd`` podle jazyka výstupu."""
+    if str(lang or "cs").strip().lower() == "cs":
+        return discipline_tag
+    return DISCIPLINE_FILE_TAGS_EN.get(discipline_tag, discipline_tag)
 
 
 def build_aoi_boundary_part(
