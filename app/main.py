@@ -58,6 +58,7 @@ from app.pipeline.fetch_openzu import (
     sprint_max_area_km2,
 )
 from app.pipeline.job_options import (
+    FORMLINE_MODE_AUTO,
     FORMLINE_MODES,
     KP_CLIFF_SENSITIVITY,
     KP_VEGE_HEIGHT_CHOICES,
@@ -1733,7 +1734,7 @@ async def api_create_job(request: Request):
     if map_types:
         options["map_types"] = map_types
     formlines_raw = _form_str(form, "contour_formlines").strip().lower()
-    if formlines_raw in FORMLINE_MODES:
+    if formlines_raw in FORMLINE_MODES or formlines_raw == FORMLINE_MODE_AUTO:
         options["contour_formlines"] = formlines_raw
     contour_smooth_raw = _form_str(form, "contour_smooth").strip().lower()
     if contour_smooth_raw.isdigit() and int(contour_smooth_raw) in CONTOUR_SMOOTH_LEVELS:

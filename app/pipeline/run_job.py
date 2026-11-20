@@ -1227,8 +1227,8 @@ def run_job_pipeline(
     # Vlastní data zadavatele nejsou národní zdroj země: zeleň jako u běžného laseru (bez leafoff / understory).
     veg_green = "laser" if options.get("user_sources") else (veg_country.green if veg_country is not None else None)
     veg_leafoff = bool(bbox) and not cz_sources and veg_green == "leafoff"
-    if veg_leafoff:
-        veg_texture = False
+    if veg_leafoff or veg_green == "plain":
+        veg_texture = False  # plain: sever, zrnitost zelenala řídký les (Nuuksio 406 32 %, reálná mapa převážně bílá)
     elif veg_texture and veg_green == "understory":
         veg_texture = "understory"  # horský les (Trentino): podíl nízkého patra místo zrnitosti
     if bbox and cz_sources:
