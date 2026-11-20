@@ -2,7 +2,7 @@
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`, a jen na doméně se zemí v SITES – nikdy na české `:CZ`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
 # Zahraniční mapy dělá mezinárodní verze Omapic: citace a attribution anglicky; citace „Base map: Omapic · …, [year]“ (jako anglická licence).
-# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | no_hoyde | si_arso | fr_lidarhd | lu_act | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
+# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | no_hoyde | si_arso | gb_sct | fr_lidarhd | lu_act | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
@@ -350,6 +350,23 @@ GB-ENG:
   attribution:
     - "Elevation: LIDAR Composite DTM and First Return DSM, © Environment Agency copyright and/or database right 2022. All rights reserved. Contains public sector information licensed under the Open Government Licence v3.0."
     - "INSPIRE Index Polygons (online template only): HM Land Registry (OGL); © Crown copyright and database rights Ordnance Survey AC0000851063."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+GB-SCT:
+  name: {cs: Spojené království – Skotsko, en: United Kingdom – Scotland}
+  status: beta              # Skotsko (2026-11-20); LiDAR jen z části území (fáze), kresba z OSM
+  crs: EPSG:27700           # OSGB36 / British National Grid
+  boundary: countries/gb_sct.geojson  # ONS Countries December 2023 BGC (OGL), +300 m, ostrovy pod 1 km² vynechané
+  view: [54.63, -8.65, 60.86, -0.72]
+  elevation: gb_sct         # Scottish Remote Sensing Portal DTM + DSM 0,5–1 m po fázích 2011–2026, okno přes /vsicurl
+  elevation_years: "2011–2026"
+  green: plain              # zrnitost: 406 na 16 % lesa, reálná mapa Creag Choinnich (S6D 2025) v lese převážně bílá
+  technical_map: none       # OS MasterMap není otevřená
+  cz_sources: false
+  # Licence: Open Government Licence v3 (Scottish Government; sady HES pod NCGL se neberou). Phase 2 a 3 nesou navíc
+  # „Fugro retain the commercial copyright“ – viz configs/data_sources.yaml gb_sct.
+  citation: "Base map: Omapic · Scottish Government · OSM, [year]"
+  attribution:
+    - "Elevation: LiDAR for Scotland (Phase 1–6, National LiDAR Programme), Crown copyright Scottish Government, SEPA and Scottish Water; contains public sector information licensed under the Open Government Licence v3.0, processed."
     - "OSM © OpenStreetMap contributors (ODbL)."
 FR:
   name: {cs: Francie, en: France, fr: France}
