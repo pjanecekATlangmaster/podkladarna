@@ -749,6 +749,7 @@ ONLINE_LABELS_EN = {
     "de_he_dtk": "DTK25 Hessen (topographic map 1 : 25 000)",
     "de_sl_dop": "DOP20 Saarland (orthophoto)",
     "de_hb_dop": "DOP10 Bremen (orthophoto)",
+    "de_sh_dop": "DOP20 Schleswig-Holstein (orthophoto)",
     "at_cadastre": "BEV cadastre (DKM – parcels)",
     "fi_cadastre": "Kiinteistörajat MML (parcels, kartat.kapsi.fi)",
     "gb_cadastre": "INSPIRE Index Polygons (HM Land Registry, parcels)",

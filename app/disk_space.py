@@ -211,10 +211,10 @@ DE_INDEX_CACHE_MAX_AGE_DAYS = 60  # nad obnovu indexu (Metalink 7 dní, adresá�
 
 
 def _zip_range_keys() -> list[str]:
-    """Země, jejichž dlaždice se čtou z velkých ZIPů (index ``<klíč>_index`` v cache)."""
+    """Země s indexem dlaždic ``<klíč>_index`` v cache (velké ZIPy, GeoJSON index Šlesvicka-Holštýnska)."""
     from app.pipeline.reference_de_states import DE_WCS_STATES
 
-    return sorted(key for key, st in DE_WCS_STATES.items() if st.tiles == "zip_range")
+    return sorted(key for key, st in DE_WCS_STATES.items() if st.tiles in ("zip_range", "sh_geojson"))
 
 
 def osm_cache_max_age_days() -> int:

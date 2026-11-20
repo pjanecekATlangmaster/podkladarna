@@ -32,6 +32,7 @@ Ověřeno: datum a způsob ověření licence; „neověřeno“ = převzato z p
 | DE-SL Německo – Sársko | beta | `de_sl` | `none` | 2 | 2 |
 | DE-HH Německo – Hamburk | beta | `de_hh` | `none` | 1 | 1 |
 | DE-HB Německo – Brémy | beta | `de_hb` | `none` | 2 | 2 |
+| DE-SH Německo – Šlesvicko-Holštýnsko | beta | `de_sh` | `none` | 2 | 2 |
 | PL Polsko | beta | `pl_gugik` | `none` | 5 | 5 |
 | GB-ENG Spojené království – Anglie | beta | `gb_ea` | `none` | 2 | 2 |
 | GB-SCT Spojené království – Skotsko | beta | `gb_sct` | `none` | 1 | 1 |
@@ -255,6 +256,15 @@ Stav `beta`, CRS `EPSG:25832`. Citace v mapě: „Base map: Omapic · Landesamt 
 |---|---|---|---|---|---|---|
 | výšky (DTM/DSM), výška porostu | **DGM1 a DOM1 Brémy (2017) a Bremerhaven (2015), XYZ po 1 km v ZIPech měst**<br>Landesamt GeoInformation Bremen<br><https://gdi2.geo.bremen.de/inspire/download/DGM/data/Gitternetz_DGM1_2017_HB_ASCII_XYZ.zip> · [info](https://geo.bremen.de/) | 🟢 public – [Creative Commons Namensnennung 4.0 International](https://creativecommons.org/licenses/by/4.0/)<br>citace: „Landesamt GeoInformation Bremen (CC BY 4.0)“ | volný | napojeno (výšky)<br>sonda `de_hb_elevation` | • Body XYZ leží na celých metrech, bere se jako středy pixelů (posun 0,5 m proti mřížce s hranami na celých metrech).<br>• Data jsou starší (Brémy 2017, Bremerhaven 2015). | Claude 2026-11-19: INSPIRE ATOM ZIPy Gitternetz_DGM1_2017_HB (1,09 GB, 395 dlaždic dgm1_32<E>_<N>_1_hb.xyz), DGM1_2015_BHV (0,61 GB), DOM1_2017_HB (1,24 GB), DOM1_2015_BHV (0,32 GB); Range 206; XYZ s hlavičkou „x y z“, body na celých metrech, řádky od severu, 1000 × 1000; licence CC BY 4.0 (Verfügung hvD 2024-05-22, metadata DGM1 Land Bremen) |
 | ortofoto | **Ortofoto DOP10 2025 (WMS GeoInformation Bremen)**<br>Landesamt GeoInformation Bremen<br><https://geodienste.bremen.de/wms_dop_lb> · [info](https://geo.bremen.de/) | 🟢 public – [Creative Commons Namensnennung 4.0 International](https://creativecommons.org/licenses/by/4.0/)<br>citace: „Landesamt GeoInformation Bremen (CC BY 4.0)“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_hb_dop` | • Vrstva je pojmenovaná rokem snímkování; po novém snímkování je potřeba ji přepsat. | Claude 2026-11-19: GetCapabilities (Fees CC-BY, Quellenvermerk Landesamt GeoInformation Bremen), GetMap dop10_2025_HB,dop10_2025_BHV EPSG:25832 200 image/jpeg |
+
+## DE-SH – Německo – Šlesvicko-Holštýnsko
+
+Stav `beta`, CRS `EPSG:25832`. Citace v mapě: „Base map: Omapic · GeoBasis-DE/LVermGeo SH · OSM, [year]“.
+
+| Druh dat | Zdroj a server | Licence | Přístup | Stav | Problémy a poznámky | Ověřeno |
+|---|---|---|---|---|---|---|
+| výšky (DTM/DSM), výška porostu | **DGM1 (XYZ, lety 2005–2025) a obrazový bDOM20 (GeoTIFF 0,2 m, 2023–24) Šlesvicka-Holštýnska po 1 km**<br>Landesamt für Vermessung und Geoinformation Schleswig-Holstein (LVermGeo SH)<br><https://geodaten.schleswig-holstein.de/gaialight-sh/_apps/dladownload/single.php?file=DGM1_SH__Massendownload.geojson&id=4> · [info](https://opendata.schleswig-holstein.de/) | 🟢 public – [Creative Commons Namensnennung 4.0 International](https://creativecommons.org/licenses/by/4.0/)<br>citace: „© GeoBasis-DE/LVermGeo SH/CC BY 4.0“ | volný | napojeno (výšky)<br>sonda `de_sh_elevation` | • Terén je po listech z různých let (2005–2025, čtvrtina 2005–07), povrch 2023–24: kde se mezitím terén změnil (těžba, stavby), výška porostu nesedí.<br>• Povrch je obrazová korelace (bDOM), ne laser: zrnitost porostu slabší (green: photo).<br>• bDOM nejde číst po rozsazích, stahuje se celá dlaždice (105 MB) a převádí na 1 m maximem; cache na serveru (``de_sh/<E>_<N>``, ~5 MB). | Claude 2026-11-20: GeoJSON indexy hromadného stahování DGM1 (18 685 dlaždic, link_data massen.php …dgm1_32_<E>_<N>_1_sh_<rok>.xyz) a bDOM (17 614, bdom20nc_32_<E>_<N>_1_sh_<rok>.tif); XYZ 28 MB, středy pixelů na .5, CRLF; bDOM 5000 × 5000 px Float32, NoData NaN, 105 MB, image/tiff, bez Range; dlaždice 3 s + 8 s; licence CC BY 4.0 (Open-Data-Portal SH, Fees WMS DOP20) |
+| ortofoto | **Ortofoto DOP20 (WMS LVermGeo SH, OpenGBD)**<br>Landesamt für Vermessung und Geoinformation Schleswig-Holstein (LVermGeo SH)<br><https://dienste.gdi-sh.de/WMS_SH_DOP20col_OpenGBD> · [info](https://opendata.schleswig-holstein.de/) | 🟢 public – [Creative Commons Namensnennung 4.0 International](https://creativecommons.org/licenses/by/4.0/)<br>citace: „© GeoBasis-DE/LVermGeo SH/CC BY 4.0“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_sh_dop` | • Ortofoto je bez roku ve jménu vrstvy, služba ukazuje vždy aktuální snímkování. | Claude 2026-11-20: GetCapabilities (Fees CC BY 4.0, Quellenvermerk „© GeoBasis-DE/LVermGeo SH/CC BY 4.0“), GetMap sh_dop20_rgb EPSG:25832 200 image/jpeg |
 
 ## PL – Polsko
 
