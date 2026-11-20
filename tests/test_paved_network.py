@@ -271,6 +271,21 @@ def test_bridge_over_paved_area_is_kept(tmp_path):
     assert sum(lengths.values()) == pytest.approx(100, abs=1.0)
 
 
+@pytest.mark.parametrize("preset", ["forest_10000", "mtbo_10000"])
+def test_road_bridge_joined_with_neighbours(tmp_path, preset):
+    # Silnice – most – silnice v jedné ose je v lese i MTBO jedna čára (Petr 2026-11-20, Harrachov).
+    paths = [
+        _line([(-100, 0), (0, 0)], "road_2"),
+        _line([(0, 0), (40, 0)], op.bridge_highway("road_2")),
+        _line([(40, 0), (140, 0)], "road_2"),
+    ]
+    _write_job(tmp_path, [], paths)
+    op._PAVED_NETWORK_CACHE.clear()
+    parts = op.build_osm_path_parts(tmp_path, preset_id=preset, scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    assert sum(_codes(parts, preset, 10000).values()) == 1
+    assert sum(_path_lengths(tmp_path, preset).values()) == pytest.approx(240, abs=1.0)
+
+
 def _parts_with_edge(tmp_path, preset="forest_10000", scale=10000):
     """Výplň sítě (``build_osm_feature_parts``) + okraj z hotových čar cest (les a MTBO: ``paved_surface``)."""
     from app.pipeline import dtm_import as di

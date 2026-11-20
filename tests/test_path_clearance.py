@@ -491,3 +491,28 @@ def test_tree_row_point_moves_off_road_other_tree_points_stay(tmp_path, part_nam
     parts = [OomObjectPart(name=part_name, objects_xml=point, count=1)]
     out = _objects(displace_objects_from_paths(parts, work, **KW))
     assert (out[0] != point.strip()) == moves
+
+
+@pytest.mark.parametrize("preset", ["forest_10000", "mtbo_10000"])
+def test_water_cut_under_road_bridge(tmp_path, preset):
+    # Řeka (301) pod silnicí na OSM mostě se vyřízne v šířce kresby silnice; barva vody je v sadě nad výplní silnice.
+    from app.pipeline.oom_import import _path_object
+    from app.pipeline.osm_paths import bridge_highway, osm_oom_code
+    from app.pipeline.path_clearance import water_under_bridges
+
+    kw = dict(preset_id=preset, scale=SCALE, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    (tmp_path / "osm_paths").mkdir()
+    bridge = {"type": "Feature", "properties": {"highway": bridge_highway("road_2")}, "geometry": {"type": "LineString", "coordinates": [[0, -20], [0, 20]]}}
+    (tmp_path / "osm_paths" / "paths_bridges.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [bridge]}), encoding="utf-8")
+    road_code = osm_oom_code("road_2", preset)
+    road = _path_object(symbol_index_for_code(preset, SCALE, road_code), _to_map([(0, -100), (0, 100)]))
+    river = _area_object_with_holes(symbol_index_for_code(preset, SCALE, "301"), [_to_map(_rect(-80, -4, 80, 4))])
+    parts = [OomObjectPart(name="x", objects_xml="\n".join([road, river]), count=2)]
+    out = _objects(water_under_bridges(parts, tmp_path, **kw))
+    assert len(out) == 3  # silnice + řeka ve dvou kusech
+    half = symbol_width_mm(preset, SCALE, road_code) / 2 * 10  # m
+    for obj in out[1:]:
+        assert min(abs(x) for x, _y, _f in _parse_coords(_COORDS_RE.search(obj).group(1))) / 100.0 == pytest.approx(half, abs=0.2)
+    # bez mostu beze změny
+    (tmp_path / "osm_paths" / "paths_bridges.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8")
+    assert _objects(water_under_bridges(parts, tmp_path, **kw)) == _objects(parts)

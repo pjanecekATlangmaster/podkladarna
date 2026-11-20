@@ -527,6 +527,8 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   (šířka ≥ 0,8 mm, plocha ≥ 1 mm², `DTM_PARKING_SIMPLE`). Přepínače `MTBO_SIDEWALK_AREAS`, `MTBO_DTM_PARKING`, `FOREST_DTM_PARKING`,
   `FOREST_DTM_WALK_AREAS`, `street_profile.MTBO_STREET_PROFILE_DTM` / `FOREST_STREET_PROFILE_DTM` (profil ulice se stáním zůstává, jen bez vstupů z DTM; True = jako 3.96). Silnice na mostě
   je v lese i MTBO plynulá silnice v tahu (`is_road_bridge_highway`), MTBO u mostů bere symbol navazující cesty (dřív 816).
+  Od 3.100.1 se silnice na mostě spojuje se sousedními úseky do jedné čáry a voda (301, 302, 304–306) se pod čárou kreslenou
+  po OSM mostě vyřízne v její šířce (`path_clearance.water_under_bridges`; barva vody je v sadě nad výplní silnice).
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch
