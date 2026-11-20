@@ -1034,6 +1034,27 @@ def _style_from_area(target: ET.Element) -> _SymbolStyle | None:
             spacing = _attr_float(pat, "line_spacing", 0.0)
             if pcolor >= 0 and spacing > 0:
                 return _SymbolStyle("area", pcolor, _attr_float(pat, "line_width", 0.0), spacing, mid_mode="hatch")
+        # Čárkovaná šrafa (ISOM 310 neurčitá bažina): bodový pattern type 2, bod = krátká čára.
+        for pat in target:
+            if _local(pat.tag) != "pattern" or pat.attrib.get("type") != "2":
+                continue
+            line = next((el for el in pat.iter() if _local(el.tag) == "line_symbol"), None)
+            coords = next((el for el in pat.iter() if _local(el.tag) == "coords"), None)
+            if line is None or coords is None or not (coords.text or "").strip():
+                continue
+            try:
+                pcolor = int(line.attrib.get("color", "-1") or -1)
+                xs = [float(c.split()[0]) for c in coords.text.split(";") if c.strip()]
+            except (ValueError, IndexError):
+                continue
+            spacing = _attr_float(pat, "line_spacing", 0.0)
+            step = _attr_float(pat, "point_distance", 0.0)
+            dash = max(xs) - min(xs) if xs else 0.0
+            if pcolor >= 0 and spacing > 0 and 0 < dash < step:
+                return _SymbolStyle(
+                    "area", pcolor, _attr_float(line, "line_width", 0.0), spacing,
+                    dashed=True, dash_length=dash, break_length=step - dash, mid_mode="hatch",
+                )
         return None
     return _SymbolStyle("area", color, 0.0, 0.0)
 
@@ -1919,8 +1940,19 @@ def render_omap_xml_png(
                 stripes = Image.new("L", mask.size, 0)
                 stripes_draw = ImageDraw.Draw(stripes)
                 yy = math.floor((y0 + origin_y * scale) / step) * step - origin_y * scale - y0
+                dash = op.dash_length * scale if op.dashed else 0.0
+                period = (op.dash_length + op.break_length) * scale if op.dashed else 0.0
                 while yy < mask.size[1] + stroke:
-                    stripes_draw.line([(0, yy), (mask.size[0], yy)], fill=255, width=stroke)
+                    row = int(round((yy + y0 + origin_y * scale) / step))
+                    if period >= 2.0 and dash >= 1.0:
+                        # Čárky po řadách střídavě posunuté o půl periody (jako bodový pattern v Mapperu).
+                        shift = 0.5 * period if row % 2 else 0.0
+                        xx = math.floor((x0 + origin_x * scale - shift) / period) * period + shift - origin_x * scale - x0
+                        while xx < mask.size[0]:
+                            stripes_draw.line([(xx, yy), (xx + dash, yy)], fill=255, width=stroke)
+                            xx += period
+                    else:
+                        stripes_draw.line([(0, yy), (mask.size[0], yy)], fill=255, width=stroke)
                     yy += step
                 mask = ImageChops.multiply(mask, stripes)
             image.paste(op.rgb, (x0, y0, x1, y1), mask)
