@@ -192,8 +192,11 @@ def mtbo_dtm_off(preset_id: str) -> bool:
 # Od 3.97.0 vypnuto (Petr 2026-11-20, Harrachov): v měřítku MTBO z chodníků z DTM zbývaly cáry podél silnic a černé
 # cesty na nich končily; zpevněné plochy v MTBO kreslí jen OSM (viz i ``MTBO_DTM_PARKING``).
 MTBO_SIDEWALK_AREAS = False
-# MTBO: velká parkoviště z DTM (False = parkoviště jen z OSM; Petr 2026-11-20, Harrachov). Les beze změny.
+# MTBO a les: velká parkoviště z DTM (False = parkoviště jen z OSM; Petr 2026-11-20, Harrachov).
 MTBO_DTM_PARKING = False
+FOREST_DTM_PARKING = False
+# Les: široké pěší plochy z DTM (``osm_paths.with_dtm_walk_areas``); False = jen z OSM (Petr 2026-11-20, Harrachov).
+FOREST_DTM_WALK_AREAS = False
 MTBO_SIDEWALK_MIN_WIDTH_MM = 0.5
 MTBO_SIDEWALK_MIN_LEN_M = 15.0
 
@@ -1859,6 +1862,8 @@ def dtm_parking_geometry(work_dir: Path, scale: int, path_source: str = "mixed",
     if not parking_path(work_dir).is_file():
         return None
     if (preset_id or "").startswith("mtbo") and not MTBO_DTM_PARKING:
+        return None
+    if not (preset_id or "").startswith(("mtbo", "sprint")) and not FOREST_DTM_PARKING:
         return None
 
     def compute():

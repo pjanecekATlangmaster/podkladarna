@@ -256,7 +256,10 @@ def test_sprint_merges_adjacent_sidewalk_into_501_1_with_interface(tmp_path):
     assert side[0].count >= 1  # zůstal jen vzdálený kus
 
 
-def test_dtm_parking_part_and_osm_parking_dedup(tmp_path):
+def test_dtm_parking_part_and_osm_parking_dedup(tmp_path, monkeypatch):
+    from app.pipeline import dtm_import as _di
+
+    monkeypatch.setattr(_di, "FOREST_DTM_PARKING", True)  # od 3.97.0 vypnuto, mechanismus zůstává
     from app.pipeline import osm_paths as op
 
     work = tmp_path
@@ -533,7 +536,8 @@ def test_forest_and_mtbo_fill_dtm_fence_enclosures_with_olive(tmp_path):
 def test_mtbo_draws_only_large_dtm_parking_and_osm_duplicate_is_dropped(tmp_path, monkeypatch):
     from app.pipeline import dtm_import as _di
 
-    monkeypatch.setattr(_di, "MTBO_DTM_PARKING", True)  # od 3.97.0 v MTBO vypnuto, mechanismus zůstává
+    monkeypatch.setattr(_di, "MTBO_DTM_PARKING", True)  # od 3.97.0 vypnuto, mechanismus zůstává
+    monkeypatch.setattr(_di, "FOREST_DTM_PARKING", True)
     from app.pipeline import osm_paths as op
 
     work = tmp_path
@@ -1559,7 +1563,8 @@ def _drawn_length_in_rect(parts, rect, ref, scale):
 def test_forest_and_mtbo_roads_and_paths_are_cut_by_dtm_parking(tmp_path, monkeypatch):
     from app.pipeline import dtm_import as _di
 
-    monkeypatch.setattr(_di, "MTBO_DTM_PARKING", True)  # od 3.97.0 v MTBO vypnuto, mechanismus zůstává
+    monkeypatch.setattr(_di, "MTBO_DTM_PARKING", True)  # od 3.97.0 vypnuto, mechanismus zůstává
+    monkeypatch.setattr(_di, "FOREST_DTM_PARKING", True)
     from app.pipeline import osm_paths as op
 
     def make(work, with_parking):
@@ -2101,12 +2106,14 @@ def test_cover_loaders_filter_farm_type_codes(tmp_path, monkeypatch, loader, rec
     assert bool(loader(zp, use_cache=False)) is kept
 
 
-def test_mtbo_takes_no_dtm_paved_areas_by_default(tmp_path):
-    """Harrachov (Petr 2026-11-20): MTBO nebere z DTM chodníky, parkoviště ani profil ulice se stáním; les ano."""
-    from app.pipeline import dtm_import as di, street_profile
+def test_forest_and_mtbo_take_no_dtm_paved_areas_by_default(tmp_path):
+    """Harrachov (Petr 2026-11-20): les ani MTBO neberou z DTM chodníky, parkoviště ani profil ulice se stáním."""
+    from app.pipeline import dtm_import as di, osm_paths as op, street_profile
 
     (tmp_path / "dtm").mkdir()
     di.parking_path(tmp_path).write_text(json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8")
-    assert di.dtm_parking_geometry(tmp_path, 10000, "mixed", "mtbo_10000") is None
+    for preset in ("forest_10000", "mtbo_10000"):
+        assert di.dtm_parking_geometry(tmp_path, 10000, "mixed", preset) is None
+        assert not street_profile.enabled(preset)
     assert di.mtbo_sidewalk_geometry(tmp_path, 10000, "mixed", "mtbo_10000") is None
-    assert not street_profile.enabled("mtbo_10000") and street_profile.enabled("forest_10000")
+    assert op.with_dtm_walk_areas(tmp_path, [], "forest_10000", 10000) == []

@@ -5945,7 +5945,9 @@ def with_dtm_walk_areas(work_dir: Path, feats: list[dict], preset_id: str, scale
 
     MTBO ne: široké chodníky z DTM kreslí ``dtm_import.mtbo_sidewalk_geometry`` (jinak by se kreslily dvakrát).
     """
-    if not uses_dtm_widths(preset_id) or preset_id.startswith("mtbo"):
+    from app.pipeline import dtm_import
+
+    if not uses_dtm_widths(preset_id) or preset_id.startswith("mtbo") or not dtm_import.FOREST_DTM_WALK_AREAS:
         return feats
     from app.pipeline.dtm_widths import wide_walk_area_features
 

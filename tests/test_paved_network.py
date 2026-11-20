@@ -175,7 +175,8 @@ def test_street_with_parking_profile(tmp_path, monkeypatch, preset, strips, dtm,
 
     from app.pipeline import street_profile
 
-    monkeypatch.setattr(street_profile, "MTBO_STREET_PROFILE", True)  # od 3.97.0 v MTBO vypnuto, mechanismus zůstává
+    monkeypatch.setattr(street_profile, "MTBO_STREET_PROFILE", True)  # od 3.97.0 vypnuto, mechanismus zůstává
+    monkeypatch.setattr(street_profile, "FOREST_STREET_PROFILE", True)
 
     feats = [_area(x0, y0, x1, y1, "parking") for x0, x1, y0, y1 in strips]
     _write_job(tmp_path, feats, [_road([(-60, 0), (200, 0)], "road_3")])
@@ -457,7 +458,10 @@ def test_forest_symbols_from_dtm_width(tmp_path, monkeypatch):
     assert lengths["505.0"] == pytest.approx(200, abs=1.0)
 
 
-def test_forest_wide_dtm_walk_becomes_paved_area(tmp_path):
+def test_forest_wide_dtm_walk_becomes_paved_area(tmp_path, monkeypatch):
+    from app.pipeline import dtm_import as _di
+
+    monkeypatch.setattr(_di, "FOREST_DTM_WALK_AREAS", True)  # od 3.97.0 vypnuto, mechanismus zůstává
     # Pěší plocha z DTM 20 m široká → zpevněná plocha 501.1 + okraj, pěšina uvnitř se nekreslí.
     walk = _line([(0, 50), (200, 50)], "footway")
     _write_job(tmp_path, [], [walk])

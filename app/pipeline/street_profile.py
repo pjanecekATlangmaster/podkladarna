@@ -22,9 +22,10 @@ from pathlib import Path
 
 # Les a MTBO kreslí ulici se stáním podle profilu; False = slévání po kusech stání (3.12.4 – 3.16.x).
 STREET_PROFILE = True
-# MTBO bere ulici se stáním po kusech (``merge_parking_into_road``): profil s plochou silnic z DTM dával v měřítku
-# MTBO nepravidelné pruhy podél ulic (Petr 2026-11-20, Harrachov).
+# MTBO a les berou ulici se stáním po kusech (``merge_parking_into_road``): profil s plochou silnic z DTM dával
+# v měřítku MTBO a lesa nepravidelné pruhy podél ulic (Petr 2026-11-20, Harrachov).
 MTBO_STREET_PROFILE = False
+FOREST_STREET_PROFILE = False
 T_MM = 0.3  # přesah, od kterého se rozšíření kreslí (1:10 000 = 3 m)
 L_MM = 5.0  # nejkratší rozšířený úsek
 G_MM = 4.0  # mezera mezi rozšířenými úseky, která se zacelí
@@ -40,6 +41,8 @@ ROUND_M = 0.5
 
 def enabled(preset_id: str) -> bool:
     if preset_id.startswith("mtbo") and not MTBO_STREET_PROFILE:
+        return False
+    if not preset_id.startswith(("mtbo", "sprint")) and not FOREST_STREET_PROFILE:
         return False
     return STREET_PROFILE and not preset_id.startswith("sprint")
 
