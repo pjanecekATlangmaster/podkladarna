@@ -1319,6 +1319,14 @@ def run_job_pipeline(
                 prepare_mtk(work_dir, tuple(bbox), log=log)
             except Exception as exc:
                 log_issue(log, f"Maastotietokanta: přeskočeno ({exc})")
+        # Přílivová zóna u moře z DTM (Česko moře nemá).
+        if not cz_sources:
+            try:
+                from app.pipeline.coast_tidal import apply_tidal_zone
+
+                apply_tidal_zone(work_dir, log=log)
+            except Exception as exc:
+                log(f"Přílivová zóna: přeskočeno ({exc})")
         try:
             write_osm_manual_shapefiles(work_dir, log=log)
         except Exception as exc:

@@ -400,7 +400,7 @@ PATH_SURFACES_NAME = "path_surfaces.geojson"
 # Pláž a písek (natural=beach / sand) jen mimo Česko: zpevněné plochy z ortofota (``open_paved``) je nesmějí vzít
 # za dlažbu (Scheveningen). Vlastní seznam, ne ``natural_cover`` – Česko beze změny.
 SAND_AREAS_NAME = "sand_areas.geojson"
-SAND_NATURAL = frozenset({"beach", "sand"})
+SAND_NATURAL = frozenset({"beach", "sand", "mud"})
 # Nezpevněný povrch čáry (surface=*) pro ``path_surface_class``.
 _UNPAVED_LINE_SURFACES = frozenset(
     {
@@ -528,9 +528,10 @@ def _overpass_ql(
         *([] if _cz_process() else [f'way["waterway"~"^({"|".join(sorted(OSM_WATERWAY_LINES))})$"]({bbox});']),
         # Moře: OSM ho nemá jako plochu, jen pobřežní čáru (pevnina vlevo) → plocha 301 (``sea_features``). Česko moře nemá.
         *([] if _cz_process() else [f'way["natural"="coastline"]({bbox});']),
-        # Pláž a písek mimo Česko (``SAND_AREAS_NAME``), samy se nekreslí.
-        *([] if _cz_process() else [f'way["natural"~"^(beach|sand)$"]({bbox});',
-                                    f'relation["type"="multipolygon"]["natural"~"^(beach|sand)$"]({bbox});']),
+        # Pláž, písek a bahno mimo Česko (``SAND_AREAS_NAME``) → písčitá půda 213 (kind ``sand``), ``wetland=tidalflat``
+        # přichází s mokřady výše; přílivovou zónu bez OSM plochy doplní ``coast_tidal`` z DTM.
+        *([] if _cz_process() else [f'way["natural"~"^(beach|sand|mud)$"]({bbox});',
+                                    f'relation["type"="multipolygon"]["natural"~"^(beach|sand|mud)$"]({bbox});']),
         # Železnice a tramvaje → 509 / 515 jako ZABAGED ZeleznicniTrat / TramvajovaDraha; v Česku je kreslí ZABAGED.
         *([] if _cz_process() else [f'way["railway"~"^({"|".join(sorted(OSM_RAIL_LINE_KINDS))})$"]({bbox});']),
         # Náhrady vrstev ZABAGED mimo Česko (hřbitovy, kolonie, věže, lanovky, hradby, balvany, pomníky, stromy).
@@ -1182,6 +1183,7 @@ _CLOSED_AREA_KINDS = frozenset(
     {
         "wetland",
         "wetland_indistinct",  # zamokřená půda z Maastotietokanta (jen Finsko, ``mtk_fi``)
+        "sand",  # pláž, písek, bahno a přílivová zóna (jen mimo Česko)
         "water_body",
         "fountain",
         "farmland",
@@ -1779,6 +1781,11 @@ def classify_osm_feature(
         # Budova s tabulemi → 521 (ne křížek); jinak info board.
         if not _is_osm_building(tags):
             return "info_board", "531"
+    if not is_node and (
+        natural in SAND_NATURAL or (natural == "wetland" and (tags.get("wetland") or "").lower() == "tidalflat")
+    ):
+        # Pláž, písek, bahno a přílivová plocha = písčitá půda (dotaz jen mimo Česko); slaná bažina zůstává mokřadem.
+        return "sand", "213"
     if natural == "wetland":
         return "wetland", "308"
     if natural == "cave_entrance":
@@ -2070,6 +2077,9 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         return "313" if mtbo else "312"
     if kind == "wetland":
         return "310" if mtbo else "308"
+    if kind == "sand":
+        # ISOM 213 Sandy ground, ISSprOM i ISMTBOM 2022 213 Open sandy ground (katalog symbolů).
+        return "213"
     if kind == "wetland_indistinct":
         # Zamokřená půda (MTK soistuma): ISOM/ISSprOM 310 Indistinct marsh; ISMTBOM má jen 310 Marsh.
         return "310"
@@ -2124,6 +2134,7 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         "shelter": "522",
         "landmark_tree": "417",
         "wetland": "308",
+        "sand": "213",
         "water_body": "301",
         "waterway": OSM_WATERWAY_CODE,
         "fountain": "301.1",
@@ -4725,6 +4736,7 @@ OSM_MANUAL_LAYER_SPECS: dict[str, tuple[str, str, str]] = {
     "playground_equipment": ("OSM_herni_prvky", "herní prvky", "531"),
     "wetland": ("OSM_mokrad", "mokřad", "308"),
     "wetland_indistinct": ("MTK_soistuma", "zamokřená půda (Maastotietokanta)", "310"),
+    "sand": ("OSM_pisek", "pláž, písek, bahno a přílivová zóna (213)", "213"),
     "cliff_mtk": ("MTK_jyrkanne", "skalní stěny (Maastotietokanta)", "201"),
     "cave_entrance": ("OSM_jeskyne", "vstup do jeskyně", "203.2"),
     # Jen podklad (ne v auto .omap) – skály ve výstupu jsou LiDAR 206.
@@ -8971,6 +8983,7 @@ def build_osm_feature_parts(
         "firepit": "OSM ohniště",
         "wetland": "OSM mokřad",
         "wetland_indistinct": "Zamokřená půda (310)",
+        "sand": "Písčitá půda u moře (213)",
         "cliff_mtk": "Skalní stěny Maastotietokanta (201)",
         "cave_entrance": "OSM vstup do jeskyně",
         "cliff": "OSM skála / sráz (201)",
@@ -9017,6 +9030,7 @@ def build_osm_feature_parts(
         "playground_equipment",
         "wetland",
         "wetland_indistinct",
+        "sand",
         "cave_entrance",
         "cliff",
         "cliff_mtk",

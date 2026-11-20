@@ -56,7 +56,7 @@ _KIND_GEOM = {
     "tree_row": "point",  # alej se kreslí body 418 (``tree_rows``)
     "ruin": {"line", "area"},  # zřícenina OSM mimo Česko jako ZABAGED RozvalinaZricenina (les obrys 523, sprint 521)
     **{k: "area" for k in (
-        "wetland", "wetland_indistinct", "water_body", "fountain", "farmland", "garden", "playground", "pitch", "pitch_open", "parking",
+        "wetland", "wetland_indistinct", "sand", "water_body", "fountain", "farmland", "garden", "playground", "pitch", "pitch_open", "parking",
         "pedestrian_area", "platform", "water_well_building", "building", "bare_rock",
         "scree", "rock_area", "residential", "shelter",
         "paved_dtm",  # plocha z DTM (koridor, parkoviště, chodníky) ve sjednocené síti lesa a MTBO
