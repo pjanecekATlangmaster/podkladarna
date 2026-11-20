@@ -8604,7 +8604,7 @@ def build_osm_path_parts(
                     continue
             if (
                 join_pieces is not None
-                and not is_bridge_highway(hw)
+                and (not is_bridge_highway(hw) or is_road_bridge_highway(hw))  # silnice na mostě v tahu se sousedy
                 and not is_tunnel_highway(hw)
                 and not (steps_piece and piece_code == osm_oom_code("steps", preset_id))
             ):
@@ -8644,7 +8644,10 @@ def build_osm_path_parts(
                 if (f.get("geometry") or {}).get("type") == "LineString"
                 and len((f.get("geometry") or {}).get("coordinates") or []) >= 2
                 and path_draw_highway(str((f.get("properties") or {}).get("highway") or "")).startswith("road_")
-                and not is_bridge_highway(str((f.get("properties") or {}).get("highway") or ""))
+                and (
+                    not is_bridge_highway(str((f.get("properties") or {}).get("highway") or ""))
+                    or is_road_bridge_highway(str((f.get("properties") or {}).get("highway") or ""))
+                )
                 and not is_tunnel_highway(str((f.get("properties") or {}).get("highway") or ""))
             ]
             # Silnice vrácené z ``paths_osm`` jsou už oříznuté o souběh (``_mixed_osm_road_fix``): opora pro dotažení
@@ -8661,7 +8664,7 @@ def build_osm_path_parts(
                     (f.get("geometry") or {}).get("type") == "LineString"
                     and len(_coords) >= 2
                     and path_draw_highway(_hw).startswith("road_")
-                    and not is_bridge_highway(_hw)
+                    and (not is_bridge_highway(_hw) or is_road_bridge_highway(_hw))
                     and not is_tunnel_highway(_hw)
                     and tuple(tuple(round(float(v), 2) for v in c[:2]) for c in _coords) not in _have
                 ):

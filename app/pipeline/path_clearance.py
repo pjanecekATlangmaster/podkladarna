@@ -703,6 +703,132 @@ def paved_fill_outside_olive(parts: list[OomObjectPart], *, preset_id: str, scal
     return out_parts
 
 
+# Voda (hlavní číslo kódu), která se pod silnicí / cestou na mostě vyřízne: barva vody je v sadě nad výplní silnice.
+WATER_MAJORS = frozenset({301, 302, 304, 305, 306})
+# Osa kreslené čáry do této vzdálenosti (m v terénu) od OSM mostu podél ≥ BRIDGE_MATCH_SHARE jeho délky = čára mostu.
+BRIDGE_MATCH_M = 2.0
+BRIDGE_MATCH_SHARE = 0.8
+# Kus vody pod tento rozměr (mm na mapě) po vyříznutí pryč.
+WATER_MIN_PIECE_MM = 0.3
+
+
+def water_under_bridges(
+    parts: list[OomObjectPart],
+    work_dir: Path,
+    *,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+) -> list[OomObjectPart]:
+    """Les a MTBO: voda (``WATER_MAJORS``) se vyřízne z pásu silnice / cesty kreslené na OSM mostě.
+
+    Barva vody leží v sadách nad hnědou výplní silnice, takže řeka „přetékala“ přes most (Petr 2026-11-20, Harrachov).
+    Pás = OSM most (``paths_bridges.geojson``) v šířce kreslené čáry, která po mostě vede (502–508, MTBO 8xx; most
+    kreslený symbolem 512 se nemění). Sprint beze změny (mosty řeší víceúrovňová kresba).
+    """
+    if preset_id.startswith("sprint") or not parts:
+        return parts
+    import json
+
+    from shapely import STRtree
+    from shapely.geometry import LineString, Polygon
+    from shapely.ops import unary_union
+
+    from app.pipeline.oom_symbol_map import _symbol_widths
+    from app.pipeline.oom_symbols import symbol_set_path
+
+    try:
+        feats = json.loads((work_dir / "osm_paths" / "paths_bridges.geojson").read_text(encoding="utf-8")).get("features") or []
+        set_path = symbol_set_path(preset_id, scale)
+        info = _symbol_info(set_path)
+        widths = _symbol_widths(set_path)
+    except Exception:  # kosmetika, bez mostů beze změny
+        return parts
+    water_ids = {i for i, (major, _kind) in info.items() if major in WATER_MAJORS}
+    if not water_ids:
+        return parts
+    bridges = []
+    for f in feats:
+        geom = f.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        if geom.get("type") != "LineString" or len(coords) < 2:
+            continue
+        pts = [
+            projected_to_map_coord(float(c[0]), float(c[1]), ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg)
+            for c in coords
+        ]
+        bridges.append(LineString(pts))
+    if not bridges:
+        return parts
+    drawn = _drawn_path_objects(parts, info, widths)
+    if not drawn:
+        return parts
+    lines = [LineString(c) for c, _h, _m in drawn]
+    tree = STRtree(lines)
+    match = BRIDGE_MATCH_M * 1e6 / scale
+    bands = []
+    for b in bridges:
+        best = 0.0
+        for k in tree.query(b.buffer(match)):
+            k = int(k)
+            if lines[k].buffer(match).intersection(b).length >= BRIDGE_MATCH_SHARE * b.length:
+                best = max(best, drawn[k][1])
+        if best > 0:
+            bands.append(b.buffer(best, cap_style="flat"))
+    if not bands:
+        return parts
+    band = unary_union(bands)
+    min_piece = WATER_MIN_PIECE_MM * 1000.0
+
+    def clip_water(m: re.Match) -> str:
+        head, otype, sym, body, tail = m.groups()
+        if otype != "1" or int(sym) not in water_ids:
+            return m.group(0)
+        cm = _COORDS_RE.search(body)
+        if not cm:
+            return m.group(0)
+        try:
+            pts = _parse_coords(cm.group(1))
+            kind = info.get(int(sym), (0, ""))[1]
+            if kind == "area":
+                poly = _polygon(_rings(pts))
+                if poly is None or poly.is_empty or not poly.intersects(band):
+                    return m.group(0)
+                new = poly.difference(band)
+                pieces = [
+                    g
+                    for g in getattr(new, "geoms", [new])
+                    if isinstance(g, Polygon) and not g.buffer(-min_piece / 2.0).is_empty
+                ]
+                out = [p for g in pieces for p in _rounded_pieces(g)]
+            else:
+                line = LineString(_flatten(pts))
+                if not line.intersects(band):
+                    return m.group(0)
+                rest = line.difference(band)
+                out = [
+                    [[round(x), round(y), 0] for x, y in g.coords]
+                    for g in getattr(rest, "geoms", [rest])
+                    if g.geom_type == "LineString" and g.length >= min_piece
+                ]
+            return "\n".join(head + body[: cm.start()] + _format_coords(p) + body[cm.end() :] + tail for p in out)
+        except Exception:  # jeden objekt se nepovede → zůstane, jak byl
+            return m.group(0)
+
+    out_parts = []
+    for part in parts:
+        xml = _OBJECT_RE.sub(clip_water, part.objects_xml)
+        if xml == part.objects_xml:
+            out_parts.append(part)
+        else:
+            count = len(_OBJECT_RE.findall(xml))
+            if count:
+                out_parts.append(OomObjectPart(name=part.name, objects_xml=xml, count=count))
+    return out_parts
+
+
 def displace_objects_from_paths(
     parts: list[OomObjectPart],
     work_dir: Path,
