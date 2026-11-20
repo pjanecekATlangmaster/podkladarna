@@ -1110,5 +1110,7 @@
   "web.js.user_sources.uploading": "Uploading and checking the data…",
   "web.js.user_sources.started": "Your data passed the check. The map is computed privately, the link will come to {mail}; the data is deleted when it is finished.",
   "web.page.user_sources.guide": "Guide: where to get the data and how to crop it",
-  "web.page.user_sources.cmd": "Crop to this area with GDAL (for terrain and surface):"
+  "web.page.user_sources.cmd": "Crop to this area with GDAL (for terrain and surface):",
+  "api.job.source_down": "The elevation source for this country ({source}) is not responding right now, so the map cannot be created. Please try again later.",
+  "api.job.source_planned": "The elevation source for this country ({source}) is down for planned maintenance, so the map cannot be created. Please try again later."
 }

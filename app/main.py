@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import area_probe, countries, db, donations, i18n, paid_flow, prefetch, samples_refresh, settings as app_settings, source_status, user_sources, worker
+from app import area_probe, countries, db, donations, i18n, paid_flow, prefetch, samples_refresh, settings as app_settings, source_gate, source_status, user_sources, worker
 from app.cleanup import maybe_purge_old_jobs, prune_caches, purge_old_jobs, start_cleanup_scheduler
 from app.client_ip import client_ip
 from app.feedback import (
@@ -1832,6 +1832,14 @@ async def api_create_job(request: Request):
             prev = None
         if can_reuse_lidar(prev, bbox, job_country.code):
             options["reused_from"] = reuse_id
+    # Potvrzený výpadek zdroje výšek země (mimo Česko) job odmítne dřív, než vznikne – nezapočítá se do limitů.
+    outage = await run_in_threadpool(
+        source_gate.check,
+        job_country.code,
+        has_fallback=has_user_sources or bool(options.get("reused_from")),
+    )
+    if outage is not None:
+        raise HTTPException(503, outage["message"])
     # Placená doména se zapnutým prodejem: job vznikne až po potvrzení e-mailu (app.paid_flow).
     if not api_client and not sample_job and paid_flow.active_for(request):
         return paid_flow.start_order(

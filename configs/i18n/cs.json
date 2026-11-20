@@ -1109,5 +1109,7 @@
   "web.js.user_sources.uploading": "Nahrávám a kontroluji data…",
   "web.js.user_sources.started": "Vlastní data prošla kontrolou. Mapa se počítá soukromě, odkaz přijde na {mail}; data se po doběhnutí smažou.",
   "web.page.user_sources.guide": "Návod: kde data získat a jak je oříznout",
-  "web.page.user_sources.cmd": "Ořez na tento výřez v GDAL (pro terén i povrch):"
+  "web.page.user_sources.cmd": "Ořez na tento výřez v GDAL (pro terén i povrch):",
+  "api.job.source_down": "Zdroj výšek této země ({source}) teď neodpovídá, mapu proto nejde vytvořit. Zkuste to prosím později.",
+  "api.job.source_planned": "Zdroj výšek této země ({source}) má teď plánovanou odstávku, mapu proto nejde vytvořit. Zkuste to prosím později."
 }
