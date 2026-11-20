@@ -74,8 +74,13 @@ def test_scotland_profile_and_probe():
 
 def test_valid_mask_counts_only_data(tmp_path):
     """Pokrytí podle platných pixelů, ne obdélníku dlaždice (Phase 1 bývá ve čtverci jen zčásti)."""
+    import shutil
+
     import numpy as np
 
+    pytest.importorskip("osgeo")
+    if not shutil.which("gdalwarp"):
+        pytest.skip("gdalwarp není k dispozici")
     arr = np.full((100, 100), -9999.0, dtype="float32")
     arr[:, :25] = 300.0  # jen levá čtvrtina má data
     path = tmp_path / "t.tif"
