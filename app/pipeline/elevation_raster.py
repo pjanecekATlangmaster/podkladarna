@@ -2855,6 +2855,31 @@ def gb_sct_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 PROVIDERS["gb_sct"] = gb_sct_provider
 
 
+# --------------------------------------------------------------------------- GB-WLS: Welsh Government LiDAR 2020–23
+
+# DataMapWales (OGL v3, bez klíče): kompozit DTM a DSM 1 m z národního LiDARu 2020–23 (zimní nálety), každý jeden COG
+# na celý Wales v EPSG:27700 (pokrytí země 99,97 %). Čte se jen okno výřezu (~2,5 s na km² a model).
+WLS_CRS = "EPSG:27700"
+WLS_BUFFER_M = 20.0
+
+
+def gb_wls_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """Wales: DTM a DSM 1 m – okno výřezu z celostátních COG DataMapWales."""
+    from app.pipeline.reference_gb import WLS_DSM_URL, WLS_DTM_URL
+
+    window = _buffered(bounds, WLS_CRS, WLS_BUFFER_M)
+    dtm = cog_windows([WLS_DTM_URL], window, WLS_CRS, out_dir, "gb_wls_dtm", log=log, nodata=NODATA)
+    if dtm is None:
+        raise ElevationUnavailable("výřez je mimo pokrytí LiDARu Welsh Government (Wales)")
+    dsm = cog_windows([WLS_DSM_URL], window, WLS_CRS, out_dir, "gb_wls_dsm", log=log, nodata=NODATA)
+    if dsm is None:
+        log_issue(log, "Wales: povrch (DSM) pro výřez chybí, výška porostu se nespočítá")
+    return SourceRasters(dtm, dsm)
+
+
+PROVIDERS["gb_wls"] = gb_wls_provider
+
+
 # --------------------------------------------------------------------------- DK: DHM terén + povrch (Datafordeler)
 
 # DHM/Terræn a DHM/Overflade (Klimadatastyrelsen, lidar, mřížka 0,4 m, CC BY 4.0) z WCS Datafordeleru v nativním
@@ -3248,6 +3273,7 @@ SOURCE_LABELS = {
     "si_arso": "mračno LiDAR, ARSO",
     "us_3dep": "mračno LiDAR 3DEP, USGS",
     "gb_sct": "LiDAR DTM a DSM, Scottish Government",
+    "gb_wls": "LiDAR DTM a DSM, Welsh Government",
     USER_UPLOAD: "vlastní data zadavatele",
 }
 

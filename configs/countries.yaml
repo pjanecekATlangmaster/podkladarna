@@ -2,7 +2,7 @@
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`, a jen na doméně se zemí v SITES – nikdy na české `:CZ`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
 # Zahraniční mapy dělá mezinárodní verze Omapic: citace a attribution anglicky; citace „Base map: Omapic · …, [year]“ (jako anglická licence).
-# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | no_hoyde | si_arso | gb_sct | fr_lidarhd | lu_act | us_3dep | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
+# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | no_hoyde | si_arso | gb_sct | gb_wls | fr_lidarhd | lu_act | us_3dep | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
@@ -367,6 +367,22 @@ GB-SCT:
   citation: "Base map: Omapic · Scottish Government · OSM, [year]"
   attribution:
     - "Elevation: LiDAR for Scotland (Phase 1–6, National LiDAR Programme), Crown copyright Scottish Government, SEPA and Scottish Water; contains public sector information licensed under the Open Government Licence v3.0, processed."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+GB-WLS:
+  name: {cs: Spojené království – Wales, en: United Kingdom – Wales}
+  status: beta              # Wales (2026-11-20); celoplošný LiDAR 2020–23, kresba z OSM
+  crs: EPSG:27700           # OSGB36 / British National Grid
+  boundary: countries/gb_wls.geojson  # ONS Countries December 2023 BGC (OGL), +300 m, simplify 250 m, ostrovy pod 1 km² vynechané
+  view: [51.38, -5.36, 53.43, -2.65]
+  elevation: gb_wls         # DataMapWales DTM + DSM 1 m (Welsh Government LiDAR 2020–23), okno z celostátních COG přes /vsicurl
+  elevation_years: "2020–2023"
+  technical_map: none       # OS MasterMap není otevřená
+  cz_sources: false
+  # Licence: Open Government Licence v3 (DataMapWales, metadata vrstev LiDAR „Licence: OGL“); uvést zdroj.
+  citation: "Base map: Omapic · Welsh Government · OSM, [year]"
+  attribution:
+    - "Elevation: Welsh Government LiDAR 2020–2023 (DataMapWales), contains public sector information licensed under the Open Government Licence v3.0, processed."
+    - "INSPIRE Index Polygons (online template only): HM Land Registry (OGL); © Crown copyright and database rights Ordnance Survey AC0000851063."
     - "OSM © OpenStreetMap contributors (ODbL)."
 FR:
   name: {cs: Francie, en: France, fr: France}

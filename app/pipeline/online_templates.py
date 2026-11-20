@@ -348,6 +348,7 @@ def wms_layers_for(country: str) -> tuple[tuple[str, str, str, str, str, str, bo
         "DE-BY": DE_BY_ONLINE_WMS_LAYERS,
         "SK": SK_ONLINE_WMS_LAYERS,
         "GB-ENG": GB_ONLINE_WMS_LAYERS,
+        "GB-WLS": GB_ONLINE_WMS_LAYERS,  # INSPIRE Index Polygons HMLR kryjí Anglii i Wales
         "NO": NO_ONLINE_WMS_LAYERS,
         "US": US_ONLINE_WMS_LAYERS,
         **{st.code: st.wms for st in DE_WCS_STATES.values()},

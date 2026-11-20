@@ -1688,7 +1688,7 @@ sources:
   - Katastr KIEG (integracja.gugik.gov.pl) je rozcestník na servery okresů, Varšava vrací reset spojení → šablona nepoužita.
 
 - id: gb_hmlr_inspire
-  countries: [GB-ENG]
+  countries: [GB-ENG, GB-WLS]
   kinds: [cadastre]
   name: INSPIRE Index Polygons – parcely (WMS HM Land Registry)
   provider: HM Land Registry
@@ -3454,26 +3454,33 @@ sources:
 
 - id: uk_wales_lidar
   countries:
-  - UK
+  - GB-WLS
   kinds:
   - elevation
-  name: Wales LiDAR DTM/DSM – COG mozaiky + dlaždice (DataMapWales / NRW)
-  provider: Welsh Government, Natural Resources Wales
+  name: Welsh Government LiDAR 2020–23 – DTM a DSM 1 m (celostátní COG DataMapWales)
+  provider: Welsh Government (DataMapWales)
   url: https://dmwproductionblob.blob.core.windows.net/cogs/lidar/wales_dtm_32bit_cog.tif
-  info: https://datamap.gov.wales/maps/lidar-data-download/metadata_detail
+  info: https://datamap.gov.wales/maps/lidar-viewer/
   role: výšky
-  status: candidate
+  status: used
+  code: app/pipeline/elevation_raster.py (gb_wls)
+  provider_key: gb_wls
+  probe: wls_elevation
   license:
     class: public
     name: Open Government Licence for Public Sector Information (OGL) v3
     url: https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/
     attribution: Contains public sector information licensed under the Open Government Licence v3.0.
   access: free
-  checked: 'opencode: 2026-11-16 metadata_detail („Licence: OGL“, „Copyright: None“, „by individual tile or as pre-compiled
-    mosaics“, EPSG:27700, publikace 23. 9. 2024) – Claude neověřil'
+  checked: 'Claude 2026-11-20: metadata_detail vrstev LiDAR (lidar-viewer, tile catalogue 2020–2023: „Licence: Open Government
+    Licence for Public Sector Information (OGL)“), HEAD a Range na COG z cloudu bez účtu (DTM 48,6 GB, DSM 52,1 GB, Last-Modified
+    2024-10-04), gdalinfo: 191007 × 233000 px 1 m EPSG:27700, Float32 DEFLATE, NoData -9999, bloky 256, přehledy; okno 1 km
+    za 2,5 s; platné pixely 99,97 % území Walesu (přehled 64 m). · dřív opencode 2026-11-16.'
   issues:
-  - 'Další COG: wales_dtm_16bit_cog.tif, wales_dsm_16bit_cog.tif, wales_dsm_32bit_cog.tif; WFS/WMS capabilities https://datamap.gov.wales/capabilities/map/6969/?ows_service=wfs'
+  - Nálety v zimních sezónách 2020–22 (DataMapWales „collected over the 2020-22 winter seasons“); DSM přesto zachytí koruny
+    listnáčů (Pengelli, Wentwood medián CHM ~14 m), proto bez zvláštního režimu leafoff.
   - 'Metadata varují: data nebyla tvořena pro flood modelling, v DTM mohou zůstat nízká vegetace / mostovky.'
+  - Mračno LAZ ani ortofoto se nepoužívají (ortofoto DataMapWales bez ověřené licence); šablona katastru HMLR jako v Anglii.
 
 - id: uk_os_open
   countries:
