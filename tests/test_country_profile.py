@@ -406,7 +406,7 @@ def test_process_country_gates_cuzk_orthophoto(tmp_path, monkeypatch):
         ("CH", ("© swisstopo", "geodienste.ch", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "AHN")),
         ("AT", ("Datenquelle: BEV", "www.basemap.at", "Stadt Wien – data.wien.gv.at", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "swisstopo")),
         ("DE", ("Geoportal Berlin", "Datenlizenz Deutschland – Zero 2.0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "BEV")),
-        ("FR", ("© IGN", "Ville de Paris", "Etalab 2.0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "Berlin")),
+        ("FR", ("© IGN", "data as downloaded on 20", "Ville de Paris", "Etalab 2.0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "Berlin", "[data date]")),
         ("EE", ("Maa- ja Ruumiamet", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "IGN")),
         ("IT", ("Provincia autonoma di Trento", "CC BY 4.0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "ETAK")),
         ("BE", ("Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen", "Modellicentie Gratis Hergebruik", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "Trento")),
