@@ -2485,10 +2485,16 @@ def es_index(key: str, *, fetch=None, max_age_days: float = ES_INDEX_MAX_AGE_DAY
         with urllib.request.urlopen(req, timeout=120) as resp:
             return resp.read(50_000_000).decode("utf-8", "replace")
 
-    body = (fetch or default_fetch)(region.listing)
-    tiles = {(int(e), int(n)) for e, n in re.findall(region.name_re, body)}
-    if not tiles:
-        raise RuntimeError(f"{region.label}: výpis listů je prázdný")
+    try:
+        body = (fetch or default_fetch)(region.listing)
+        tiles = {(int(e), int(n)) for e, n in re.findall(region.name_re, body)}
+        if not tiles:
+            raise RuntimeError(f"{region.label}: výpis listů je prázdný")
+    except Exception as exc:  # výpadek výpisu: prošlý seznam z cache je lepší než nic
+        try:
+            return {tuple(t) for t in json.loads(path.read_text(encoding="utf-8"))}
+        except (OSError, ValueError):
+            raise ElevationUnavailable(f"{region.label}: seznam listů nejde načíst ({exc})") from exc
     with _ES_INDEX_LOCK:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}")

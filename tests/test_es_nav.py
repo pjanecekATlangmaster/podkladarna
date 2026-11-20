@@ -21,9 +21,19 @@ def test_index_parses_listing_and_caches(tmp_path, monkeypatch):
 
 def test_index_empty_listing_raises(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "CACHE_DIR", tmp_path)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(er.ElevationUnavailable):
         er.es_index("es_nav", fetch=lambda u: "<html></html>")
     assert not (tmp_path / "es_nav" / "index.json").exists()
+
+
+def test_index_outage_uses_stale_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "CACHE_DIR", tmp_path)
+    er.es_index("es_nav", fetch=lambda u: _listing(["las_cam_610-4741_2024_NAV_EPSG25830.laz"]))
+
+    def down(u):
+        raise OSError("503")
+
+    assert er.es_index("es_nav", fetch=down, max_age_days=0) == {(610, 4741)}
 
 
 @pytest.mark.parametrize(
