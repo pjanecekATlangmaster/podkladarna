@@ -135,3 +135,37 @@ def test_down_source_lines_dtm_only_matters_for_sprint(svc, dtm_needed, is_issue
     [(issue, text)] = down_source_lines([svc], dtm_needed=dtm_needed)
     assert issue is is_issue
     assert ("OSM a ZABAGED" in text) is (not is_issue)
+
+
+@pytest.mark.parametrize(
+    "key, confirmed, is_issue",
+    [
+        ("osm", True, False),  # a934d7c44276: Overpass 502 při kontrole, stažení přes zrcadlo prošlo
+        ("osm", False, True),  # OSM se opravdu nestáhlo: chyba jobu jako dřív
+        ("pl_elevation", True, False),  # výšky z rastru mimo Česko (GUGiK)
+        ("fi_chm", False, True),  # výška porostu Metsäkeskus chybí
+        ("lidar", True, True),  # český LiDAR se nepotvrzuje: beze změny
+        ("zabaged", True, True),
+    ],
+)
+def test_source_probe_issue_only_when_download_failed(key, confirmed, is_issue):
+    from app import source_status
+    from app.pipeline import job_progress
+    from app.pipeline.run_job import resolve_source_issues
+
+    lines: list[str] = []
+    issues = IssueCollector(lines.append)
+    log = indented_log(issues)
+    job_progress.reset_confirmed_sources()
+    role = source_status.probe_role(key)
+    if confirmed and role:
+        job_progress.confirm_source(role)
+    text = "Zdroj X při poslední kontrole neodpovídal (HTTP 502): dopad"
+    if role:
+        resolve_source_issues([(role, "X", text)], log, issues)
+    else:  # zdroj bez potvrzení: chyba už na startu (``run_job_pipeline``)
+        log_issue(log, text)
+    assert bool(issues.items) is is_issue
+    if not is_issue:
+        assert any("dočasně nedostupný" in ln for ln in lines)
+    job_progress.reset_confirmed_sources()
