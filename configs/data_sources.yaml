@@ -2270,33 +2270,40 @@ sources:
 
 - id: es_euskadi_mdt
   countries:
-  - ES
+  - ES-PV
   kinds:
   - elevation
   - point_cloud
-  name: MDT a MDS 1 m Baskicka (LiDAR) a adresář LAZ
-  provider: Gobierno Vasco / geoEuskadi
-  url: https://www.geo.euskadi.eus/lidar/DatosDescarga/
-  info: http://www.geo.euskadi.eus/geonetwork/srv/spa/metadata.show?uuid=md_IDEEu_MDT_LIDAR_2016_es
+  name: Mračno LiDAR 2017 Baskicka (LAZ 500 m, ~6,7 bodu/m²) a MDT 1 m
+  provider: Eusko Jaurlaritza / Gobierno Vasco (geoEuskadi)
+  url: https://www.geo.euskadi.eus/lidar/DatosDescarga/LIDAR/LIDAR_2017_ETRS89/
+  info: https://www.geo.euskadi.eus/lege-informazioa/webgeo00-content/es/
   role: výšky
-  status: candidate
+  status: used
+  code: app/pipeline/elevation_raster.py (es_pv), app/pipeline/reference_es.py
+  provider_key: es_pv
+  probe: pv_elevation
   license:
     class: public
-    name: CC BY 3.0 (metadata MDT 2016)
-    url: https://www.geo.euskadi.eus/geonetwork/srv/spa/metadata.show?uuid=md_IDEEu_MDT_LIDAR_2016_es
-    attribution: Eusko Jaurlaritza / Gobierno Vasco
+    name: CC BY 4.0
+    url: https://www.geo.euskadi.eus/lege-informazioa/webgeo00-content/es/
+    attribution: Eusko Jaurlaritza / Gobierno Vasco. geoEuskadi
   access: free
-  checked: 'Grok: 2026-11-16 stránka stahování geoEuskadi a metadata MDT LiDAR 2016 (CC BY 3.0) – Claude neověřil'
+  checked: 'Claude 2026-11-20: licence webu geoEuskadi „CC BY 4.0 (salvo donde se indique lo contrario)“, citace „Eusko Jaurlaritza /
+    Gobierno Vasco. geoEuskadi.“ (informace o licenci na geo.euskadi.eus); výpis LIDAR_2017_ETRS89 s podadresáři listů MTN50 (037/ …),
+    list 060/4655-47870.laz stažen (14 MB, LAS 1.2 PF 3, 1,67 mil. bodů, x 465 500–466 000, y 4 787 000–4 787 500, bez přesahu),
+    třídy 1–7; body země proti MDT 1 m 2017 (mdt_060_3_5): medián 0,03 m, p5 −0,27, p95 0,65 → výšky ortometrické.'
   issues:
-  - Metadata 2016 říkají CC BY 3.0 a zmiňují WCS. Stránka živého MDE 1 m licenci v extraktu neopakuje — u aktuální mozaiky
-    neověřeno, jestli pořád platí CC BY 3.0.
-  - Konkrétní adresa WCS se z otevřených stránek neopsala (byla jen v sekundárním přehledu) — nepoužívat, dokud se neověří
-    GetCapabilities.
+  - Data 2017; novější let zatím není (2008, 2012 a 2017 v adresáři).
+  - Jméno listu je levý DOLNÍ roh v hektometrech (<E hm>-<N hm>.laz), list 500 m bez přesahu, listy v podadresářích podle listu MTN50.
+  - Výpis adresáře občas vrací 503 „Service Unavailable“; stránky se opakují, seznam listů se ukládá na 30 dní.
+  - Licence je výchozí licence celého webu geoEuskadi (CC BY 4.0); starší metadata MDT 2016 uvádějí CC BY 3.0.
 
 - id: es_pnoa_ortho
   countries:
   - ES
   - ES-NC
+  - ES-PV
   kinds:
   - orthophoto
   name: Ortofoto PNOA máxima actualidad (WMS a WMTS)

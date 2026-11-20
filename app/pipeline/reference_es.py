@@ -7,6 +7,12 @@
   → odečte se geoid IGN z PROJ-data. Třídy ASPRS: 2 země, 3–5 vegetace, 6 budovy, 9 voda, 11 vozovka, 17 mosty,
   7 šum; vlastní 64+ se neberou. Seznam listů z výpisu adresáře (HTTPS, Range podporuje).
 
+- **Baskicko** (Eusko Jaurlaritza / Gobierno Vasco, geoEuskadi, CC BY 4.0 – licence celého webu geo.euskadi.eus): let
+  2017, LAZ 1.2 bodový formát 3 po listech 500 × 500 m bez přesahu (~6,7 bodu/m², země ~1,3/m², do ~50 MB) v podadresářích
+  podle listu MTN50: ``LIDAR/LIDAR_2017_ETRS89/<list>/<E hm>-<N hm>.laz``, kde E/N v hektometrech je **levý dolní** roh.
+  EPSG:25830, výšky **ortometrické** (ověřeno 2026-11-20 proti MDT 1 m: medián rozdílu bodů země 0,03 m). Třídy ASPRS:
+  2 země, 3–5 vegetace, 6 budovy, 7 šum. Výpis adresářů občas vrací 503 (opakuje se).
+
 - Ortofoto PNOA (IGN, CC BY 4.0 „scne.es“, bez klíče): WMS ``pnoa-ma`` v EPSG:25830 pro celé Španělsko.
 
 Stav služby hlídá ``app.source_status``.
@@ -25,18 +31,21 @@ ES_GEOID_URL = "https://cdn.proj.org/es_ign_egm08-rednap.tif"
 class EsLazRegion:
     key: str  # provider výšek a složka cache
     label: str  # do logu
-    listing: str  # adresář s listy (HTML výpis)
-    name_re: str  # regulární výraz jména listu ve výpisu se skupinami E a N (km)
-    url: str  # šablona URL listu s {e} a {n}
+    listing: str  # adresář s listy (HTML výpis, končí „/“); URL listu = listing + shoda ``name_re``
+    name_re: str  # regulární výraz cesty listu vůči ``listing`` se skupinami E a N (v ``unit_m``)
     tile_m: int  # strana listu v metrech
     top_corner: bool  # N ve jménu je horní okraj listu (jinak dolní)
     ground: tuple[int, ...]  # třídy terénu
     surface: tuple[int, ...]  # třídy povrchu (maximum v buňce)
     ellipsoidal: bool  # výšky elipsoidické → odečíst geoid
     probe: str  # malý list pro HEAD sondu
+    unit_m: int = 1000  # jednotka E a N ve jménu listu (Navarra km, Baskicko hm)
+    subdir_re: str = ""  # listy jsou v podadresářích výpisu: regulární výraz jména podadresáře (skupina 1)
+    workers: int = 3  # souběžná stažení listů v jednom jobu
 
 
 NAV_BASE = "https://filescartografia.navarra.es/5_LIDAR/5_6_2024_NAV_cam_EPSG25830"
+PV_BASE = "https://www.geo.euskadi.eus/lidar/DatosDescarga/LIDAR/LIDAR_2017_ETRS89"
 
 ES_LAZ_REGIONS: dict[str, EsLazRegion] = {
     "es_nav": EsLazRegion(
@@ -44,7 +53,6 @@ ES_LAZ_REGIONS: dict[str, EsLazRegion] = {
         label="Navarra LiDAR 2024",
         listing=f"{NAV_BASE}/",
         name_re=r"las_cam_(\d{3})-(\d{4})_2024_NAV_EPSG25830\.laz",
-        url=NAV_BASE + "/las_cam_{e}-{n}_2024_NAV_EPSG25830.laz",
         tile_m=1000,
         top_corner=True,
         ground=(2, 11),
@@ -52,9 +60,25 @@ ES_LAZ_REGIONS: dict[str, EsLazRegion] = {
         ellipsoidal=True,
         probe=f"{NAV_BASE}/las_cam_610-4741_2024_NAV_EPSG25830.laz",
     ),
+    "es_pv": EsLazRegion(
+        key="es_pv",
+        label="Euskadi LiDAR 2017",
+        listing=f"{PV_BASE}/",
+        name_re=r"\d{3}/(\d{4})-(\d{5})\.laz",
+        tile_m=500,
+        top_corner=False,
+        ground=(2,),
+        surface=(2, 3, 4, 5, 6),
+        ellipsoidal=False,
+        probe=f"{PV_BASE}/060/4655-47870.laz",
+        unit_m=100,
+        subdir_re=r'HREF="[^"]*/LIDAR_2017_ETRS89/(\d{3})/"',
+        workers=2,  # server pod souběžnými staženími vrací 503
+    ),
 }
 
 NAV_ELEVATION_PROBE = ES_LAZ_REGIONS["es_nav"].probe
+PV_ELEVATION_PROBE = ES_LAZ_REGIONS["es_pv"].probe
 
 # Ortofoto PNOA máxima actualidad (IGN, CC BY 4.0 scne.es) – šablona a maska zpevněných ploch sprintu.
 ES_PNOA_WMS = "https://www.ign.es/wms-inspire/pnoa-ma"
