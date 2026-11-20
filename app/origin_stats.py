@@ -4,6 +4,9 @@ Na NAS (ostrá A; test B = kontejner podkladarna-test):
     sudo docker exec podkladarna python -m app.origin_stats
     sudo docker exec podkladarna python -m app.origin_stats 2026-11-01 2026-11-05
 Bez data = dnešek (UTC); jedno datum = ten den; dvě data = období včetně obou dnů.
+Soukromé joby podle e-mailu (limit MAX_PRIVATE_JOBS_PER_EMAIL_DAY, zákaz BANNED_EMAILS):
+    docker exec podkladarna python -m app.origin_stats --emails            # nejčastější značky e-mailů
+    docker exec podkladarna python -m app.origin_stats --email <adresa>    # počty a joby jednoho e-mailu
 Joby ještě nesmazané úklidem doplní stav a název z tabulky jobs.
 IP, síť (/24) a e-mail jsou jen neprůhledné značky: stejná značka = stejný zdroj.
 """
@@ -19,7 +22,79 @@ from app.settings import DB_PATH
 
 
 def main(args: list[str]) -> None:
-    _report(*args[:2])
+    if args[:1] == ["--emails"]:
+        _email_top(int(args[1]) if len(args) > 1 else 20)
+    elif args[:1] == ["--email"] and len(args) > 1:
+        _email_detail(args[1])
+    else:
+        _report(*args[:2])
+
+
+_PRIVATE_WEB = "o.private = 1 AND o.api_client = 0 AND o.email_tag IS NOT NULL"
+
+
+def _ro() -> sqlite3.Connection:
+    con = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    return con
+
+
+def _since(hours: float) -> str:
+    return (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=hours)).isoformat()
+
+
+def _email_top(limit: int = 20) -> None:
+    """Značky e-mailů s nejvíce soukromými joby (24 h, 30 dní, celkem v job_origin) – bez čitelných adres."""
+    con = _ro()
+    rows = con.execute(
+        f"""
+        SELECT o.email_tag AS tag,
+               SUM(o.created_at >= ?) AS d1, SUM(o.created_at >= ?) AS d30, COUNT(*) AS total,
+               COUNT(DISTINCT o.ip_tag) AS ips, MAX(o.created_at) AS last
+        FROM job_origin o WHERE {_PRIVATE_WEB}
+        GROUP BY o.email_tag ORDER BY d1 DESC, d30 DESC, total DESC LIMIT ?
+        """,
+        (_since(24), _since(24 * 30), limit),
+    ).fetchall()
+    print("Soukromé joby podle e-mailu (značka = HMAC, stejná značka = stejný e-mail)")
+    print("značka        | 24 h | 30 dní | celkem | různých IP | poslední (UTC)")
+    for r in rows:
+        print(f"{r['tag']:<13} | {r['d1']:>4} | {r['d30']:>6} | {r['total']:>6} | {r['ips']:>10} | "
+              f"{(r['last'] or '')[:16].replace('T', ' ')}")
+
+
+def _email_detail(email: str) -> None:
+    """Počty a seznam soukromých jobů jednoho e-mailu (i starší řádky se značkou z nenormalizované adresy)."""
+    from app import db
+    from app.rate_limit import is_banned_email
+
+    tags = sorted({t for t in (db.email_limit_tag(email), db._origin_tag("email", email)) if t})
+    if not tags:
+        print("Neplatný e-mail.")
+        return
+    con = _ro()
+    marks = ",".join("?" * len(tags))
+    rows = con.execute(
+        f"""
+        SELECT o.*, j.name AS name, j.status AS live_status FROM job_origin o LEFT JOIN jobs j ON j.id = o.job_id
+        WHERE {_PRIVATE_WEB} AND o.email_tag IN ({marks}) ORDER BY o.created_at
+        """,
+        tags,
+    ).fetchall()
+    d1 = sum(1 for r in rows if r["created_at"] >= _since(24))
+    d30 = sum(1 for r in rows if r["created_at"] >= _since(24 * 30))
+    print(f"Značky: {', '.join(tags)}; zablokovaný (BANNED_EMAILS): {'ano' if is_banned_email(email) else 'ne'}")
+    print(f"Soukromé joby: 24 h {d1}, 30 dní {d30}, celkem {len(rows)}, různých IP {len({r['ip_tag'] for r in rows})}")
+    for r in rows:
+        print("  " + " | ".join([
+            r["created_at"][:16].replace("T", " "),
+            r["job_id"][:8],
+            r["live_status"] or r["status"] or "?",
+            r["preset_id"] or "-",
+            r["map_types"] or "-",
+            "IP " + (r["ip_tag"] or "?"),
+            (r["name"] or "")[:30],
+        ]))
 
 
 def _report(d_from: str | None = None, d_to: str | None = None) -> None:
@@ -27,8 +102,7 @@ def _report(d_from: str | None = None, d_to: str | None = None) -> None:
     d_from = d_from or today
     d_to = d_to or d_from
 
-    con = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
-    con.row_factory = sqlite3.Row
+    con = _ro()
     rows = con.execute(
         """
         SELECT o.*, j.name AS name, j.status AS live_status

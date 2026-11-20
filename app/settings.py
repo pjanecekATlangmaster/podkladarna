@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.102.1"
+APP_VERSION = "3.103.0"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -92,6 +92,11 @@ JOB_RETENTION_DAYS = int(os.environ.get("JOB_RETENTION_DAYS", "0"))  # legacy; p
 JOB_TRIM_AFTER_MINUTES = int(os.environ.get("JOB_TRIM_AFTER_MINUTES", "180") or 0)
 MAX_ACTIVE_JOBS_PER_IP = int(os.environ.get("MAX_ACTIVE_JOBS_PER_IP", "2"))
 MAX_JOBS_PER_IP_HOUR = int(os.environ.get("MAX_JOBS_PER_IP_HOUR", "10"))
+# Soukromé joby na jeden e-mail za klouzavých 24 h (Petr 2026-11-20, mírný limit proti zneužití); 0 = vypnuto.
+# E-mail se počítá normalizovaný (bez +značky, u Gmailu bez teček) a jen jako HMAC značka v job_origin.
+MAX_PRIVATE_JOBS_PER_EMAIL_DAY = int(os.environ.get("MAX_PRIVATE_JOBS_PER_EMAIL_DAY", "8"))
+# Zablokované e-maily (čárkami; jen v .env na serveru, nikdy v repu). Porovnání po stejné normalizaci jako limit.
+BANNED_EMAILS = os.environ.get("BANNED_EMAILS", "")
 JOB_TIMEOUT_MINUTES = int(os.environ.get("JOB_TIMEOUT_MINUTES", "90"))
 # Strop plochy výřezu pro sprint (1:4000), km². Petr 2026-11-05: max 2 × 2 km (dřív 9 km² od 2026-11-02) –
 # sprint na větším území nikdo nepostaví a kresba z DTM je pomalá (~2 min/km² skládání .omap).

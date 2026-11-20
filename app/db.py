@@ -249,6 +249,50 @@ def _origin_tag(kind: str, value: str) -> str | None:
     return digest.hexdigest()[:12]
 
 
+_GMAIL_DOMAINS = {"gmail.com", "googlemail.com"}
+
+
+def normalize_email_for_limit(email: str) -> str:
+    """E-mail pro počítání limitu: malá písmena, bez +značky, u Gmailu bez teček a googlemail = gmail.
+
+    Jen vstup HMAC značky (``email_tag``), v čitelné podobě se neukládá."""
+    value = (email or "").strip().casefold()
+    local, sep, domain = value.rpartition("@")
+    if not sep or not local or not domain:
+        return value
+    local = local.split("+", 1)[0]
+    if domain in _GMAIL_DOMAINS:
+        local = local.replace(".", "")
+        domain = "gmail.com"
+    return f"{local}@{domain}" if local else value
+
+
+def email_limit_tag(email: str) -> str | None:
+    """Značka e-mailu pro limit soukromých jobů a statistiku (stejná jako ``job_origin.email_tag``)."""
+    return _origin_tag("email", normalize_email_for_limit(email))
+
+
+def private_email_jobs_since(email: str, since: datetime) -> list[str]:
+    """Časy založení soukromých webových jobů (ne API, ne objednávky) s tímto e-mailem od ``since``, vzestupně.
+
+    Počítá z ``job_origin`` (přežije úklid jobů, e-mail jen jako značka); ukázky se tam nezapisují."""
+    tag = email_limit_tag(email)
+    if not tag:
+        return []
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT o.created_at FROM job_origin o
+            LEFT JOIN jobs j ON j.id = o.job_id
+            WHERE o.email_tag = ? AND o.private = 1 AND o.api_client = 0 AND o.created_at >= ?
+              AND (j.id IS NULL OR json_extract(j.options_json, '$.order_id') IS NULL)
+            ORDER BY o.created_at
+            """,
+            (tag, since.isoformat()),
+        ).fetchall()
+    return [str(r[0]) for r in rows]
+
+
 def _ip_network(ip: str) -> str:
     """Síť klienta (IPv4 /24, IPv6 /48) – jen jako vstup značky, neukládá se."""
     try:
@@ -301,7 +345,7 @@ def _record_origin(
             _origin_tag("net", _ip_network(ip)),
             1 if opts.get("api_client") else 0,
             1 if private else 0,
-            _origin_tag("email", str(opts.get("notify_email") or "")) if private else None,
+            email_limit_tag(str(opts.get("notify_email") or "")) if private else None,
             preset_id,
             ",".join(map_types) if isinstance(map_types, (list, tuple)) else None,
             json.dumps(opts["bbox_wgs84"]) if opts.get("bbox_wgs84") else None,
