@@ -292,3 +292,19 @@ def test_origin_stats_emails_without_plain_address(data_dir, capsys):
     origin_stats.main(["--email", "HEAVY@example.cz"])
     out = capsys.readouterr().out
     assert "24 h 2, 30 dní 2, celkem 2" in out and "heavy" not in out
+
+
+def test_private_email_limit_default_8(data_dir, monkeypatch):
+    import app.db as db
+
+    monkeypatch.delenv("MAX_PRIVATE_JOBS_PER_EMAIL_DAY", raising=False)
+    _reload_settings(monkeypatch)
+    from app.rate_limit import check_private_email
+
+    db.init_db()
+    for _ in range(7):
+        db.create_job("p", "sprint_2m", {"private": True, "notify_email": "d@example.cz"})
+    assert check_private_email("d@example.cz", "10.0.4.1") is None
+    db.create_job("p", "sprint_2m", {"private": True, "notify_email": "d@example.cz"})
+    msg = check_private_email("d@example.cz", "10.0.4.1")
+    assert msg is not None and msg.params["limit"] == 8 and "omezen na 8 za 24 hodin" in msg
