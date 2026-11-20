@@ -159,11 +159,14 @@ def test_las_arrays_reads_classification_and_withheld():
 def test_united_states_profile_and_probes():
     us = countries.load_countries()["US"]
     assert us.elevation == "us_3dep" and us.crs == countries.UTM_NAD83 and not us.cz_sources
-    assert us.technical_map == "none" and us.status == "beta" and "USGS" in us.citation
+    assert us.technical_map == "us_city" and us.technical_map_area and us.status == "beta" and "USGS" in us.citation
     assert countries.elevation_ready(us)
     assert "us_3dep" in elevation_raster.PROVIDERS and "us_3dep" in elevation_raster.COVERAGE
-    probes = {p.key: p for p in source_status.PROBES if p.countries == ("US",)}
-    assert set(probes) == {"us_index", "us_elevation"} and all(p.fatal for p in probes.values())
+    probes = {p.key: p for p in source_status.PROBES if p.countries == ("US",) and p.fatal}
+    assert set(probes) == {"us_index", "us_elevation"}
+    cities = {p.key: p for p in source_status.PROBES if p.countries == ("US",) and not p.fatal}
+    assert set(cities) == {"us_nyc", "us_dc"}  # planimetrics měst: výpadek job neodmítne, kreslí se z OSM
+    assert all(source_status.probe_role(k) != SOURCE_ELEVATION for k in cities)
     assert probes["us_elevation"].urls == (reference_us.US_ELEVATION_PROBE,)
     assert all(source_status.probe_role(k) == SOURCE_ELEVATION for k in probes)  # brána jobu je hlídá
 
