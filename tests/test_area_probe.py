@@ -12,6 +12,7 @@ from app.pipeline import elevation_raster
 LILLE = (3.050, 50.625, 3.070, 50.640)
 MARAIS = (2.350, 48.855, 2.362, 48.861)
 LYON = (4.825, 45.754, 4.840, 45.762)
+NANTES = (-1.560, 47.210, -1.545, 47.218)  # jen pro chybu služby (LILLE může držet běžící pomalou sondu)
 
 
 @pytest.fixture
@@ -74,7 +75,7 @@ def test_elevation_pending_and_unverified(fr, monkeypatch):
 
     monkeypatch.setattr(elevation_raster, "_COVERAGE_CACHE", {})
     monkeypatch.setitem(elevation_raster.COVERAGE, "fr_lidarhd", broken)
-    result = area_probe.probe(fr, LILLE)
+    result = area_probe.probe(fr, NANTES)
     assert result["block"] is None and result["elevation"]["status"] == "failed"
     assert any("nepodařilo ověřit" in t for t in _texts(result))
 
