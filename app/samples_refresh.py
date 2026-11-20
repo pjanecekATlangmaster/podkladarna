@@ -1,6 +1,7 @@
 """Ukázkové ZIPy na webu se přegenerují na serveru samy (Petr 2026-11-19).
 
-Seznam ukázek je v ``configs/samples.yaml``. Kolo přegenerování začne po změně minor verze aplikace,
+Seznam ukázek je v ``configs/samples.yaml``. Kolo přegenerování začne po změně minor verze aplikace
+(``SAMPLES_REFRESH_ON_VERSION``, na testu B výchozí vypnuto),
 když jsou ukázky starší než ``SAMPLES_REFRESH_MAX_AGE_DAYS`` nebo na ruční žádost
 (``python -m app.samples_refresh``). Joby se pouštějí po jednom a jen na volném serveru: v nočním okně
 ``SAMPLES_REFRESH_HOURS`` hned, přes den až po ``SAMPLES_REFRESH_IDLE_MIN`` minutách bez nového jobu.
@@ -116,9 +117,10 @@ def refresh_reason(state: dict[str, Any], *, now: datetime | None = None) -> str
     if (samples_dir() / REQUEST_NAME).exists():
         return "ruční žádost"
     done_version = str(state.get("version") or "")
-    if minor_version(done_version) != minor_version(settings.APP_VERSION):
-        return f"verze {done_version or '–'} → {settings.APP_VERSION}"
     done_at = _parse_dt(state.get("done_at"))
+    # Bez změny verze jako důvodu (test B) se první kolo bez stavu spustí až podle stáří (done_at chybí = ihned).
+    if settings.SAMPLES_REFRESH_ON_VERSION and minor_version(done_version) != minor_version(settings.APP_VERSION):
+        return f"verze {done_version or '–'} → {settings.APP_VERSION}"
     max_age = settings.SAMPLES_REFRESH_MAX_AGE_DAYS
     if max_age > 0 and (done_at is None or now - done_at > timedelta(days=max_age)):
         return f"starší než {max_age} dní"

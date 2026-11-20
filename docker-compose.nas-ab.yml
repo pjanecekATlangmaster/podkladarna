@@ -35,6 +35,7 @@ x-env: &env
   RATE_LIMIT_EXEMPT_IPS: ${RATE_LIMIT_EXEMPT_IPS:-78.80.94.188}
   # API klient (Stavitel): klíč jen v host .env, prázdné = vypnuto (DEV.md „API pro externí klienty“).
   API_CLIENT_KEY: ${API_CLIENT_KEY:-}
+  API_CLIENT_KEYS: ${API_CLIENT_KEYS:-}
   API_KEY_MAX_ACTIVE_JOBS: ${API_KEY_MAX_ACTIVE_JOBS:-3}
   API_KEY_MAX_JOBS_HOUR: ${API_KEY_MAX_JOBS_HOUR:-20}
   # SMTP je pro obě instance stejné (hodnoty z .env vedle compose).

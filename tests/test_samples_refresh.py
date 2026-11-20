@@ -24,18 +24,25 @@ def test_config_lists_known_sample_files():
 
 
 @pytest.mark.parametrize(
-    ("state", "manual", "due"),
+    ("state", "manual", "due", "on_version"),
     [
-        ({}, False, True),  # ještě nikdy
-        ({"version": "{minor}.0", "done_at": "{now}"}, False, False),  # aktuální
-        ({"version": "{minor}.9", "done_at": "{now}"}, False, False),  # jiný patch = beze změny
-        ({"version": "1.0.0", "done_at": "{now}"}, False, True),  # jiná minor verze
-        ({"version": "{minor}.0", "done_at": "2026-09-01T00:00:00+00:00"}, False, True),  # starší než 30 dní
-        ({"version": "{minor}.0", "done_at": "{now}"}, True, True),  # ruční žádost
+        ({}, False, True, True),  # ještě nikdy
+        ({"version": "{minor}.0", "done_at": "{now}"}, False, False, True),  # aktuální
+        ({"version": "{minor}.9", "done_at": "{now}"}, False, False, True),  # jiný patch = beze změny
+        ({"version": "1.0.0", "done_at": "{now}"}, False, True, True),  # jiná minor verze
+        ({"version": "{minor}.0", "done_at": "2026-09-01T00:00:00+00:00"}, False, True, True),  # starší než 30 dní
+        ({"version": "{minor}.0", "done_at": "{now}"}, True, True, True),  # ruční žádost
+        # Test B (SAMPLES_REFRESH_ON_VERSION=0): změna verze nestačí, jen stáří, první kolo a ruční žádost.
+        ({"version": "1.0.0", "done_at": "{now}"}, False, False, False),
+        ({"version": "1.0.0", "done_at": "2026-09-01T00:00:00+00:00"}, False, True, False),
+        ({}, False, True, False),
+        ({"version": "1.0.0", "done_at": "{now}"}, True, True, False),
     ],
 )
-def test_refresh_reason(data_dir, state, manual, due):
+def test_refresh_reason(data_dir, monkeypatch, state, manual, due, on_version):
     from app import samples_refresh, settings
+
+    monkeypatch.setattr(settings, "SAMPLES_REFRESH_ON_VERSION", on_version)
 
     minor = samples_refresh.minor_version(settings.APP_VERSION)
     state = {k: v.format(minor=minor, now=NOW.isoformat()) for k, v in state.items()}
@@ -145,6 +152,9 @@ def test_sample_job_is_private_and_outside_stats(client, monkeypatch):
     assert job["options"]["dtm_sprint"] is True
     with db.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM job_origin WHERE job_id = ?", (job["id"],)).fetchone()[0] == 0
+    # Log ukázku pojmenuje, nevydává ji za API klienta.
+    log = "\n".join(r["line"] for r in db.get_logs(job["id"]))
+    assert "Ukázka – generuje server" in log and "API klient" not in log
     # Neplatný token = běžný job (s limitem).
     monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
     r = client.post("/api/jobs", data=data, headers={samples_refresh.TOKEN_HEADER: "x" * 64})
