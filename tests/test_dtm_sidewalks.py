@@ -2134,3 +2134,45 @@ def test_is_simple_area(coords, simple):
     from app.pipeline import dtm_import as di
 
     assert di.is_simple_area(Polygon(coords)) is simple
+
+
+@pytest.mark.parametrize(
+    "strip, osm_path, drawn",
+    [
+        ([(-1.5, 0), (1.5, 0), (1.5, 100), (-1.5, 100)], False, True),  # spojnice dvou ulic bez OSM → čára
+        ([(-1.5, 0), (1.5, 0), (1.5, 100), (-1.5, 100)], True, False),  # OSM cestu má → nic
+        ([(-80, 12), (80, 12), (80, 15), (-80, 15)], False, False),  # chodník podél ulice → nic
+    ],
+)
+def test_dtm_sidewalk_connector_line(tmp_path, strip, osm_path, drawn):
+    """Petr 2026-11-20: chodník z DTM mimo pás silnice, který OSM nemá, kreslí les a MTBO čárou."""
+    from app.pipeline import dtm_import as di
+
+    paths = [_feat([[-100, 0], [100, 0]], "road_3"), _feat([[-100, 100], [100, 100]], "road_3")]
+    if osm_path:
+        paths.append(_feat([[0, -5], [0, 105]], "footway"))
+    _write_paths(tmp_path, paths)
+    _write_polys(tmp_path, di.SIDEWALKS_NAME, [[strip + [strip[0]]]])
+    for preset in ("forest_10000", "mtbo_10000"):
+        lines = di.dtm_sidewalk_line_features(tmp_path, preset, 10000)
+        assert bool(lines) is drawn
+        if drawn:
+            (x0, y0), (x1, y1) = lines[0]["geometry"]["coordinates"][0], lines[0]["geometry"]["coordinates"][-1]
+            assert sorted([y0, y1]) == pytest.approx([0, 100], abs=1.0)  # dotažená k osám obou ulic
+
+
+@pytest.mark.parametrize(
+    "square, area",
+    [
+        ([(-10, 40), (10, 40), (10, 60), (-10, 60)], True),  # 20 × 20 m mimo ulice → pěší plocha
+        ([(-3, 40), (3, 40), (3, 60), (-3, 60)], False),  # 6 m < 0,8 mm mapy → ne plocha
+    ],
+)
+def test_dtm_walk_area_legible(tmp_path, square, area):
+    from app.pipeline import dtm_import as di, osm_paths as op
+
+    _write_paths(tmp_path, [_feat([[-100, 0], [100, 0]], "road_3"), _feat([[-100, 100], [100, 100]], "road_3")])
+    _write_polys(tmp_path, di.SIDEWALKS_NAME, [[square + [square[0]]]])
+    for preset in ("forest_10000", "mtbo_10000"):
+        feats = op.with_dtm_walk_areas(tmp_path, [], preset, 10000)
+        assert bool(feats) is area

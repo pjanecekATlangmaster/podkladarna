@@ -5954,12 +5954,26 @@ def with_zabaged_paved_areas(feats: list[dict], preset_id: str) -> list[dict]:
 
 
 def with_dtm_walk_areas(work_dir: Path, feats: list[dict], preset_id: str, scale: int) -> list[dict]:
-    """Les: k prvkům přidá široké pěší plochy z DTM (``dtm_widths.wide_walk_area_features``).
+    """Les a MTBO: k prvkům přidá čitelné široké chodníky z DTM, které OSM nemá (``dtm_walk_area_legible_geometry``).
 
-    MTBO ne: široké chodníky z DTM kreslí ``dtm_import.mtbo_sidewalk_geometry`` (jinak by se kreslily dvakrát).
+    Se zapnutým ``FOREST_DTM_WALK_AREAS`` les všechny široké pěší plochy (``dtm_widths.wide_walk_area_features``);
+    MTBO se zapnutým ``MTBO_SIDEWALK_AREAS`` nic (kreslí je ``dtm_import.mtbo_sidewalk_geometry``).
     """
     from app.pipeline import dtm_import
 
+    mtbo = preset_id.startswith("mtbo")
+    if uses_dtm_widths(preset_id) and (not dtm_import.FOREST_DTM_WALK_AREAS if not mtbo else not dtm_import.MTBO_SIDEWALK_AREAS):
+        # Les a MTBO (od 3.102.0): jen čitelné široké chodníky, které OSM nemá, mimo pás silnic (Petr 2026-11-20).
+        from shapely.geometry import mapping
+
+        geom = dtm_import.dtm_walk_area_legible_geometry(work_dir, preset_id, scale)
+        if geom is None or geom.is_empty:
+            return feats
+        return feats + [
+            {"type": "Feature", "properties": {"source": "dtm", "kind": "pedestrian_area", "oom_code": "501"}, "geometry": mapping(g)}
+            for g in getattr(geom, "geoms", [geom])
+            if g.geom_type == "Polygon"
+        ]
     if not uses_dtm_widths(preset_id) or preset_id.startswith("mtbo") or not dtm_import.FOREST_DTM_WALK_AREAS:
         return feats
     from app.pipeline.dtm_widths import wide_walk_area_features
@@ -7978,6 +7992,13 @@ def build_osm_path_parts(
                 )
             except (OSError, ValueError):
                 pass
+    if not preset_id.startswith("sprint") and path_source != PATH_SOURCE_ZABAGED:
+        # Les / MTBO: úzké chodníky z DTM, které OSM nemá (spojnice mimo pás silnice), jako čára chodníku.
+        from app.pipeline.dtm_import import dtm_sidewalk_line_features
+
+        _dtm_lines = dtm_sidewalk_line_features(work_dir, preset_id, scale)
+        if _dtm_lines:
+            data["features"] = list(data.get("features") or []) + _dtm_lines
     # Les / MTBO: rozdělená vozovka (dva souběžné jednosměrné pásy) jedním 502.0 po střední ose; pásy se v jejím pásu nekreslí.
     dual_zone = None
     _dual_axes: list = []

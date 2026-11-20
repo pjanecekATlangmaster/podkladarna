@@ -249,6 +249,189 @@ def is_simple_area(poly) -> bool:
 
 # Les: široké pěší plochy z DTM (``osm_paths.with_dtm_walk_areas``); False = jen z OSM (Petr 2026-11-20, Harrachov).
 FOREST_DTM_WALK_AREAS = False
+# Les a MTBO: chodníky z DTM mimo pás kresby silnice, které OSM nemá (Petr 2026-11-20: spojnice mezi silnicemi;
+# OSM je může mít, ale nemusí). Úzký chodník = čára cesty po střední ose (``dtm_sidewalk_line_features``), široký
+# (aspoň ``SIMPLE_VISIBLE_WIDTH_MM``) = pěší plocha (``osm_paths.with_dtm_walk_areas``). False = nic z toho.
+DTM_SIDEWALK_LINES = True
+DTM_WALK_AREAS_LEGIBLE = True
+SIDEWALK_LINE_MIN_MM = 3.0  # nejkratší čára (mm mapy)
+SIDEWALK_LINE_MAX_WIDTH_MM = 0.8  # širší kus je plocha, ne čára
+SIDEWALK_OSM_MATCH_M = 3.0  # OSM čára cesty do tolika m od chodníku = chodník už má
+SIDEWALK_BUILDING_M = 3.0  # okapový chodník kolem budovy se nebere
+SIDEWALK_CONNECT_M = 6.0  # konec čáry tak blízko silnice nebo cesty se k ní dotáhne; jinak čára není spojnice
+SIDEWALK_OSM_PARALLEL_M = 10.0  # čára, která z ``SIDEWALK_OSM_PARALLEL_SHARE`` vede do tolika m od OSM cesty, je táž cesta
+SIDEWALK_OSM_PARALLEL_SHARE = 0.5
+SIDEWALK_BUILDING_NEAR_M = 8.0  # čára, která z ``SIDEWALK_BUILDING_SHARE`` vede do tolika m od budov, obchází dům
+SIDEWALK_BUILDING_SHARE = 0.6
+SIDEWALK_NATURE_SHARE = 0.5  # čára z takového podílu v přírodním krytu OSM (les, louka …) je polní / lesní cesta, ne chodník
+
+
+def _sidewalk_near_road_zone(work_dir: Path, preset_id: str, scale: int):
+    """Pás, kde chodník z DTM patří k silnici (plocha silnic z DTM + ``CORRIDOR_NEAR_M``, osy silnic v kresbě
+    + ``CORRIDOR_NEAR_M``), a osy silnic (shapely, None)."""
+    from shapely.ops import unary_union
+
+    from app.pipeline import dtm_sidewalks
+
+    roads = road_geometry(work_dir, "mixed")
+    axes = _corridor_road_axes(work_dir)
+    parts = []
+    if roads is not None and not roads.is_empty:
+        parts.append(roads.buffer(dtm_sidewalks.CORRIDOR_NEAR_M))
+    if axes is not None and not axes.is_empty:
+        parts.append(axes.buffer(corridor_min_drawn_m(preset_id, scale) / 2.0 + dtm_sidewalks.CORRIDOR_NEAR_M))
+    return (unary_union(parts) if parts else None), axes
+
+
+def _dtm_sidewalks_without_osm(work_dir: Path, preset_id: str, scale: int):
+    """Chodníky z DTM mimo pás silnic, bez míst, kde vede OSM cesta, OSM zpevněných ploch a okolí budov (shapely)
+    + ``(pás silnic, osy silnic, OSM čáry cest)``; None bez chodníků."""
+    from shapely.geometry import LineString, Polygon
+    from shapely.ops import unary_union
+
+    from app.pipeline import osm_paths as op
+
+    polys = []
+    for p in _load_sidewalk_polygons(work_dir):
+        if len(p[0]) >= 3:
+            g = Polygon(p[0], [r for r in p[1:] if len(r) >= 3])
+            polys.append(g if g.is_valid else g.buffer(0))
+    if not polys:
+        return None
+    geom = unary_union(polys)
+    near, axes = _sidewalk_near_road_zone(work_dir, preset_id, scale)
+    if near is not None:
+        geom = geom.difference(near)
+    osm_lines = [
+        LineString(f["geometry"]["coordinates"])
+        for f in op._paths_features_for_network(work_dir)
+        if (f.get("geometry") or {}).get("type") == "LineString"
+        and len(f["geometry"].get("coordinates") or []) >= 2
+        and not op.path_draw_highway(str((f.get("properties") or {}).get("highway") or "")).startswith("road_")
+    ]
+    osm = unary_union(osm_lines) if osm_lines else None
+    if osm is not None:
+        geom = geom.difference(osm.buffer(SIDEWALK_OSM_MATCH_M))
+    cover = _osm_paved_cover(work_dir)
+    if cover is not None:
+        geom = geom.difference(cover)
+    bz = _buildings_zone(work_dir, tol_m=SIDEWALK_BUILDING_M)
+    if bz is not None:
+        geom = geom.difference(bz)
+    geom = geom.buffer(-0.5, join_style=2).buffer(0.5, join_style=2)  # bez proužků a vlásečnic
+    return (None if geom.is_empty else geom), (near, axes, osm)
+
+
+def dtm_sidewalk_line_features(work_dir: Path, preset_id: str, scale: int) -> list[dict]:
+    """Les a MTBO: úzké chodníky z DTM, které OSM nemá, jako čáry ``sidewalk`` (zdroj ``dtm``) po střední ose.
+
+    Jen spojnice: oba konce do ``SIDEWALK_CONNECT_M`` od pásu silnice nebo OSM cesty (dotáhnou se k ose), délka
+    aspoň ``SIDEWALK_LINE_MIN_MM`` mm mapy. Chodník podél silnice odpadne v pásu silnic a pak i dedupem chodníků.
+    """
+    if not DTM_SIDEWALK_LINES or preset_id.startswith("sprint") or mtbo_dtm_off(preset_id):
+        return []
+    if not sidewalks_path(work_dir).is_file():
+        return []
+    return [dict(f) for f in _dtm_sidewalk_lines_memo(work_dir, preset_id, scale)]
+
+
+@_job_memo
+def _dtm_sidewalk_lines_memo(work_dir: Path, preset_id: str, scale: int):
+    from shapely.geometry import LineString, Point
+    from shapely.ops import nearest_points
+
+    from app.pipeline import dtm_sidewalks
+
+    res = _dtm_sidewalks_without_osm(work_dir, preset_id, scale)
+    if res is None or res[0] is None:
+        return []
+    geom, (near, axes, osm) = res
+    min_len = SIDEWALK_LINE_MIN_MM * scale / 1000.0
+    max_w = SIDEWALK_LINE_MAX_WIDTH_MM * scale / 1000.0
+    axis_reach = corridor_min_drawn_m(preset_id, scale) / 2.0 + dtm_sidewalks.CORRIDOR_NEAR_M + SIDEWALK_CONNECT_M
+    cover_polys, _lines = _nature_inputs(work_dir)
+    nature = None
+    if cover_polys:
+        from shapely.geometry import Polygon
+        from shapely.ops import unary_union
+
+        nature = unary_union([Polygon(p[0], [r for r in p[1:] if len(r) >= 3]).buffer(0) for p in cover_polys if len(p[0]) >= 3])
+    osm_band = osm.buffer(SIDEWALK_OSM_PARALLEL_M) if osm is not None else None
+    near_band = near.buffer(SIDEWALK_CONNECT_M) if near is not None else None
+    bnear = _buildings_zone(work_dir, tol_m=SIDEWALK_BUILDING_NEAR_M)
+    out = []
+    for g in getattr(geom, "geoms", [geom]):
+        if g.geom_type != "Polygon" or g.area < min_len:
+            continue
+        center = dtm_sidewalks.polygon_centerline(g, 0.5)
+        if not center or len(center) < 2:
+            continue
+        line = LineString(center).simplify(0.3)
+        if line.length < min_len or g.area / line.length > max_w:
+            continue
+        if near_band is not None and line.intersection(near_band).length >= SIDEWALK_OSM_PARALLEL_SHARE * line.length:
+            continue  # vede podél silnice (chodník u ulice), ne spojnice
+        if osm_band is not None and line.intersection(osm_band).length >= SIDEWALK_OSM_PARALLEL_SHARE * line.length:
+            continue  # souběžně s OSM cestou (posunutá táž cesta)
+        if nature is not None and line.intersection(nature).length >= SIDEWALK_NATURE_SHARE * line.length:
+            continue
+        if bnear is not None and line.intersection(bnear).length >= SIDEWALK_BUILDING_SHARE * line.length:
+            continue  # chodník kolem domu
+        coords = [tuple(c[:2]) for c in line.coords]
+        ok = True
+        for end in (0, -1):
+            pt = Point(coords[end])
+            best = None
+            if near is not None and axes is not None and near.distance(pt) <= SIDEWALK_CONNECT_M and axes.distance(pt) <= axis_reach:
+                best = nearest_points(pt, axes)[1]  # k ose silnice (čára přes chodník u silnice)
+            elif osm is not None and osm.distance(pt) <= SIDEWALK_CONNECT_M:
+                best = nearest_points(pt, osm)[1]
+            if best is None:
+                ok = False
+                break
+            if end == 0:
+                coords.insert(0, (best.x, best.y))
+            else:
+                coords.append((best.x, best.y))
+        if not ok:
+            continue
+        out.append(
+            {
+                "type": "Feature",
+                "properties": {"source": "dtm", "highway": "sidewalk", "dtm_sidewalk_line": True},
+                "geometry": {"type": "LineString", "coordinates": [[x, y] for x, y in coords]},
+            }
+        )
+    return out
+
+
+def dtm_walk_area_legible_geometry(work_dir: Path, preset_id: str, scale: int):
+    """Les a MTBO: široké chodníky z DTM, které OSM nemá, mimo pás silnic – jen části široké aspoň
+    ``SIMPLE_VISIBLE_WIDTH_MM`` mm mapy s plochou aspoň (``SIMPLE_VISIBLE_AREA_MM``)² (shapely) nebo None."""
+    if not DTM_WALK_AREAS_LEGIBLE or preset_id.startswith("sprint") or mtbo_dtm_off(preset_id):
+        return None
+    if not sidewalks_path(work_dir).is_file():
+        return None
+    return _dtm_walk_area_legible_memo(work_dir, preset_id, scale)
+
+
+@_job_memo
+def _dtm_walk_area_legible_memo(work_dir: Path, preset_id: str, scale: int):
+    res = _dtm_sidewalks_without_osm(work_dir, preset_id, scale)
+    if res is None or res[0] is None:
+        return None
+    w = SIMPLE_VISIBLE_WIDTH_MM * scale / 1000.0
+    a = (SIMPLE_VISIBLE_AREA_MM * scale / 1000.0) ** 2
+    wide = res[0].buffer(-w / 2.0, join_style=2).buffer(w / 2.0, join_style=2)
+    # jen jednoduchý tvar jako u parkovišť (Petr 2026-11-20: složité polygony nechceme)
+    polys = [g for g in getattr(wide, "geoms", [wide]) if g.geom_type == "Polygon" and g.area >= a and is_simple_area(g)]
+    if not polys:
+        return None
+    from shapely.ops import unary_union
+
+    return _generalized(unary_union(polys), work_dir, scale)
+
+
 MTBO_SIDEWALK_MIN_WIDTH_MM = 0.5
 MTBO_SIDEWALK_MIN_LEN_M = 15.0
 
