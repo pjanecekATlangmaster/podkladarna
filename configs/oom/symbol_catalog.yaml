@@ -10,7 +10,7 @@ isom:
     review: false
   - ocad_code: "101.1"
     cz_name: "Základní vrstevnice – spádnice"
-    generator_codes: []
+    generator_codes: ["101.1"]
     geom: point
     review: false
   - ocad_code: "101.2"
@@ -51,7 +51,7 @@ isom:
     review: false
   - ocad_code: "103.1"
     cz_name: "Doplňková vrstevnice – spádnice"
-    generator_codes: []
+    generator_codes: ["103.1"]
     geom: point
     review: false
   - ocad_code: "103.2"
@@ -1046,7 +1046,7 @@ sprint:
     review: false
   - ocad_code: "101.1"
     cz_name: "Základní vrstevnice – spádnice"
-    generator_codes: []
+    generator_codes: ["101.1"]
     geom: point
     review: false
   - ocad_code: "102.0"
@@ -1067,7 +1067,7 @@ sprint:
     review: false
   - ocad_code: "103.1"
     cz_name: "Doplňková vrstevnice – spádnice"
-    generator_codes: []
+    generator_codes: ["103.1"]
     geom: point
     review: false
   - ocad_code: "104.0"
@@ -2149,7 +2149,7 @@ mtbo:
     review: false
   - ocad_code: "101.1"
     cz_name: "Základní vrstevnice – spádnice"
-    generator_codes: []
+    generator_codes: ["101.1"]
     geom: point
     review: false
   - ocad_code: "101.2"
