@@ -243,7 +243,52 @@ def test_api_private_email_limit_429(client, monkeypatch):
         data={**data, "notify_email": "Tester+2@example.cz", "bbox": "14.41,50.08,14.43,50.09"},
     )
     assert r.status_code == 429
-    assert "private jobs per 24 hours" in r.json()["detail"]
+    assert "private jobs are limited to 1 per 24 hours" in r.json()["detail"]
     # Veřejný job téhož uživatele limit e-mailu neomezuje.
     r = client.post("/api/jobs", data={"name": "pub", "preset_id": "sprint_2m", "bbox": "14.42,50.08,14.44,50.09"})
     assert r.status_code == 200, r.text
+
+
+def test_banned_email(data_dir, monkeypatch):
+    _reload_settings(monkeypatch, BANNED_EMAILS=" Spam.Mer@gmail.com , x@example.cz", RATE_LIMIT_EXEMPT_IPS="10.0.2.1")
+    from app.rate_limit import check_banned_email, is_banned_email
+
+    assert is_banned_email("spammer+1@googlemail.com")
+    assert is_banned_email("X@Example.cz")
+    assert not is_banned_email("y@example.cz")
+    msg = check_banned_email("spammer@gmail.com")
+    assert msg is not None and msg.key == "api.rate.email_banned"
+    assert check_banned_email("") is None
+
+
+def test_api_banned_email_403(client, monkeypatch):
+    import app.db as db
+    import app.main as main
+    import app.rate_limit as rate_limit
+
+    monkeypatch.setattr(main, "client_ip", lambda _req: "192.168.52.1")
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+    monkeypatch.setattr(rate_limit, "BANNED_EMAILS", "blocked@example.cz")
+    monkeypatch.setattr(main, "query_sm5_sheets", lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}])
+    monkeypatch.setattr(main.worker, "enqueue", lambda job_id: db.update_job(job_id, status="queued", phase="waiting"))
+    data = {"name": "p", "preset_id": "sprint_2m", "private": "1", "bbox": "14.40,50.08,14.42,50.09"}
+    r = client.post("/api/jobs", data={**data, "notify_email": "Blocked+x@example.cz"})
+    assert r.status_code == 403
+    assert "fér" in r.json()["detail"]
+    r = client.post("/api/jobs", data={**data, "notify_email": "ok@example.cz"})
+    assert r.status_code == 200, r.text
+
+
+def test_origin_stats_emails_without_plain_address(data_dir, capsys):
+    import app.db as db
+    from app import origin_stats
+
+    db.init_db()
+    for email in ("heavy@example.cz", "heavy+1@example.cz", "light@example.cz"):
+        db.create_job("p", "sprint_2m", {"private": True, "client_ip": "10.0.3.1", "notify_email": email})
+    origin_stats.main(["--emails"])
+    out = capsys.readouterr().out
+    assert "@" not in out and db.email_limit_tag("heavy@example.cz") in out
+    origin_stats.main(["--email", "HEAVY@example.cz"])
+    out = capsys.readouterr().out
+    assert "24 h 2, 30 dní 2, celkem 2" in out and "heavy" not in out

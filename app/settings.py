@@ -92,6 +92,8 @@ MAX_JOBS_PER_IP_HOUR = int(os.environ.get("MAX_JOBS_PER_IP_HOUR", "10"))
 # Soukromé joby na jeden e-mail za klouzavých 24 h (Petr 2026-11-20, mírný limit proti zneužití); 0 = vypnuto.
 # E-mail se počítá normalizovaný (bez +značky, u Gmailu bez teček) a jen jako HMAC značka v job_origin.
 MAX_PRIVATE_JOBS_PER_EMAIL_DAY = int(os.environ.get("MAX_PRIVATE_JOBS_PER_EMAIL_DAY", "10"))
+# Zablokované e-maily (čárkami; jen v .env na serveru, nikdy v repu). Porovnání po stejné normalizaci jako limit.
+BANNED_EMAILS = os.environ.get("BANNED_EMAILS", "")
 JOB_TIMEOUT_MINUTES = int(os.environ.get("JOB_TIMEOUT_MINUTES", "90"))
 # Strop plochy výřezu pro sprint (1:4000), km². Petr 2026-11-05: max 2 × 2 km (dřív 9 km² od 2026-11-02) –
 # sprint na větším území nikdo nepostaví a kresba z DTM je pomalá (~2 min/km² skládání .omap).
