@@ -16,7 +16,7 @@ z počítače mapaře. Vrstvy ověřené z katalogů QGIS pluginu czech_slovak_f
 from __future__ import annotations
 
 SK_ORTHO_WMS = "https://zbgisws.skgeodesy.sk/zbgis_ortofoto_wms/service.svc/get"
-SK_ORTHO_LAYERS = "1,2,3"
+SK_ORTHO_LAYERS = "3,2,1"  # 1 = nejnovější a nejostřejší, kreslí se navrch (Petr 2026-11-20 v QGIS); 2, 3 doplní mezery
 SK_CADASTRE_WMS = "https://kataster.skgeodesy.sk/eskn/services/NR/kn_wms_norm/MapServer/WmsServer"
 SK_CADASTRE_LAYERS = "1,2,3,4,5,6,7,8,10,11,12,13,14,15"
 SK_ZBGIS_WMS = "https://zbgisws.skgeodesy.sk/zbgis_wms_featureinfo/service.svc/get"
