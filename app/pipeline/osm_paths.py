@@ -41,7 +41,7 @@ from app.pipeline.oom_symbol_map import (
     symbol_index_for_code,
 )
 from app.pipeline.prepare_lidar import log_step
-from app.pipeline.job_progress import log_issue
+from app.pipeline.job_progress import SOURCE_OSM, confirm_source, log_issue
 from app.tool_env import gis_subprocess_env, which_tool
 # Veřejná zrcadla (seznam z wiki.openstreetmap.org/wiki/Overpass_API, ověřeno
 # 2026-10-09) – hlavní DE často hlásí 504, rotujeme rychle. Pořadí: nejčerstvější
@@ -2518,6 +2518,7 @@ def fetch_osm_path_elements(
                         "– Overpass přeskakuji"
                     )
                 build_stats.note_file("osm", cache_path, cached=True)
+                confirm_source(SOURCE_OSM)
                 return elements
             except (OSError, json.JSONDecodeError):
                 pass
@@ -2525,6 +2526,8 @@ def fetch_osm_path_elements(
     elements = _fetch_osm_path_elements_net(
         bbox_wgs84, log=log, status=status, **params
     )
+    if status.get("complete"):  # všechny dlaždice stažené (i přes záložní zrcadlo / Export API)
+        confirm_source(SOURCE_OSM)
     raw = json.dumps(elements) if elements else ""
     if raw:
         build_stats.note_bytes(

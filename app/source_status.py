@@ -568,6 +568,28 @@ PROBES: tuple[Probe, ...] = (
 
 
 
+# Zdroje výšek z rastru mimo Česko (``prepare_raster_surfaces``), jejichž klíč nekončí ``_elevation``.
+_ELEVATION_KEYS = frozenset({"at_bev", "ch_swisstopo", "nl_ahn", "de_berlin", "fr_lidarhd"})
+
+
+def probe_role(key: str | None) -> str | None:
+    """Druh dat zdroje, který job umí potvrdit jako opravdu stažený (``job_progress.SOURCE_*``), jinak None.
+
+    Český LiDAR (``lidar``) ani ostatní zdroje se nepotvrzují: jejich varování ze startu zůstává chybou jobu jako dřív.
+    """
+    from app.pipeline.job_progress import SOURCE_ELEVATION, SOURCE_OSM, SOURCE_SURFACE
+
+    if not key:
+        return None
+    if key == "osm":
+        return SOURCE_OSM
+    if key == "fi_chm":
+        return SOURCE_SURFACE
+    if key in _ELEVATION_KEYS or key.endswith("_elevation"):
+        return SOURCE_ELEVATION
+    return None
+
+
 def probes_for(country: str | None = None) -> list[Probe]:
     """Zdroje, které používá job v zemi ``country`` (výchozí Česko)."""
     code = (country or countries.DEFAULT_COUNTRY).strip().upper()

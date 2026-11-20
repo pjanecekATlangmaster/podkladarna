@@ -107,6 +107,11 @@ from app.pipeline.job_progress import (
     indented_log,
     log_issue,
     plan_pipeline_steps,
+    SOURCE_ELEVATION,
+    SOURCE_SURFACE,
+    confirm_source,
+    reset_confirmed_sources,
+    source_confirmed,
 )
 from app.pipeline.prepare_lidar import (
     CMD_LOG_PREFIX,
@@ -367,6 +372,24 @@ def down_source_lines(services: list[dict], *, dtm_needed: bool) -> list[tuple[b
         else:
             out.append((True, f"Zdroj {svc['label']} {state} ({svc['detail']}): {svc['impact']}"))
     return out
+
+
+def pending_source_issue_note(text: str) -> str:
+    """Řádek na startu jobu u zdroje, jehož data job umí potvrdit: chyba jobu jen tehdy, když stažení opravdu selže."""
+    return f"{text} Ověří se při stahování."
+
+
+def resolve_source_issues(pending: list[tuple[str | None, str, str]], log: callable, raw_log: callable) -> None:
+    """Konec jobu: varování sondy zdrojů ze startu podle skutečného průběhu.
+
+    ``pending`` = ``(role, label, text)``. Zdroj, jehož data job získal (``job_progress.confirm_source``, i přes
+    záložní zrcadlo nebo z cache), je jen informace; jinak chyba jobu jako dřív (job a934d7c44276, Overpass 502).
+    """
+    for role, label, text in pending:
+        if source_confirmed(role):
+            raw_log(f"Zdroj {label} byl při kontrole na startu dočasně nedostupný, data se nakonec stáhla (záložní zrcadlo, opakovaný pokus nebo mezipaměť).")
+        else:
+            log_issue(log, text)
 
 
 def background_log(log: callable, label: str) -> callable:
@@ -768,6 +791,8 @@ def run_job_pipeline(
     issues = IssueCollector(log)
     raw_log = issues
     log = indented_log(raw_log)
+    reset_confirmed_sources()
+    pending_source_issues: list[tuple[str | None, str, str]] = []
 
     bbox = options.get("bbox_wgs84")
     crop = None
@@ -840,8 +865,13 @@ def run_job_pipeline(
         )
         # Zdroje země výřezu (mimo Česko místní servery, OSM a Sentinel; české se nepoužijí).
         services = source_status.down_services(use_dtm=use_dtm_any, country=job_country_code(options))
-        for is_issue, text in down_source_lines(services, dtm_needed=dtm_needed):
-            if is_issue:
+        for svc, (is_issue, text) in zip(services, down_source_lines(services, dtm_needed=dtm_needed)):
+            role = source_status.probe_role(svc.get("key"))
+            if is_issue and role:
+                # Až konec jobu rozhodne, zda je to chyba: OSM / výšky se často stáhnou přes zrcadlo nebo opakovaný pokus.
+                pending_source_issues.append((role, svc["label"], text))
+                log(pending_source_issue_note(text))
+            elif is_issue:
                 log_issue(log, text)
             else:
                 raw_log(text)
@@ -1112,6 +1142,9 @@ def run_job_pipeline(
         from app.pipeline.elevation_raster import surface_missing
 
         no_surface = surface_missing(work_dir)
+        if not no_surface:  # terén i povrch stažené: varování sondy výšek ze startu není chyba jobu
+            confirm_source(SOURCE_ELEVATION)
+            confirm_source(SOURCE_SURFACE)
         try:  # rastry jsou už v work/dem; cache dlaždic (Berlín) pod stropem ``LIDAR_CACHE_MAX_GB``
             prune_lidar_cache(log=log)
         except Exception as exc:  # úklid cache nesmí shodit job
@@ -1406,6 +1439,7 @@ def run_job_pipeline(
     )
     clear_job_memo()  # plochy DTM drží jen sestavení map tohoto jobu
     progress.finish_all()
+    resolve_source_issues(pending_source_issues, log, raw_log)
     issues.report()
     raw_log("")
     if issues.items:
