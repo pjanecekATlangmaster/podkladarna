@@ -18,7 +18,7 @@ try:
 except ImportError:  # pragma: no cover - numpy je v image vždy (GDAL)
     pass
 
-from app import db, disk_space, donations, i18n, user_sources
+from app import db, disk_space, donations, i18n, source_gate, user_sources
 from app import settings as app_settings
 from app.mail import (
     MailError,
@@ -28,7 +28,8 @@ from app.mail import (
     sender_name,
 )
 from app.pipeline import build_stats, dtm_summary
-from app.pipeline.issue_explain import failure_summary, user_summary
+from app.pipeline.country_profile import job_country_code
+from app.pipeline.issue_explain import failure_summary, source_outage_summary, user_summary
 from app.pipeline.zip_texts_en import zip_lang
 from app.pipeline.preview import resolve_preview_png
 from app.pipeline.run_job import run_job_pipeline
@@ -330,6 +331,26 @@ def _trim_order_work(job_id: str) -> None:
         logger.exception("Úklid mezivýsledků objednávky %s selhal", job_id)
 
 
+def _source_outage(job_id: str, job_dir: Path, technical: str):
+    """Zdroj výšek, na jehož výpadku job selhal (``app.source_gate.failed_job_outage``), jinak None."""
+    try:
+        options = db.get_job(job_id).get("options") or {}
+        if options.get("user_sources"):  # výšky ze souborů zadavatele, ne ze zdroje země
+            return None
+        log_text = ""
+        try:
+            with open(job_dir / "log.txt", "rb") as fh:
+                fh.seek(0, 2)
+                fh.seek(max(0, fh.tell() - 512_000))
+                log_text = fh.read().decode("utf-8", "replace")
+        except OSError:
+            pass
+        return source_gate.failed_job_outage(job_country_code(options), technical, log_text)
+    except Exception:  # noqa: BLE001 – rozpoznání výpadku nesmí shodit zápis stavu
+        logger.warning("Rozpoznání výpadku zdroje u jobu %s selhalo", job_id, exc_info=True)
+        return None
+
+
 def _failure_summary_for(job_id: str, technical: str, lang: str) -> str:
     """Souhrn chyby pro web a e-mail jako na doméně zadání (česky z Omapicu bez „Petrovi“)."""
     try:
@@ -401,6 +422,7 @@ def _run_job(job_id: str) -> int:
         tb = traceback.format_exc()
         disk_full = disk_space.is_disk_full(exc)
         technical = disk_space.DISK_FULL_MESSAGE if disk_full else str(exc)
+        outage = None if disk_full else _source_outage(job_id, job_dir, technical)
         # Stav jako první: na plném disku selže kdejaký zápis (log.txt, build_stats) a job by
         # na webu zůstal „běží“ (ostrá A 2026-11-15). Při plném disku pomůže smazání rezervy.
         try:
@@ -409,10 +431,20 @@ def _run_job(job_id: str) -> int:
                 job_id,
                 status="failed",
                 phase="error",
-                error=_failure_summary_for(job_id, technical, job_lang),
+                error=(
+                    source_outage_summary(source_gate.label_in(outage, job_lang), job_lang)
+                    if outage is not None
+                    else _failure_summary_for(job_id, technical, job_lang)
+                ),
             )
         except Exception:
             logger.exception("Zápis stavu failed jobu %s selhal", job_id)
+        if outage is not None:
+            try:
+                db.mark_source_outage(job_id, outage.key)
+                log(f"Job selhal na výpadku zdroje {outage.label}; do limitů se nepočítá.")
+            except Exception:
+                logger.exception("Značka výpadku zdroje u jobu %s nejde zapsat", job_id)
         build_stats.write(job_dir, status="failed")
         try:
             log(f"CHYBA: {exc}")

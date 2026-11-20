@@ -601,6 +601,7 @@ def active_probes() -> list[Probe]:
 
 _STATUS_FILE = "source_status.json"
 _refresh_lock = threading.Lock()  # jedna kontrola naráz v procesu webu
+_merge_lock = threading.Lock()
 
 
 def _now_iso() -> str:
@@ -742,6 +743,32 @@ def check_all() -> dict:
     if alerts:
         _send_alerts(alerts)
     return snapshot()
+
+
+def merge_results(results: list[dict]) -> None:
+    """Výsledky dílčí kontroly (``source_gate.recheck``) do uloženého stavu; čas celé kontroly se nemění.
+
+    ``down_since`` se drží jako v ``check_all``; e-maily posílá jen celá kontrola."""
+    if not results:
+        return
+    with _merge_lock:
+        state = _load()
+        now = _now_iso()
+        for r in results:
+            key = r.get("key")
+            old = state["services"].get(key)
+            if not key or old is None:
+                continue
+            new = {**old, **{k: v for k, v in r.items() if k in ("ok", "planned", "detail", "latency_ms")}}
+            if new.get("ok"):
+                # Po odeslaném mailu o výpadku drží ``down_since`` a ``alerted``: mail o obnovení pošle až celá kontrola.
+                keep = bool(old.get("alerted"))
+                new["down_since"] = old.get("down_since") if keep else None
+                new["alerted"] = keep
+            else:
+                new["down_since"] = (old.get("down_since") if not old.get("ok", True) else None) or now
+            state["services"][key] = new
+        _save(state)
 
 
 def alert_after_s() -> float:

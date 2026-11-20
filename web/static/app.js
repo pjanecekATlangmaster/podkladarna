@@ -2901,6 +2901,8 @@ function clearBbox(opts = {}) {
   bboxAllowed = false;
   lastSheets = null;
   renderProbeNote();
+  recentSourceOutage = null;
+  renderRecentOutage();
   bboxDraft = null;
   sheetsError = null;
   document.getElementById("bbox-input").value = "";
@@ -3346,6 +3348,8 @@ async function lookupSheets() {
     if (seq !== sheetsLookupSeq) return;
     lastSheets = data;
     renderProbeNote();
+    recentSourceOutage = data.recent_source_outage || null;
+    renderRecentOutage();
     // Země výřezu: stav místních serverů (ČÚZK v Česku, PDOK v Nizozemsku …).
     if ((data.country || "CZ") !== sourceStatusCountry) {
       sourceStatusCountry = data.country || "CZ";
@@ -3726,6 +3730,9 @@ async function loadUsageBox() {
 
 let sourceStatus = null;
 let sourceStatusCountry = "CZ";
+// Tentýž výřez v poslední hodině selhal na výpadku zdroje (GET /api/sheets).
+let recentSourceOutage = null;
+let sourceRecheckNote = "";
 const SOURCE_STATUS_REFRESH_MS = 5 * 60 * 1000;
 
 function csTime(iso) {
@@ -3831,9 +3838,58 @@ function renderSourceStatus() {
   document.getElementById("source-status-note").textContent =
     (checked ? t("web.js.sources.checked_at", { v: checked }) : "") +
     (data.checking ? t("web.js.sources.rechecking") : "") +
-    (down.length ? t("web.js.sources.can_generate") : "");
+    (down.some((s) => s.blocks_job)
+      ? t("web.js.sources.cannot_generate")
+      : down.length
+        ? t("web.js.sources.can_generate")
+        : "") +
+    sourceRecheckNote;
+  // „Zkusit zdroje znovu“ jen když něco neodpovídá (nebo výřez nedávno na výpadku selhal).
+  const row = document.getElementById("source-recheck-row");
+  if (row) row.hidden = !(data.services.some((s) => !s.ok) || recentSourceOutage);
+  if (recentSourceOutage && !box.open) box.open = true;
   box.hidden = false;
 }
+
+/** Upozornění nad stavem zdrojů: tentýž výřez nedávno selhal na výpadku zdroje. */
+function renderRecentOutage() {
+  const el = document.getElementById("source-recent-outage");
+  if (!el) return;
+  const info = recentSourceOutage;
+  el.textContent = info
+    ? t("web.js.sources.recent_outage", { minutes: info.minutes || 1, label: info.label || info.key || "" })
+    : "";
+  el.hidden = !info;
+  renderSourceStatus();
+}
+
+/** Ověří znovu zdroje, které neodpovídají (server každý zdroj nejvýš jednou za minutu). */
+async function recheckSources() {
+  const btn = document.getElementById("source-recheck");
+  if (!btn || btn.disabled) return;
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = t("web.js.sources.retrying");
+  try {
+    const data = await api(`/api/source_status/recheck?country=${encodeURIComponent(sourceStatusCountry)}`, {
+      method: "POST",
+    });
+    sourceStatus = data;
+    sourceRecheckNote = data.throttled ? t("web.js.sources.retry_throttled") : "";
+    // Všechny zdroje teď běží: staré upozornění na selhaný výřez už neplatí.
+    if (Array.isArray(data.services) && data.services.every((s) => s.ok)) {
+      recentSourceOutage = null;
+      document.getElementById("source-recent-outage").hidden = true;
+    }
+  } catch (_) {
+    sourceRecheckNote = " " + t("web.js.sources.retry_failed");
+  }
+  btn.textContent = label;
+  btn.disabled = false;
+  renderSourceStatus();
+  renderDtmForestNote();
+}
+document.getElementById("source-recheck")?.addEventListener("click", recheckSources);
 
 /** Les nebo MTBO, který kreslí z DTM (volba „DTM všude“; „auto“ kreslí les a MTBO z OSM a ZABAGED). */
 function forestUsesDtm() {
@@ -3876,6 +3932,7 @@ let sourceStatusPolls = 0;
 /** Stav se ověří při otevření stránky; běžící kontrolu (``checking``) dočte po pár sekundách. */
 async function loadSourceStatus(poll = false) {
   sourceStatusPolls = poll ? sourceStatusPolls + 1 : 0;
+  if (!poll) sourceRecheckNote = "";
   try {
     sourceStatus = await api(`/api/source_status?country=${encodeURIComponent(sourceStatusCountry)}`);
   } catch (_) {

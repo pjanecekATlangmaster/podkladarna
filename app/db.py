@@ -286,6 +286,7 @@ def private_email_jobs_since(email: str, since: datetime) -> list[str]:
             LEFT JOIN jobs j ON j.id = o.job_id
             WHERE o.email_tag = ? AND o.private = 1 AND o.api_client = 0 AND o.created_at >= ?
               AND (j.id IS NULL OR json_extract(j.options_json, '$.order_id') IS NULL)
+              AND (j.id IS NULL OR json_extract(j.options_json, '$.source_outage') IS NULL)
             ORDER BY o.created_at
             """,
             (tag, since.isoformat()),
@@ -306,8 +307,11 @@ def origin_jobs_since(client_ip: str, since: datetime) -> tuple[list[str], list[
                 out.append([])
                 continue
             rows = conn.execute(
-                f"SELECT created_at FROM job_origin WHERE {col} = ? AND api_client = 0 AND created_at >= ? "
-                "ORDER BY created_at",
+                # Job selhaný na výpadku zdroje (``mark_source_outage``) se do limitu nepočítá.
+                f"SELECT o.created_at FROM job_origin o LEFT JOIN jobs j ON j.id = o.job_id "
+                f"WHERE o.{col} = ? AND o.api_client = 0 AND o.created_at >= ? "
+                "AND (j.id IS NULL OR json_extract(j.options_json, '$.source_outage') IS NULL) "
+                "ORDER BY o.created_at",
                 (tag, since.isoformat()),
             ).fetchall()
             out.append([str(r[0]) for r in rows])
@@ -865,6 +869,7 @@ def count_jobs_for_ip_since(client_ip: str, since: datetime) -> int:
             SELECT COUNT(*) FROM jobs
             WHERE json_extract(options_json, '$.client_ip') = ?
               AND created_at >= ?
+              AND json_extract(options_json, '$.source_outage') IS NULL
             """,
             (client_ip, since_s),
         ).fetchone()
@@ -1116,6 +1121,38 @@ def copy_reusable_work(src_id: str, dest_id: str) -> list[str]:
         link_or_copy(path, d / path.name)
         copied.append(f"{rel}/{path.name}")
     return copied
+
+
+def mark_source_outage(job_id: str, key: str) -> None:
+    """Job selhal na výpadku zdroje (``app.source_gate``): do limitů IP, sítě ani e-mailu se nepočítá."""
+    with connect() as conn:
+        conn.execute(
+            "UPDATE jobs SET options_json = json_set(options_json, '$.source_outage', ?) WHERE id = ?",
+            (str(key or "source"), job_id),
+        )
+        conn.commit()
+
+
+def recent_source_outage(country: str, bbox: list | tuple, since: datetime) -> dict[str, Any] | None:
+    """Poslední job téhož výřezu a země od ``since``, který selhal na výpadku zdroje (GUI pak nabídne ověření)."""
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM jobs
+            WHERE status = 'failed' AND json_extract(options_json, '$.source_outage') IS NOT NULL
+              AND created_at >= ?
+            ORDER BY created_at DESC LIMIT 50
+            """,
+            (since.isoformat(),),
+        ).fetchall()
+    for row in rows:
+        job = _row_to_job(row)
+        opts = job.get("options") or {}
+        if str(opts.get("country") or "CZ").upper() == str(country or "CZ").upper() and bbox_close(
+            opts.get("bbox_wgs84") or [], bbox, eps=1e-3
+        ):
+            return job
+    return None
 
 
 def bbox_close(

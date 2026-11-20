@@ -116,3 +116,97 @@ def test_api_rejects_job_without_counting(client, monkeypatch, gate):
     fake_url([UP])
     r = client.post("/api/jobs", data=data)
     assert r.status_code == 200
+
+
+# --- job selhaný na výpadku zdroje --------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "country, technical, log_text, live, expected",
+    [
+        ("PL", "HTTP Error 503: Service Unavailable", "{note}", [DOWN], "pl_elevation"),  # řádek startovní kontroly
+        ("PL", "výšková služba má výpadek na své straně (HTTP 400: Database connection failed)", "", [UP], "pl_elevation"),
+        ("PL", "HTTP Error 503: Service Unavailable", "", [DOWN, DOWN], "pl_elevation"),  # potvrzeno teď
+        ("PL", "HTTP Error 503: Service Unavailable", "", [UP], None),  # zdroj běží: obecná chyba
+        ("PL", "No space left on device", "{note}", [DOWN], None),  # disk není výpadek zdroje
+        ("CZ", "HTTP Error 503: Service Unavailable", "", [DOWN, DOWN], None),  # Česko beze změny
+    ],
+)
+def test_failed_job_outage(gate, country, technical, log_text, live, expected):
+    fake_url, _calls = gate
+    fake_url(live)
+    label = next(p.label for p in source_gate.critical_probes("PL"))
+    probe = source_gate.failed_job_outage(country, technical, log_text.replace("{note}", f"Zdroj {label} neodpovídal. Ověří se při stahování."))
+    assert (probe.key if probe else None) == expected
+
+
+def test_source_outage_job_not_counted_in_limits(data_dir, monkeypatch):
+    import importlib
+
+    import app.db as db
+
+    for key, val in {"MAX_JOBS_PER_IP_DAY": "2", "MAX_JOBS_PER_IP_HOUR": "2", "MAX_ACTIVE_JOBS_PER_IP": "100",
+                     "MAX_PRIVATE_JOBS_PER_EMAIL_DAY": "2"}.items():
+        monkeypatch.setenv(key, val)
+    import app.rate_limit as rate_limit
+
+    importlib.reload(settings)
+    importlib.reload(rate_limit)
+    db.init_db()
+    opts = {"client_ip": "10.0.7.1", "private": True, "notify_email": "a@example.cz", "country": "PL"}
+    for _ in range(2):
+        job = db.create_job("pl", "sprint_2m", opts)
+        db.update_job(job["id"], status="failed")
+        db.mark_source_outage(job["id"], "pl_elevation")
+    assert rate_limit.check_create_job("10.0.7.1") is None
+    assert rate_limit.check_private_email("a@example.cz", "10.0.7.1") is None
+    db.create_job("pl", "sprint_2m", opts)
+    db.create_job("pl", "sprint_2m", opts)
+    assert rate_limit.check_create_job("10.0.7.1") is not None  # běžné joby se počítají dál
+    assert rate_limit.check_private_email("a@example.cz", "10.0.7.1") is not None
+
+
+def test_recheck_throttled_and_merged(gate):
+    fake_url, calls = gate
+    fake_url([UP])
+    source_status._save({
+        "checked_at": source_status._now_iso(),
+        "services": {"pl_elevation": {"key": "pl_elevation", "ok": False, "down_since": source_status._now_iso()}},
+    })
+    out = source_gate.recheck("PL")
+    assert out["rechecked"] == ["pl_elevation"] and not out["throttled"]
+    assert source_status._load()["services"]["pl_elevation"]["ok"] is True
+    assert source_gate.check("PL") is None  # brána má čerstvý výsledek, žádný další dotaz
+    n = len(calls)
+    source_status._save({"checked_at": source_status._now_iso(),
+                         "services": {"pl_elevation": {"key": "pl_elevation", "ok": False}}})
+    out = source_gate.recheck("PL")  # podruhé do minuty: bez dotazu na cizí server
+    assert out["rechecked"] == [] and out["throttled"] and len(calls) == n
+    source_gate._recheck_at.clear()
+
+
+def test_sheets_warns_recent_outage(client, monkeypatch, gate):
+    from app import db
+
+    monkeypatch.setenv("COUNTRIES_BETA", "FR")
+    monkeypatch.setenv("SITES", "testserver=cs:free:*")
+    monkeypatch.setitem(elevation_raster.COVERAGE, "fr_lidarhd", lambda _b: 1.0)
+    monkeypatch.setattr(elevation_raster, "_COVERAGE_CACHE", {})
+    bbox = ",".join(str(v) for v in LYON)
+    assert client.get("/api/sheets", params={"bbox": bbox}).json()["recent_source_outage"] is None
+    job = db.create_job("lyon", "sprint_2m", {"bbox_wgs84": list(LYON), "country": "FR"})
+    db.update_job(job["id"], status="failed")
+    db.mark_source_outage(job["id"], "fr_lidarhd")
+    body = client.get("/api/sheets", params={"bbox": bbox}).json()
+    assert body["recent_source_outage"]["key"] == "fr_lidarhd" and body["recent_source_outage"]["minutes"] >= 1
+    assert isinstance(body["recent_source_outage"]["label"], str)
+
+
+def test_source_status_marks_blocking_source(client, monkeypatch, gate):
+    monkeypatch.setenv("COUNTRIES_BETA", "PL")
+    monkeypatch.setenv("SITES", "testserver=cs:free:*")
+    source_status._save({"checked_at": source_status._now_iso(), "services": {
+        "pl_elevation": {"key": "pl_elevation", "label": "GUGiK", "ok": False},
+        "osm": {"key": "osm", "label": "OSM", "ok": False},
+    }})
+    services = {s["key"]: s for s in client.get("/api/source_status", params={"country": "PL"}).json()["services"]}
+    assert services["pl_elevation"]["blocks_job"] and not services["osm"]["blocks_job"]

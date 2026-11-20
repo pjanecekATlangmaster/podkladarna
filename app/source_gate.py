@@ -150,3 +150,80 @@ def check(country_code: str | None, *, has_fallback: bool = False) -> dict | Non
             "message": msg,
         }
     return None
+
+
+# --- job, který selhal na výpadku zdroje (job_worker) --------------------------------------------------
+
+# Hláška ``elevation_raster._download_retry`` po vyčerpání pokusů při výpadku na straně služby (4.0.3).
+SERVICE_FAULT_TEXT = "výšková služba má výpadek"
+# Druhy selhání (``issue_explain.failure_key``), které může způsobit nedostupný zdroj.
+_OUTAGE_FAILURE_KEYS = ("download", "default")
+
+
+def label_in(probe: source_status.Probe, lang: str) -> str:
+    """Název zdroje v jazyce (česky text ``Probe`` jako v logu)."""
+    if lang == i18n.SOURCE_LANG:
+        return probe.label
+    return i18n.catalog(lang).get(f"api.source.{probe.key}.label") or probe.label
+
+
+def failed_job_outage(country_code: str | None, technical: str, log_text: str = "", *, live: bool = True) -> source_status.Probe | None:
+    """Zdroj výšek, na jehož výpadku job selhal, jinak None.
+
+    Selhání musí vypadat jako stahování (``download`` / neznámé) nebo nést hlášku výpadku služby. Zdroj se pak
+    potvrdí řádkem startovní kontroly v logu (``Zdroj <název> … Ověří se při stahování.``), hláškou výpadku
+    služby, nebo (``live``) dvěma neúspěšnými dotazy teď. Česko nic (``critical_probes``).
+    """
+    from app.pipeline.issue_explain import failure_key
+
+    probes = critical_probes(country_code)
+    if not probes:
+        return None
+    text = str(technical or "")
+    service_fault = SERVICE_FAULT_TEXT in text
+    if not service_fault and failure_key(text) not in _OUTAGE_FAILURE_KEYS:
+        return None
+    for probe in probes:
+        if f"Zdroj {probe.label} " in log_text and "Ověří se při stahování" in log_text:
+            return probe
+    if service_fault and len(probes) == 1:
+        return probes[0]
+    if live:
+        for probe in probes:
+            try:
+                if not source_status.check_probe(probe).get("ok"):
+                    return probe
+            except Exception:  # noqa: BLE001
+                continue
+    return None
+
+
+# --- „Zkusit zdroje znovu“ (web) -----------------------------------------------------------------------
+
+# Jeden zdroj se na žádost webu ověří nejvýš jednou za tolik sekund (víc návštěvníků = jeden dotaz).
+RECHECK_MIN_S = 60.0
+_recheck_at: dict[str, float] = {}
+
+
+def recheck(country_code: str | None) -> dict:
+    """Znovu ověří zdroje země, které poslední kontrola vidí mimo provoz (a kritické zdroje s výpadkem v cache).
+
+    Zdroj ověřený před méně než ``RECHECK_MIN_S`` se přeskočí (``throttled``). Výsledek se zapíše do stavu
+    zdrojů (``source_status.merge_results``) i do cache brány, takže po obnovení zdroje job hned projde.
+    """
+    probes = source_status.probes_for(country_code)
+    services = source_status._load()["services"]
+    with _lock:
+        down_cached = {k for k, (_ts, r) in _cache.items() if not r.get("ok")}
+    targets = [p for p in probes if not (services.get(p.key) or {}).get("ok", True) or p.key in down_cached]
+    now = time.monotonic()
+    due: list[source_status.Probe] = []
+    with _lock:
+        for p in targets:
+            if now - _recheck_at.get(p.key, -RECHECK_MIN_S) >= RECHECK_MIN_S:
+                _recheck_at[p.key] = now
+                due.append(p)
+    results = list(_pool.map(_check, due)) if due else []
+    if results:
+        source_status.merge_results(results)
+    return {"rechecked": [r["key"] for r in results], "throttled": len(due) < len(targets)}
