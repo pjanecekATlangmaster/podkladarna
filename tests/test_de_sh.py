@@ -62,6 +62,23 @@ def test_tile_converts_xyz_and_warps_bdom_to_tile(tmp_path, monkeypatch):
     assert er._sh_tile("de_sh", 580, 5980) == folder  # z cache bez stahování
 
 
+def test_tile_without_bdom_after_failure_stays_incomplete(tmp_path, monkeypatch):
+    pytest.importorskip("osgeo.gdal")
+    monkeypatch.setattr(er.settings, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(er, "sh_index", lambda key, kind, log=None: {"580_5980": f"u-{kind}"})
+    monkeypatch.setattr(er, "_sh_fetch", lambda url, m: b"580000.50 5980999.50 39.39\n580001.50 5980999.50 39.40\n")
+
+    def fail(url, dest, log=None):
+        raise OSError("503")
+
+    monkeypatch.setattr(er, "_download_retry", fail)
+    issues = []
+    monkeypatch.setattr(er, "log_issue", lambda log, msg: issues.append(msg))
+    folder = er._sh_tile("de_sh", 580, 5980)
+    assert (folder / "dtm.tif").is_file() and not (folder / "dsm.tif").exists()
+    assert not (folder / ".complete").exists() and "bDOM" in issues[0]  # příští job povrch zkusí znovu
+
+
 def test_tile_outside_index_is_none(tmp_path, monkeypatch):
     monkeypatch.setattr(er.settings, "CACHE_DIR", tmp_path)
     monkeypatch.setattr(er, "sh_index", lambda key, kind, log=None: {})

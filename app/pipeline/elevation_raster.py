@@ -1425,11 +1425,13 @@ def _sh_tile(key: str, east_km: int, north_km: int, *, log=None) -> Path | None:
     grid, left, top = xyz_grid(_sh_fetch(url, SH_XYZ_MAX_BYTES))
     _write_tif(tmp, grid, left, top, st.crs)
     tmp.replace(dtm)
+    index_failed = False
     try:
         dsm_url = sh_index(key, "dsm", log=log).get(name)
     except Exception as exc:  # noqa: BLE001 – bez povrchu mapa vznikne
         log_issue(log, f"{st.name}: index bDOM nejde načíst ({str(exc)[:80]})")
-        dsm_url = None
+        dsm_url, index_failed = None, True
+    complete = True  # .complete jen při hotovém povrchu nebo jeho skutečné absenci v indexu
     if dsm_url:
         raw = folder / f".bdom.{tag}.tif"
         out = folder / f".dsm.{tag}.tif"
@@ -1440,11 +1442,16 @@ def _sh_tile(key: str, east_km: int, north_km: int, *, log=None) -> Path | None:
                      str((north_km + 1) * 1000), "-srcnodata", "nan", "-dstnodata", str(NODATA), "-ot", "Float32",
                      "-co", "COMPRESS=DEFLATE", "-co", "TILED=YES", str(raw), str(out)], log=log)
             out.replace(folder / "dsm.tif")
+        except Exception as exc:  # noqa: BLE001 – bez povrchu mapa vznikne, dlaždice se příště zkusí znovu
+            log_issue(log, f"{st.name}: bDOM {name} se nestáhl ({str(exc)[:80]}), výška porostu tam chybí")
+            complete = False
         finally:
             raw.unlink(missing_ok=True)
             out.unlink(missing_ok=True)
-    else:
+    elif not index_failed:
         log_issue(log, f"{st.name}: bDOM {name} chybí, výška porostu tam chybí")
+    if not complete or index_failed:
+        return folder
     (folder / ".complete").touch()
     touch_last_used(folder)
     if log:
