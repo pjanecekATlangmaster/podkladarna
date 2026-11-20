@@ -19,6 +19,8 @@ FI_KAPSI_ORTHO_WMS = "https://tiles.kartat.kapsi.fi/ortokuva"
 FI_KAPSI_ORTHO_LAYER = "ortokuva"
 FI_KAPSI_BASEMAP_WMS = "https://tiles.kartat.kapsi.fi/peruskartta"
 FI_KAPSI_BASEMAP_LAYER = "peruskartta"
+FI_KAPSI_CADASTRE_WMS = "https://tiles.kartat.kapsi.fi/kiinteistorajat"  # kiinteistörajat MML (CC BY 4.0)
+FI_KAPSI_CADASTRE_LAYER = "kiinteistorajat"
 # Sondy: jeden list výšek a porostu (Helsinky, L4133B) hlavičkou, 1 budova z WFS, malý výřez ortofota.
 FI_DTM_PROBE = "https://mirrors.nic.funet.fi/index/geodata/mml/dem2m/2008_latest/L4/L41/L4133B.tif"
 FI_CHM_PROBE = "https://avoin.metsakeskus.fi/aineistot/Latvusmalli/Karttalehti/uusin/CHM_L4133B_uusin.tif"

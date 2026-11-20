@@ -97,6 +97,7 @@ AT:
     - "Elevation: ALS DTM and DSM, Datenquelle: BEV – Bundesamt für Eich- und Vermessungswesen (CC BY 4.0)."
     - "Orthophoto, map and hillshade: Datenquelle: basemap.at – www.basemap.at (CC BY 4.0)."
     - "FMZK and Vienna orthophoto (Luftbild): Datenquelle: Stadt Wien – data.wien.gv.at (CC BY 4.0)."
+    - "Cadastre (DKM parcels): Datenquelle: BEV – Bundesamt für Eich- und Vermessungswesen (CC BY 4.0)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 DE:
   name: {cs: Německo – Berlín, en: Germany – Berlin, de: Deutschland – Berlin}
@@ -348,6 +349,7 @@ GB-ENG:
   citation: "Base map: Omapic · Environment Agency · OSM, [year]"
   attribution:
     - "Elevation: LIDAR Composite DTM and First Return DSM, © Environment Agency copyright and/or database right 2022. All rights reserved. Contains public sector information licensed under the Open Government Licence v3.0."
+    - "INSPIRE Index Polygons (online template only): HM Land Registry (OGL); © Crown copyright and database rights Ordnance Survey AC0000851063."
     - "OSM © OpenStreetMap contributors (ODbL)."
 FR:
   name: {cs: Francie, en: France, fr: France}
@@ -433,7 +435,7 @@ FI:
   # Licence: CC BY 4.0 (MML, Suomen metsäkeskus, Helsingin kaupunki – uvést zdroj).
   citation: "Base map: Omapic · MML · Metsäkeskus · Helsingin kaupunki · OSM, [year]"
   attribution:
-    - "Elevation model 2 m, orthophoto and peruskartta: © Maanmittauslaitos (CC BY 4.0), via the Funet (CSC) and kartat.kapsi.fi mirrors."
+    - "Elevation model 2 m, orthophoto, peruskartta and kiinteistörajat: © Maanmittauslaitos (CC BY 4.0), via the Funet (CSC) and kartat.kapsi.fi mirrors."
     - "Marshes, cliffs, bare rock, boulders and fields: Maastotietokanta © Maanmittauslaitos (CC BY 4.0), via kartat.kapsi.fi, processed."
     - "Canopy height (latvusmalli): © Suomen metsäkeskus (CC BY 4.0)."
     - "YLRE, buildings, orthophoto and kantakartta (Helsinki only): © Helsingin kaupunki (CC BY 4.0)."
@@ -484,4 +486,5 @@ DK:
   citation: "Base map: Omapic · ©Kartverket · OSM, [year]"
   attribution:
     - "Elevation: Nasjonal detaljert høydemodell (DTM, DOM), ©Kartverket (CC BY 4.0, https://www.kartverket.no), processed."
+    - "Topographic map and matrikkelkart (online template only): ©Kartverket."
     - "OSM © OpenStreetMap contributors (ODbL)."

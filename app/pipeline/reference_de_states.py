@@ -76,6 +76,8 @@ DE_WCS_STATES: dict[str, DeWcsState] = {
              "image/jpeg", False, 0.2),
             ("de_st_dtk", "dtk25_sachsen_anhalt.xml", "DTK25 Sachsen-Anhalt (topografická mapa 1 : 25 000)", ST_DTK_WMS,
              ST_DTK_LAYER, "image/png", False, 1.0),
+            ("de_st_alkis", "alkis_sachsen_anhalt.xml", "ALKIS Sachsen-Anhalt – parcely",
+             f"{ST_WSS}/ST_LVermGeo_ALKIS_WMS_AdV_konform_App/guest", "adv_alkis_flurstuecke", "image/png", True, 0.25),
         ),
     ),
     # Meklenbursko-Přední Pomořansko (LAiV M-V): CC BY 4.0 (metadata GeoMIS), citace „© GeoBasis-DE/M-V <rok>“
@@ -92,6 +94,8 @@ DE_WCS_STATES: dict[str, DeWcsState] = {
              "image/jpeg", False, 0.2),
             ("de_mv_dtk", "dtk10_mv.xml", "DTK10 Mecklenburg-Vorpommern (topografická mapa 1 : 10 000)",
              f"{MV_DIENSTE}/gdimv_dtk", "mv_dtk10", "image/png", False, 0.5),
+            ("de_mv_alkis", "alkis_mv.xml", "ALKIS Mecklenburg-Vorpommern – parcely", f"{MV_DIENSTE}/alkis_wms",
+             "adv_alkis_flurstuecke", "image/png", True, 0.25),
         ),
     ),
     # Dolní Sasko (LGLN): CC BY 4.0, citace „LGLN (<rok>)“ (AccessConstraints služeb). WCS dgm_wcs / dom_wcs
@@ -122,6 +126,8 @@ DE_WCS_STATES: dict[str, DeWcsState] = {
         wms=(
             ("de_bb_dop", "dop_brandenburg.xml", "DOP20 Brandenburg (ortofoto)", f"{BB_OWS}/mapproxy/dop20c/service/wms",
              "bebb_dop20c", "image/jpeg", False, 0.2),
+            ("de_bb_alkis", "alkis_brandenburg.xml", "ALKIS Brandenburg – parcely", f"{BB_OWS}/ows/alkis_wms",
+             "adv_alkis_flurstuecke", "image/png", True, 0.25),
         ),
     ),
     # Porýní-Falc (LVermGeo RP): dl-de/by-2.0, citace „©GeoBasis-DE / LVermGeoRP (rok), dl-de/by-2-0“ (Fees WMS).
@@ -155,6 +161,8 @@ DE_WCS_STATES: dict[str, DeWcsState] = {
         wms=(
             ("de_bw_dop", "dop_bw.xml", "DOP20 Baden-Württemberg (ortofoto)", f"{BW_OWS}/WMS_LGL-BW_ATKIS_DOP_20_C",
              "IMAGES_DOP_20_RGB", "image/jpeg", False, 0.2),
+            ("de_bw_alkis", "alkis_bw.xml", "ALKIS Baden-Württemberg – parcely", f"{BW_OWS}/WMS_LGL-BW_ALKIS_Basis_transparent",
+             "nora:ALKIS_Basis_transparent", "image/png", True, 0.25),
         ),
         tiles="bw_zip",
     ),
@@ -171,6 +179,8 @@ DE_WCS_STATES: dict[str, DeWcsState] = {
         wms=(
             ("de_sn_dop", "dop_sachsen.xml", "DOP20 Sachsen (ortofoto)", f"{SN_WMS}/wms_geosn_dop-rgb/guest",
              "sn_dop_020", "image/jpeg", False, 0.2),
+            ("de_sn_alkis", "alkis_sachsen.xml", "ALKIS Sachsen – parcely", f"{SN_WMS}/wms_geosn_alkis-adv/guest",
+             "adv_alkis_flurstuecke", "image/png", True, 0.25),
         ),
         tiles="sn_zip",
     ),
@@ -189,6 +199,9 @@ DE_WCS_STATES: dict[str, DeWcsState] = {
              "image/jpeg", False, 0.2),
             ("de_he_dtk", "dtk25_hessen.xml", "DTK25 Hessen (topografická mapa 1 : 25 000)",
              f"{HE_WMS}/ogc-free-maps.ows", "he_dtk25", "image/png", False, 1.0),
+            # he_alk_t má bílé čáry pro podklad z ortofota – na bílé mapě neviditelné, proto barevná Liegenschaftskarte
+            ("de_he_alkis", "alk_hessen.xml", "Liegenschaftskarte Hessen (ALKIS)", f"{HE_WMS}/ogc-free-maps.ows", "he_alk",
+             "image/png", True, 0.25),
         ),
         axes=("E", "N"),
     ),
