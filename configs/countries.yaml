@@ -2,7 +2,7 @@
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`, a jen na doméně se zemí v SITES – nikdy na české `:CZ`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
 # Zahraniční mapy dělá mezinárodní verze Omapic: citace a attribution anglicky; citace „Base map: Omapic · …, [year]“ (jako anglická licence).
-# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | no_hoyde | si_arso | gb_sct | gb_wls | fr_lidarhd | lu_act | us_3dep | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
+# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | no_hoyde | si_arso | gb_sct | gb_wls | es_nav | fr_lidarhd | lu_act | us_3dep | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
@@ -383,6 +383,22 @@ GB-WLS:
   attribution:
     - "Elevation: Welsh Government LiDAR 2020–2023 (DataMapWales), contains public sector information licensed under the Open Government Licence v3.0, processed."
     - "INSPIRE Index Polygons (online template only): HM Land Registry (OGL); © Crown copyright and database rights Ordnance Survey AC0000851063."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+ES-NC:
+  name: {cs: Španělsko – Navarra, en: Spain – Navarre, es: España – Navarra}
+  status: beta              # Navarra (2026-11-20); mračno LiDAR 2024 bez účtu, kresba z OSM
+  crs: EPSG:25830           # ETRS89 / UTM 30N
+  boundary: countries/es_nc.geojson  # relace OSM Navarra (ODbL), +300 m, simplify 150 m
+  view: [41.91, -2.50, 43.31, -0.72]
+  elevation: es_nav         # klasifikované mračno Gobierno de Navarra 2024 (LAZ 1 km, ~5 b/m²) → terén a povrch 1 m; elipsoidické výšky → geoid EGM08-REDNAP
+  elevation_years: "2024"
+  technical_map: none
+  cz_sources: false
+  # Licence: CC BY 4.0 (Gobierno de Navarra, Términos de uso); ortofoto PNOA CC BY 4.0 (IGN, scne.es); geoid IGN (PROJ-data).
+  citation: "Base map: Omapic · Gobierno de Navarra · IGN · OSM, [year]"
+  attribution:
+    - "Elevation: LiDAR 2024 point cloud © Gobierno de Navarra, CC BY 4.0 (filescartografia.navarra.es), processed; heights converted with geoid EGM08-REDNAP © Instituto Geográfico Nacional (CC BY 4.0)."
+    - "Orthophoto (template): PNOA máxima actualidad, CC BY 4.0 scne.es (Instituto Geográfico Nacional)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 FR:
   name: {cs: Francie, en: France, fr: France}

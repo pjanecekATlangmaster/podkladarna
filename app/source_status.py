@@ -58,6 +58,7 @@ from app.pipeline.reference_by import BY_ELEVATION_PROBE, BY_ORTHO_PROBE
 from app.pipeline.reference_gb import GB_EA_PROBE, SCT_ELEVATION_PROBE, WLS_ELEVATION_PROBE
 from app.pipeline.reference_pl import PL_ELEVATION_PROBE, PL_ORTHO_PROBE
 from app.pipeline.reference_lu import LU_ELEVATION_PROBE, LU_ORTHO_PROBE
+from app.pipeline.reference_es import ES_ORTHO_PROBE, NAV_ELEVATION_PROBE
 from app.pipeline.mtk_fi import FI_MTK_PROBE
 from app.pipeline.reference_fi import FI_CHM_PROBE, FI_DTM_PROBE, FI_HEL_WFS_PROBE, FI_ORTHO_PROBE
 from app.pipeline.reference_ch import CH_AV_PROBE, CH_STAC_ALTI, CH_WMS_PROBE
@@ -427,6 +428,23 @@ PROBES: tuple[Probe, ...] = (
         method="HEAD",
         fatal=True,
         countries=("GB-WLS",),
+    ),
+    # Navarra: HEAD listu mračna LiDAR 2024 (Pamplona) a malý výřez ortofota PNOA (IGN).
+    Probe(
+        "nav_elevation",
+        "Mračno LiDAR 2024 (Gobierno de Navarra) – terén a povrch",
+        (NAV_ELEVATION_PROBE,),
+        "Bez výšek se mapa nevytvoří (pomůže jen list, který už je v mezipaměti).",
+        method="HEAD",
+        fatal=True,
+        countries=("ES-NC",),
+    ),
+    Probe(
+        "es_ortho",
+        "Ortofoto PNOA (IGN)",
+        (ES_ORTHO_PROBE,),
+        "Šablona ortofota bude chybět.",
+        countries=("ES-NC",),
     ),
     Probe(
         "be_grb",

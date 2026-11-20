@@ -86,6 +86,7 @@ from app.pipeline.reference_sk import (
 )
 from app.pipeline.reference_de_states import DE_WCS_STATES
 from app.pipeline.reference_lu import LU_CADASTRE_LAYER, LU_ORTHO_LAYER, LU_TOPO_LAYER, LU_WMS
+from app.pipeline.reference_es import ES_PNOA_LAYER, ES_PNOA_WMS
 from app.pipeline.reference_it import TN_CTP_LAYER, TN_HILLSHADE_LAYER, TN_ORTHO_LAYER, TN_WMS
 from app.pipeline.reference_ch import (
     CH_CADASTRAL_LAYER,
@@ -260,6 +261,10 @@ FI_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ..
     ("fi_hel_basemap", "kantakartta_helsinki.xml", "Kantakartta Helsinki", FI_HEL_WMS, FI_HEL_BASEMAP_LAYER,
      "image/jpeg", False, 0.5),  # barevná mapa s vyhlazením: PNG mělo 19 MB na 2 km² (0,25 m) a 22 MB na 8 km² (0,5 m)
 )
+# Španělské regiony (IGN, CC BY 4.0 scne.es): ortofoto PNOA máxima actualidad (EPSG:25830).
+ES_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
+    ("es_ortho", "ortho_pnoa.xml", "Ortofoto PNOA (IGN)", ES_PNOA_WMS, ES_PNOA_LAYER, "image/jpeg", False, 0.25),
+)
 # Lucembursko (ACT, CC0): ortofoto, topografická mapa 1 : 5 000 a parcely PCN z WMS geoportail.lu (EPSG:2169).
 LU_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
     ("lu_ortho", "ortho_act.xml", "Orthophoto ACT (geoportail.lu)", LU_WMS, LU_ORTHO_LAYER, "image/jpeg", False, 0.25),
@@ -349,6 +354,7 @@ def wms_layers_for(country: str) -> tuple[tuple[str, str, str, str, str, str, bo
         "SK": SK_ONLINE_WMS_LAYERS,
         "GB-ENG": GB_ONLINE_WMS_LAYERS,
         "GB-WLS": GB_ONLINE_WMS_LAYERS,  # INSPIRE Index Polygons HMLR kryjí Anglii i Wales
+        "ES-NC": ES_ONLINE_WMS_LAYERS,
         "NO": NO_ONLINE_WMS_LAYERS,
         "US": US_ONLINE_WMS_LAYERS,
         **{st.code: st.wms for st in DE_WCS_STATES.values()},
@@ -684,6 +690,7 @@ def online_labels() -> dict[str, str]:
             *DE_ONLINE_WMS_LAYERS, *FR_ONLINE_WMS_LAYERS, *EE_ONLINE_WMS_LAYERS, *IT_ONLINE_WMS_LAYERS,
             *BE_ONLINE_WMS_LAYERS, *FI_ONLINE_WMS_LAYERS, *LU_ONLINE_WMS_LAYERS, *DE_NW_ONLINE_WMS_LAYERS,
             *PL_ONLINE_WMS_LAYERS, *DE_BY_ONLINE_WMS_LAYERS, *SK_ONLINE_WMS_LAYERS, *GB_ONLINE_WMS_LAYERS, *NO_ONLINE_WMS_LAYERS,
+            *ES_ONLINE_WMS_LAYERS,
             *(w for st in DE_WCS_STATES.values() for w in st.wms),
         )
     ] + [(NL_ONLINE_BGT[0], NL_ONLINE_BGT[2]), (ONLINE_OSM[0], ONLINE_OSM[2])]

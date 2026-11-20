@@ -294,8 +294,8 @@ def parse_footprints(data: dict) -> list[dict]:
             geom = shape(f.get("geometry"))
         except Exception:  # noqa: BLE001 – vadný obrys jednoho mračna přeskočit
             continue
-        if not name or geom.is_empty:
-            continue
+        if not re.fullmatch(r"[A-Za-z0-9_\-]+", name) or geom.is_empty:
+            continue  # jméno jde do URL bucketu: jen bezpečné znaky (obrysy jsou z cizího repozitáře)
         area = abs(geod.geometry_area_perimeter(geom)[0])
         simple = geom.simplify(FOOTPRINT_SIMPLIFY_DEG, preserve_topology=True)
         out.append({"name": name, "count": count, "density": round(count / area, 3) if area > 0 else 0.0,

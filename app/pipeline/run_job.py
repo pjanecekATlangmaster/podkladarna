@@ -223,6 +223,7 @@ ELEVATION_LABELS = {"user_upload": "vlastních dat zadavatele", "nl_ahn": "AHN (
     "gb_ea": "LIDAR Composite DTM a DSM Environment Agency (1 m)",
     "gb_sct": "LiDAR DTM a DSM skotské vlády (Scottish Remote Sensing Portal, 0,5–1 m)",
     "gb_wls": "LiDAR DTM a DSM velšské vlády (DataMapWales, 1 m)",
+    "es_nav": "mračna LiDAR 2024 vlády Navarry (5 bodů/m², terén a povrch 1 m)",
     "de_by": "DGM1 a DOM20 LDBV Bayern (1 m, povrch z letních snímků)",
     "de_st": "DGM1 a DOM1 LVermGeo Sachsen-Anhalt (1 m, ALS)",
     "de_mv": "DGM1 a DOM1 LAiV Mecklenburg-Vorpommern (1 m)",

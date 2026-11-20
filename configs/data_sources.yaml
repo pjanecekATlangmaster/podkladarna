@@ -2296,6 +2296,7 @@ sources:
 - id: es_pnoa_ortho
   countries:
   - ES
+  - ES-NC
   kinds:
   - orthophoto
   name: Ortofoto PNOA máxima actualidad (WMS a WMTS)
@@ -2303,22 +2304,57 @@ sources:
   url: https://www.ign.es/wms-inspire/pnoa-ma
   info: https://www.idee.es/csw-codsi-idee/srv/api/records/spaignPNOA2025
   role: šablona
-  status: candidate
+  reference_keys: ["online_es_ortho*"]
+  image_in_zip: allowed
+  image_in_zip_note: "CC BY 4.0 scne.es – přibalení obrázku s citací nic nebrání."
+  status: used
+  code: app/pipeline/reference_es.py, app/pipeline/online_templates.py, app/pipeline/open_paved.py
+  probe: es_ortho
   license:
     class: public
     name: CC BY 4.0
     url: https://www.idee.es/csw-codsi-idee/srv/api/records/spaignPNOA2025
     attribution: PNOA CC BY 4.0 scne.es
   access: free
-  checked: 'Grok: 2026-11-16 záznam IDEE PNOA 2025 (CC BY 4.0, WMS a WMTS) – Claude neověřil · opencode (es_pnoa_wms): 2026-11-16
-    GetCapabilities WMS 200, https://datos.gob.es/es/catalogo/e00125901-spaignpnoama (podmínky IGN), INSPIRE záznam („CC BY
-    4.0 scne.es“, „Sin limitaciones“) – Claude neověřil'
+  checked: 'Claude 2026-11-20: GetCapabilities z cloudu (Fees „No se aplican condiciones“, AccessConstraints „CC BY 4.0 scne.es“,
+    vrstva OI.OrthoimageCoverage, EPSG:25829–25831), GetMap 16 × 16 px v EPSG:25830 (Pamplona) image/jpeg. · dřív Grok a opencode
+    2026-11-16.'
   issues:
   - Vrstva míchá ortofoto PNOA a Sentinel-2. Soubory COG jsou v Centru de Descargas, ne z WMS.
-  - 'opencode navrhuje citaci: „CC BY 4.0 scne.es (příp. „Obra derivada de …“)“ – Claude neověřil.'
   - 'opencode: WMS = zobrazení; plná data (ECW) jen přes košík Centro de Descargas; pod 1:70 000 přepíná na Sentinel-2 10
     m.'
   - 'opencode: Historické PNOA: https://ign.es/wms/pnoa-historico?service=WMS&request=GetCapabilities&version=1.3.0'
+
+- id: es_navarra_lidar
+  countries:
+  - ES-NC
+  kinds:
+  - elevation
+  - point_cloud
+  name: Mračno LiDAR 2024 Navarry (LAZ 1 km, ~5 bodů/m²) a MDT/MDS 0,5 m
+  provider: Gobierno de Navarra (Sección de Cartografía)
+  url: https://filescartografia.navarra.es/5_LIDAR/5_6_2024_NAV_cam_EPSG25830/
+  info: https://filescartografia.navarra.es/5_LIDAR/_leeme.txt
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (es_nav), app/pipeline/reference_es.py
+  provider_key: es_nav
+  probe: nav_elevation
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://filescartografia.navarra.es/T%C3%A9rminos%20de%20uso%20de%20la%20informaci%C3%B3n.pdf
+    attribution: © Gobierno de Navarra
+  access: free
+  checked: 'Claude 2026-11-20: Términos de uso (PDF v kořeni serveru: „Todos los conjuntos de datos … CC-by 4.0“, komerční
+    užití povoleno), výpis adresáře 2024 (~12 400 listů), list 610-4741 stažen (78 MB za 31 s, LAS 1.4 PF 8, 10,2 mil. bodů,
+    přesah 25 m, třídy 2/3–5/6/7/9/11/17 a vlastní 64+), výšky elipsoidické podle _leeme.txt a srovnání s MDT 2 m 2024 (rozdíl
+    49,4–49,9 m, geoid EGM08-REDNAP v Pamploně 50,0 m).'
+  issues:
+  - Jméno listu je levý HORNÍ roh v km (las_cam_<E>-<N>_2024…); list má 25 m přesah, počítá se jen vlastní kilometr.
+  - Výšky elipsoidické → odečte se geoid EGM08-REDNAP (IGN, PROJ-data cdn.proj.org/es_ign_egm08-rednap.tif, CC BY 4.0).
+  - Job 4 km² stáhne 6–9 listů (~0,5–0,7 GB, první běh v oblasti pomalejší); převedené rastry zůstávají v cache.
+  - Starší lety 2011–12 (1 b/m²) a 2017 (SPL, 10 b/m²) se neberou.
 
 - id: be_wallonie_lidar
   countries:

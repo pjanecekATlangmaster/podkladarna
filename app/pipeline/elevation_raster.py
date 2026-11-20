@@ -2339,12 +2339,26 @@ def si_tile_block(east_km: int, north_km: int, *, status=_http_status) -> str | 
     return found
 
 
-def si_laz_grids(laz: Path, east_km: int, north_km: int) -> tuple[np.ndarray, np.ndarray]:
-    """Terén (průměr bodů země) a povrch (maximum tříd 2–6) v buňkách 1 m listu; prázdné buňky NODATA."""
+def si_laz_grids(
+    laz: Path,
+    east_km: int,
+    north_km: int,
+    *,
+    side_m: int = SI_TILE_KM * 1000,
+    left: float | None = None,
+    bottom: float | None = None,
+    ground: tuple[int, ...] = (SI_GROUND_CLASS,),
+    surface: tuple[int, ...] = SI_SURFACE_CLASSES,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Terén (průměr bodů země) a povrch (maximum tříd 2–6) v buňkách 1 m listu; prázdné buňky NODATA.
+
+    Výchozí hodnoty = Slovinsko (list 1 km s levým dolním rohem ``east_km``/``north_km``); jiné zdroje předají
+    roh listu (``left``, ``bottom``), stranu a třídy. Body mimo list (přesah sousedních listů) se nepočítají."""
     import laspy
 
-    side = SI_TILE_KM * 1000
-    left, bottom = east_km * 1000.0, north_km * 1000.0
+    side = side_m
+    left = east_km * 1000.0 if left is None else left
+    bottom = north_km * 1000.0 if bottom is None else bottom
     total = np.zeros(side * side, dtype="float64")
     count = np.zeros(side * side, dtype="int64")
     top = np.full(side * side, -np.inf, dtype="float64")
@@ -2356,10 +2370,10 @@ def si_laz_grids(laz: Path, east_km: int, north_km: int) -> tuple[np.ndarray, np
             row = np.floor(bottom + side - y).astype(np.int64)
             inside = (col >= 0) & (col < side) & (row >= 0) & (row < side)
             idx = row * side + col
-            g = inside & (cls == SI_GROUND_CLASS)
+            g = inside & np.isin(cls, ground)
             total += np.bincount(idx[g], weights=z[g], minlength=side * side)
             count += np.bincount(idx[g], minlength=side * side)
-            sfc = inside & np.isin(cls, SI_SURFACE_CLASSES)
+            sfc = inside & np.isin(cls, surface)
             np.maximum.at(top, idx[sfc], z[sfc])
     dtm = np.where(count > 0, total / np.maximum(count, 1), NODATA).astype("float32").reshape(side, side)
     dsm = np.where(np.isfinite(top), top, NODATA).astype("float32").reshape(side, side)
@@ -2431,6 +2445,174 @@ def si_arso_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 
 
 PROVIDERS["si_arso"] = si_arso_provider
+
+
+# --------------------------------------------------------------------------- ES: mračno LiDAR regionů (Navarra)
+
+# Stejně jako Slovinsko: list LAZ se jednou převede na terén (průměr bodů země v buňce 1 m) a povrch (nejvyšší bod
+# tříd terénu, vegetace, budov, vody a mostů) a drží v cache jako GeoTIFF; LAZ se po převodu maže. Seznam listů
+# regionu z výpisu adresáře (cache 30 dní). Elipsoidické výšky (Navarra) srovná geoid EGM08-REDNAP z PROJ-data.
+ES_BUFFER_M = 20.0
+ES_MAX_LAZ_BYTES = 400_000_000  # list Navarry má 60–90 MB; víc je chyba služby
+ES_INDEX_MAX_AGE_DAYS = 30
+_ES_INDEX_LOCK = threading.Lock()
+
+
+def es_cache_dir(key: str) -> Path:
+    """Cache listů regionu (``<E>_<N>/dtm.tif``, ``dsm.tif``) a seznam listů; úklid ``download_cache.prune_lidar_cache``."""
+    return settings.CACHE_DIR / key
+
+
+def es_index(key: str, *, fetch=None, max_age_days: float = ES_INDEX_MAX_AGE_DAYS) -> set[tuple[int, int]]:
+    """Listy regionu jako (E, N) v km podle jména (N podle ``top_corner``) z cache, jinak z výpisu adresáře."""
+    import time
+    import urllib.request
+
+    from app.pipeline.fetch_openzu import USER_AGENT
+    from app.pipeline.reference_es import ES_LAZ_REGIONS
+
+    region = ES_LAZ_REGIONS[key]
+    path = es_cache_dir(key) / "index.json"
+    with _ES_INDEX_LOCK:
+        try:
+            if time.time() - path.stat().st_mtime < max_age_days * 86400:
+                return {tuple(t) for t in json.loads(path.read_text(encoding="utf-8"))}
+        except (OSError, ValueError):
+            pass
+
+    def default_fetch(url: str) -> str:
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            return resp.read(50_000_000).decode("utf-8", "replace")
+
+    try:
+        body = (fetch or default_fetch)(region.listing)
+        tiles = {(int(e), int(n)) for e, n in re.findall(region.name_re, body)}
+        if not tiles:
+            raise RuntimeError(f"{region.label}: výpis listů je prázdný")
+    except Exception as exc:  # výpadek výpisu: prošlý seznam z cache je lepší než nic
+        try:
+            return {tuple(t) for t in json.loads(path.read_text(encoding="utf-8"))}
+        except (OSError, ValueError):
+            raise ElevationUnavailable(f"{region.label}: seznam listů nejde načíst ({exc})") from exc
+    with _ES_INDEX_LOCK:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}")
+        tmp.write_text(json.dumps(sorted(tiles)), encoding="utf-8")
+        tmp.replace(path)
+    return tiles
+
+
+def es_tiles(key: str, window: tuple[float, float, float, float], index: set[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Listy regionu (jména E, N v km), které zasahují do okna a existují."""
+    from app.pipeline.reference_es import ES_LAZ_REGIONS
+
+    region = ES_LAZ_REGIONS[key]
+    side = region.tile_m
+    xmin, ymin, xmax, ymax = window
+    out = []
+    for e in range(math.floor(xmin / side), math.ceil(xmax / side)):
+        for b in range(math.floor(ymin / side), math.ceil(ymax / side)):
+            name = (e * side // 1000, (b + 1) * side // 1000 if region.top_corner else b * side // 1000)
+            if name in index:
+                out.append(name)
+    return out
+
+
+def _es_tile(key: str, e_km: int, n_km: int, *, log=None) -> Path:
+    """Složka listu s ``dtm.tif`` a ``dsm.tif`` z cache, jinak stáhne LAZ a převede."""
+    import tempfile
+    import urllib.request
+
+    from app.download_cache import touch_last_used
+    from app.pipeline.fetch_openzu import USER_AGENT
+    from app.pipeline.reference_es import ES_CRS, ES_LAZ_REGIONS
+
+    region = ES_LAZ_REGIONS[key]
+    folder = es_cache_dir(key) / f"{e_km}_{n_km}"
+    if (folder / ".complete").is_file():
+        touch_last_used(folder)
+        return folder
+    folder.mkdir(parents=True, exist_ok=True)
+    fd, lname = tempfile.mkstemp(prefix=".es-", suffix=".laz", dir=folder)
+    os.close(fd)
+    lpath = Path(lname)
+    side = region.tile_m
+    left = e_km * 1000.0
+    top = n_km * 1000.0 if region.top_corner else n_km * 1000.0 + side
+    try:
+        req = urllib.request.Request(region.url.format(e=e_km, n=n_km), headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=900) as resp, lpath.open("wb") as fh:
+            size = 0
+            while chunk := resp.read(1 << 20):
+                size += len(chunk)
+                if size > ES_MAX_LAZ_BYTES:
+                    raise RuntimeError(f"{region.label} {e_km}-{n_km}: LAZ větší než {ES_MAX_LAZ_BYTES // 1_000_000} MB")
+                fh.write(chunk)
+        dtm, dsm = si_laz_grids(lpath, e_km, n_km, side_m=side, left=left, bottom=top - side,
+                                ground=region.ground, surface=region.surface)
+        for name, grid in (("dtm", dtm), ("dsm", dsm)):
+            tmp = folder / f".{name}.{os.getpid()}.{threading.get_ident()}.tif"
+            _write_tif(tmp, grid, left, top, ES_CRS)
+            tmp.replace(folder / f"{name}.tif")
+        (folder / ".complete").touch()
+    finally:
+        lpath.unlink(missing_ok=True)
+    touch_last_used(folder)
+    if log:
+        log(f"  {region.label} {e_km}-{n_km}: {size / 1e6:.0f} MB převedeno do cache")
+    return folder
+
+
+def _es_geoid_grid(log=None) -> Path | None:
+    from app.pipeline.reference_es import ES_GEOID_URL
+
+    dest = settings.CACHE_DIR / "geoid" / "es_ign_egm08-rednap.tif"
+    if dest.is_file() and dest.stat().st_size > 100_000:
+        return dest
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        return _download(ES_GEOID_URL, dest, log=log)
+    except Exception as exc:  # bez mřížky zůstanou výšky elipsoidické (vrstevnice popsané o ~50 m výš)
+        if log:
+            log(f"⚠ Geoid EGM08-REDNAP se nestáhl ({exc}): výšky zůstanou elipsoidické (o ~50 m vyšší).")
+        return None
+
+
+def es_laz_provider(key: str) -> Callable[..., SourceRasters]:
+    def provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+        """Španělský region: terén a povrch 1 m z klasifikovaného mračna (listy, cache)."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        from app.pipeline.reference_es import ES_CRS, ES_LAZ_REGIONS
+
+        region = ES_LAZ_REGIONS[key]
+        window = _buffered(bounds, ES_CRS, ES_BUFFER_M)
+        tiles = es_tiles(key, window, es_index(key))
+        if not tiles:
+            raise ElevationUnavailable(f"výřez je mimo pokrytí mračna {region.label}")
+        with ThreadPoolExecutor(max_workers=3, thread_name_prefix=f"{key}-laz") as ex:
+            folders = list(ex.map(lambda t: _es_tile(key, t[0], t[1], log=log), tiles))
+        out: dict[str, Path] = {}
+        for kind in ("dtm", "dsm"):
+            vrt = out_dir / f"{key}_{kind}.vrt"
+            run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", ES_CRS, str(vrt), *(str(f / f"{kind}.tif") for f in folders)],
+                    log=log)
+            out[kind] = vrt
+        offset = None
+        grid = _es_geoid_grid(log=log) if region.ellipsoidal else None
+        if grid is not None:
+
+            def offset(lon: float, lat: float) -> float:
+                return geoid_offsets(grid, [(lon, lat)])[0]
+
+        return SourceRasters(out["dtm"], out["dsm"], offset)
+
+    provider.__name__ = f"{key}_provider"
+    return provider
+
+
+PROVIDERS["es_nav"] = es_laz_provider("es_nav")
 
 
 # --------------------------------------------------------------------------- US: USGS 3DEP (mračno EPT na AWS)
@@ -3283,6 +3465,7 @@ SOURCE_LABELS = {
     "us_3dep": "mračno LiDAR 3DEP, USGS",
     "gb_sct": "LiDAR DTM a DSM, Scottish Government",
     "gb_wls": "LiDAR DTM a DSM, Welsh Government",
+    "es_nav": "mračno LiDAR 2024, Gobierno de Navarra",
     USER_UPLOAD: "vlastní data zadavatele",
 }
 

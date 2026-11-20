@@ -494,7 +494,7 @@ def lidar_cache_units() -> list[tuple[str, list[Path]]]:
     units = [(f"sheet:{name}", dirs) for name, dirs in sorted(sheets.items())]
     # dlaždice výšek Berlína, BW, Saska a Trentina (``elevation_raster.berlin_tile_dir``, ``bw_tile_dir``,
     # ``sn_tile_dir``, ``tn_tile_dir``; Sársko, Hamburk a Brémy ``_zip_range_tile``)
-    for name in ("de_berlin", "de_bw", "de_sn", "de_sl", "de_hh", "de_hb", "it_trentino", "gb_ea", "si_arso"):
+    for name in ("de_berlin", "de_bw", "de_sn", "de_sl", "de_hh", "de_hb", "it_trentino", "gb_ea", "si_arso", "es_nav"):
         tiles = root / name
         if tiles.is_dir():
             units.extend((f"{name}:{child.name}", [child]) for child in sorted(tiles.iterdir()) if child.is_dir())
