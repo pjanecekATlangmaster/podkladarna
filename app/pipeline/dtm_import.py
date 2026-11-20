@@ -189,7 +189,11 @@ def mtbo_dtm_off(preset_id: str) -> bool:
 # MTBO: chodníky a zpevněné cesty z DTM mimo silnice jako plocha 501.0 (False = jen čáry z OSM jako dřív);
 # jen části široké aspoň tolik mm mapy a s plochou aspoň ``MTBO_SIDEWALK_MIN_LEN_M`` × šířka. 0,5 mm jako v lese
 # (``dtm_widths.WALK_AREA_MIN_MM``): užší pruh by v 1:10000 byl jen dvojitá tenká čára kolem čáry cesty (Praha 5).
-MTBO_SIDEWALK_AREAS = True
+# Od 3.97.0 vypnuto (Petr 2026-11-20, Harrachov): v měřítku MTBO z chodníků z DTM zbývaly cáry podél silnic a černé
+# cesty na nich končily; zpevněné plochy v MTBO kreslí jen OSM (viz i ``MTBO_DTM_PARKING``).
+MTBO_SIDEWALK_AREAS = False
+# MTBO: velká parkoviště z DTM (False = parkoviště jen z OSM; Petr 2026-11-20, Harrachov). Les beze změny.
+MTBO_DTM_PARKING = False
 MTBO_SIDEWALK_MIN_WIDTH_MM = 0.5
 MTBO_SIDEWALK_MIN_LEN_M = 15.0
 
@@ -1853,6 +1857,8 @@ def dtm_parking_geometry(work_dir: Path, scale: int, path_source: str = "mixed",
     from shapely.ops import unary_union
 
     if not parking_path(work_dir).is_file():
+        return None
+    if (preset_id or "").startswith("mtbo") and not MTBO_DTM_PARKING:
         return None
 
     def compute():

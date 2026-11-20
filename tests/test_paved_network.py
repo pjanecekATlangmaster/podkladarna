@@ -169,9 +169,13 @@ def test_feature_parts_draw_merged_network(tmp_path, preset):
     ],
 )
 @pytest.mark.parametrize("preset", ["forest_10000", "mtbo_10000"])
-def test_street_with_parking_profile(tmp_path, preset, strips, dtm, areas):
+def test_street_with_parking_profile(tmp_path, monkeypatch, preset, strips, dtm, areas):
     # Ulice se stáním jako celek (Petr 2026-11-06, varianta A): rozhoduje profil přesahu stání za kresbu podél osy.
     from shapely.geometry import shape
+
+    from app.pipeline import street_profile
+
+    monkeypatch.setattr(street_profile, "MTBO_STREET_PROFILE", True)  # od 3.97.0 v MTBO vypnuto, mechanismus zůstává
 
     feats = [_area(x0, y0, x1, y1, "parking") for x0, x1, y0, y1 in strips]
     _write_job(tmp_path, feats, [_road([(-60, 0), (200, 0)], "road_3")])
@@ -836,8 +840,11 @@ def test_network_polygons_valid_after_map_rounding():
 def test_mtbo_paved_network_contains_dtm_areas(tmp_path, monkeypatch):
     from app.pipeline import junction_areas
 
+    from app.pipeline import dtm_import as _di
+
     monkeypatch.setattr(junction_areas, "ROAD_AREAS", True)
     monkeypatch.setattr(junction_areas, "JUNCTION_AREAS", False)  # koridor podle šířky (záložní režim)
+    monkeypatch.setattr(_di, "MTBO_SIDEWALK_AREAS", True)  # od 3.97.0 v MTBO vypnuto, mechanismus zůstává
     # MTBO s DTM: koridor silnice (silnice 12 m z DTM) a široký chodník z DTM už nejsou samostatné části, ale prvky
     # (kind "paved_dtm") sítě zpevněných ploch – síť je MÁ pokrývat (jedna plocha, jeden okraj z paved_surface);
     # dřív (UNIFIED_PAVED = False) se z nich síť ořezávala, aby se tatáž plocha nekreslila dvakrát.

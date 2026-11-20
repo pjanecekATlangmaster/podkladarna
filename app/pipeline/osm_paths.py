@@ -327,6 +327,14 @@ def bridge_highway(base_highway: str) -> str:
     return f"{OSM_BRIDGE_HIGHWAY}:{base}"
 
 
+def is_road_bridge_highway(highway: str) -> bool:
+    """Most (ne tunel), který nese silnici (``bridge:road_*`` / ``bridge:road_dual`` / legacy jméno silnice)."""
+    if not is_bridge_highway(highway) or is_tunnel_highway(highway):
+        return False
+    base = path_draw_highway(highway)
+    return base.startswith("road_") or base in OSM_ROAD_HIGHWAYS
+
+
 def tunnel_highway(base_highway: str) -> str:
     """Ulož tunel / podchod s původním highway (mimo sprint se kreslí jako dřív)."""
     base = (base_highway or "path").lower() or "path"
@@ -2737,11 +2745,10 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
         return osm_oom_code(path_draw_highway(raw), preset_id)
 
     if is_bridge_highway(raw):
-        # Sprint: stejná značka jako navazující cesta; les 512; MTBO 834.
-        if sprint:
+        # Sprint a MTBO: stejná značka jako navazující cesta (silnice na mostě je plynulá silnice, vozová cesta
+        # vozová cesta; Harrachov, Petr 2026-11-20). Les: silnice na mostě jako silnice, ostatní 512.
+        if sprint or mtbo or is_road_bridge_highway(raw):
             return osm_oom_code(path_draw_highway(raw), preset_id)
-        if mtbo:
-            return "834"
         return "512"
 
     hw = path_draw_highway(raw)
@@ -7853,7 +7860,7 @@ def _apply_road_strokes(
     service_links=frozenset(),
     parking_strips: tuple = ((), None),
 ) -> None:
-    """Les a MTBO: silnicím (``road_*`` mimo mosty a tunely) zapíše ``stroke_code`` po pravidle tahu (``road_strokes``):
+    """Les a MTBO: silnicím (``road_*`` včetně mostů, mimo tunely) zapíše ``stroke_code`` po pravidle tahu (``road_strokes``):
     jeden symbol na souvislý úsek, krátké kusy jiné šířky převezmou symbol souseda; osa 502.0 je pevná.
     ``parking_strips`` (``street_parking_strips``): šířka z DTM se měří bez pruhů stání, které se s ulicí slijí."""
     from app.pipeline.road_strokes import JUNCTION_EXCL_MM, MIN_RUN_MM, junction_zone, stroke_codes
@@ -7867,7 +7874,7 @@ def _apply_road_strokes(
             (feat.get("geometry") or {}).get("type") != "LineString"
             or len(coords) < 2
             or not path_draw_highway(hw).startswith("road_")
-            or is_bridge_highway(hw)
+            or (is_bridge_highway(hw) and not is_road_bridge_highway(hw))  # silnice na mostě je součástí tahu
             or is_tunnel_highway(hw)
         ):
             continue
