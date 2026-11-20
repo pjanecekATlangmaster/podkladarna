@@ -69,6 +69,14 @@ from app.pipeline.reference_by import (
     BY_DOP_WMS,
 )
 from app.pipeline.reference_pl import PL_ORTHO_LAYER, PL_ORTHO_WMS, PL_TOPO_LAYER, PL_TOPO_WMS
+from app.pipeline.reference_sk import (
+    SK_CADASTRE_LAYERS,
+    SK_CADASTRE_WMS,
+    SK_ORTHO_LAYERS,
+    SK_ORTHO_WMS,
+    SK_ZBGIS_LAYERS,
+    SK_ZBGIS_WMS,
+)
 from app.pipeline.reference_de_states import DE_WCS_STATES
 from app.pipeline.reference_lu import LU_CADASTRE_LAYER, LU_ORTHO_LAYER, LU_TOPO_LAYER, LU_WMS
 from app.pipeline.reference_it import TN_CTP_LAYER, TN_HILLSHADE_LAYER, TN_ORTHO_LAYER, TN_WMS
@@ -129,7 +137,7 @@ ZOOM_VARIANTS: tuple[tuple[str, float, str], ...] = (
 NO_DEFAULT_STYLE_HOSTS = ("dmvs.cuzk.gov.cz", "geoportal.cuzk.gov.cz", "data.wien.gv.at", "gdi.berlin.de",
                           "data.geopf.fr", "gsavalik.envir.ee", "siat.provincia.tn.it",
                           "geo.api.vlaanderen.be", "kartta.hel.fi", "tiles.kartat.kapsi.fi", "www.wms.nrw.de",
-                          "geoservices.bayern.de")
+                          "geoservices.bayern.de", "zbgisws.skgeodesy.sk", "kataster.skgeodesy.sk")
 
 # Vrstvy jen online (bez staženého rastru): přidají se i se zapnutým „Stáhnout referenční šablony předem“.
 ONLINE_ONLY_KEYS = frozenset({"orthophoto_archiv"})
@@ -264,6 +272,15 @@ DE_BY_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float],
     ("de_by_alkis", "alkis_bayern.xml", "ALKIS Parzellarkarte Bayern", BY_ALKIS_WMS, BY_ALKIS_LAYER, "image/png", True,
      0.25),
 )
+# Slovensko (ÚGKK SR, S-JTSK): ortofoto ZBGIS (obrázek licence do ZIPu nepouští, jen online), katastr ESKN a mapa ZBGIS.
+SK_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
+    ("sk_ortho", "ortofoto_zbgis.xml", "Ortofotomozaika SR (ZBGIS)", SK_ORTHO_WMS, SK_ORTHO_LAYERS, "image/jpeg", False,
+     0.25),
+    ("sk_zbgis", "mapa_zbgis.xml", "ZBGIS (topografická mapa ÚGKK SR)", SK_ZBGIS_WMS, SK_ZBGIS_LAYERS, "image/png", False,
+     0.5),
+    ("sk_cadastre", "katastr_eskn.xml", "Katastrální mapa ESKN (parcely)", SK_CADASTRE_WMS, SK_CADASTRE_LAYERS, "image/png",
+     True, 0.25),
+)
 # Dlaždicové služby v EPSG:3857 (GDAL TMS + okno výřezu jako VRT): klíč, soubor, popisek, URL, úroveň, m/px, snímek (JPEG).
 AT_ONLINE_TMS: tuple[tuple[str, str, str, str, int, float, bool], ...] = (
     ("at_ortho", "orthofoto_at.vrt", "basemap.at Orthofoto (Rakousko)", AT_BASEMAP_ORTHO_URL, 19, 0.25, True),
@@ -298,6 +315,7 @@ def wms_layers_for(country: str) -> tuple[tuple[str, str, str, str, str, str, bo
         "DE-NW": DE_NW_ONLINE_WMS_LAYERS,
         "PL": PL_ONLINE_WMS_LAYERS,
         "DE-BY": DE_BY_ONLINE_WMS_LAYERS,
+        "SK": SK_ONLINE_WMS_LAYERS,
         **{st.code: st.wms for st in DE_WCS_STATES.values()},
     }.get(country, ())
 
@@ -630,7 +648,8 @@ def online_labels() -> dict[str, str]:
             *ONLINE_WMS_LAYERS, *NL_ONLINE_WMS_LAYERS, *CH_ONLINE_WMS_LAYERS, *AT_ONLINE_WMS_LAYERS,
             *DE_ONLINE_WMS_LAYERS, *FR_ONLINE_WMS_LAYERS, *EE_ONLINE_WMS_LAYERS, *IT_ONLINE_WMS_LAYERS,
             *BE_ONLINE_WMS_LAYERS, *FI_ONLINE_WMS_LAYERS, *LU_ONLINE_WMS_LAYERS, *DE_NW_ONLINE_WMS_LAYERS,
-            *PL_ONLINE_WMS_LAYERS, *DE_BY_ONLINE_WMS_LAYERS, *(w for st in DE_WCS_STATES.values() for w in st.wms),
+            *PL_ONLINE_WMS_LAYERS, *DE_BY_ONLINE_WMS_LAYERS, *SK_ONLINE_WMS_LAYERS,
+            *(w for st in DE_WCS_STATES.values() for w in st.wms),
         )
     ] + [(NL_ONLINE_BGT[0], NL_ONLINE_BGT[2]), (ONLINE_OSM[0], ONLINE_OSM[2])]
     layers += [(k, label) for tms in ONLINE_TMS_LAYERS.values() for k, _f, label, *_r in tms]
@@ -688,6 +707,9 @@ ONLINE_LABELS_EN = {
     "de_he_dtk": "DTK25 Hessen (topographic map 1 : 25 000)",
     "de_sl_dop": "DOP20 Saarland (orthophoto)",
     "de_hb_dop": "DOP10 Bremen (orthophoto)",
+    "sk_ortho": "Orthophotomosaic of Slovakia (ZBGIS)",
+    "sk_zbgis": "ZBGIS (topographic map, ÚGKK SR)",
+    "sk_cadastre": "ESKN cadastral map (parcels)",
 }
 
 
