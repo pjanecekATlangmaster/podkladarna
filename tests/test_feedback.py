@@ -6,7 +6,9 @@ from app import db
 from app.feedback import (
     build_feedback_email,
     check_feedback_rate,
+    build_source_suggestion_email,
     job_page_url,
+    reply_to_address,
     reset_feedback_rate_limits,
     send_feedback,
 )
@@ -401,3 +403,110 @@ def test_source_suggestion_api_sends_mail_without_fetching(client, monkeypatch):
     r = client.post("/api/source_suggestion", json={**payload, "website": "spam"})
     assert r.status_code == 200
     assert not sent
+
+
+SITES = "podkladarna.kibos.link=cs:free:CZ,omapic.example=en:paid:*"
+
+
+@pytest.mark.parametrize(
+    "host, cookie, subject, intro, label",
+    [
+        # Česká doména: beze změny (předmět a texty jako dřív).
+        ("podkladarna.kibos.link", None, "Podkladárna: zpětná vazba (job {id})", "z webu Podkladárny.", "Komentář:"),
+        # Omapic anglicky: značka i jazyk podle stránky formuláře (Petr 2026-11-20).
+        ("omapic.example", None, "Omapic: feedback (job {id})", "from the Omapic website.", "Comment:"),
+        # Omapic česky: česky, ale se značkou Omapic.
+        ("omapic.example", "cs", "Omapic: zpětná vazba (job {id})", "z webu Omapic.", "Komentář:"),
+    ],
+)
+def test_feedback_mail_brand_and_language(client, monkeypatch, host, cookie, subject, intro, label):
+    monkeypatch.setenv("SITES", SITES)
+    monkeypatch.setattr("app.feedback.settings.FEEDBACK_TO", "provoz@example.com")
+    sent: dict = {}
+    monkeypatch.setattr("app.feedback.send_mail", lambda to, subj, body, **kw: sent.update(subject=subj, body=body, **kw))
+    job = _done_job("Nusle")
+    if cookie:
+        client.cookies.set("lang", cookie)
+    r = client.post(
+        "/api/feedback",
+        json={"contact": "mapar@example.com", "comment": "Díky", "job_id": job["id"]},
+        headers={"host": host},
+    )
+    client.cookies.clear()
+    assert r.status_code == 200, r.text
+    assert sent["subject"] == subject.format(id=job["id"])
+    assert intro in sent["body"] and label in sent["body"]
+    assert sent["reply_to"] == "mapar@example.com"
+    assert (sent["from_name"] is None) == (host == "podkladarna.kibos.link")
+    if host != "podkladarna.kibos.link":
+        assert "Podkladárn" not in sent["subject"] + sent["body"]
+
+
+def test_source_suggestion_mail_english():
+    subject, body = build_source_suggestion_email(
+        url="https://x.example/wms", area="NL", license_text="", contact="a@b.nl", comment="", lang="en"
+    )
+    assert subject == "Omapic: data source suggestion (x.example)"
+    assert "Country / area: NL" in body and "(not given)" in body and "(no note)" in body
+    cs_subject, cs_body = build_source_suggestion_email(
+        url="https://x.example/wms", area="CZ", license_text="", contact="a@b.cz", comment=""
+    )
+    assert cs_subject == "Podkladárna: návrh zdroje dat (x.example)"
+    assert "Země / oblast: CZ" in cs_body and "(neuvedeno)" in cs_body
+
+
+@pytest.mark.parametrize(
+    "contact, expected",
+    [
+        ("mapar@example.com", "mapar@example.com"),
+        ("  Jan.Novak+ob@sub.example.cz ", "Jan.Novak+ob@sub.example.cz"),
+        ("", None),
+        (None, None),
+        ("+420733575541", None),  # telefon
+        ("Jan Novák <jan@example.com>", None),  # jméno + adresa
+        ("a@example.com, b@example.com", None),  # víc adres
+        ("a@example.com\r\nBcc: x@evil.example", None),  # injekce hlavičky
+        ("a@example.com\nX: y", None),
+        ("a@localhost", None),
+        ("a..b@example.com", None),
+        ("a@" + "x" * 250 + ".com", None),  # délka
+    ],
+)
+def test_reply_to_address(contact, expected):
+    assert reply_to_address(contact) == expected
+
+
+def test_send_mail_sets_reply_to_only_when_safe(monkeypatch):
+    from app.mail import send_mail
+
+    monkeypatch.setattr("app.mail.settings.SMTP_HOST", "smtp.example.com")
+    monkeypatch.setattr("app.mail.settings.SMTP_PORT", 25)
+    monkeypatch.setattr("app.mail.settings.SMTP_ENCRYPTION", "none")
+    monkeypatch.setattr("app.mail.settings.SMTP_USER", "")
+    monkeypatch.setattr("app.mail.settings.SMTP_FROM", "server@example.com")
+    sent: list = []
+
+    class FakeSMTP:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def ehlo(self):
+            pass
+
+        def send_message(self, msg):
+            sent.append(msg)
+
+    monkeypatch.setattr("app.mail.smtplib.SMTP", FakeSMTP)
+    send_mail("provoz@example.com", "S", "B", reply_to="mapar@example.com")
+    send_mail("provoz@example.com", "S", "B", reply_to="a@example.com\r\nBcc: x@evil.example")
+    send_mail("provoz@example.com", "S", "B")
+    assert sent[0]["Reply-To"] == "mapar@example.com"
+    assert "server@example.com" in sent[0]["From"]
+    assert sent[1]["Reply-To"] is None and sent[1]["Bcc"] is None
+    assert sent[2]["Reply-To"] is None
