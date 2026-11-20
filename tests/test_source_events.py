@@ -101,3 +101,12 @@ def test_endpoint_requires_token(fresh, monkeypatch, client):
     body = r.json()
     assert body["summary"][0]["key"] == "dtm" and body["summary"][0]["state"] == "persistent"
     assert body["events"][0]["kind"] == "persistent" and "tajne" not in r.text
+
+
+def test_prune_drops_old_events(data_dir, monkeypatch):
+    monkeypatch.setattr(se.settings, "SOURCE_EVENTS_KEEP_DAYS", 30)
+    old = (datetime.now(timezone.utc) - timedelta(days=40)).replace(microsecond=0).isoformat()
+    se.record([{"key": "a", "ok": False}], {}, now=old)
+    se.record([{"key": "b", "ok": False}], {})
+    se.prune()
+    assert [e["key"] for e in se.read_events()] == ["b"]

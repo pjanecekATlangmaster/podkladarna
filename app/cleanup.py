@@ -202,5 +202,11 @@ def start_cleanup_scheduler(interval_hours: int = 24) -> None:
             except Exception:
                 logger.exception("Scheduled cleanup failed")
             prune_caches()
+            try:  # deník zdrojů se zkracuje i bez souhrnu (test B má SOURCE_DIGEST_HOURS=0)
+                from app import source_events
+
+                source_events.prune()
+            except Exception:
+                logger.exception("Zkrácení deníku zdrojů selhalo")
 
     threading.Thread(target=_loop, name="job-cleanup", daemon=True).start()
