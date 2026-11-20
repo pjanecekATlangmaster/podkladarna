@@ -1923,3 +1923,23 @@ def test_geotiff_real_gdal_tiled_deflate_overviews(tmp_path: Path):
     assert info["size"] == [2300, 1700]
     assert "Krovak" in json.dumps(info["coordinateSystem"])
     assert info["geoTransform"][0] == pytest.approx(-740000.5)
+
+@pytest.mark.parametrize(
+    "area_xml, dashed",
+    [
+        # 308 bažina: plná šrafa (pattern type 1)
+        ('<area_symbol inner_color="-1" patterns="1"><pattern type="1" line_spacing="450" color="20" line_width="150"/></area_symbol>', False),
+        # 310 neurčitá bažina: bodový pattern s krátkou čarou = čárkovaná šrafa
+        ('<area_symbol inner_color="-1" patterns="1"><pattern type="2" line_spacing="900" point_distance="1720"><symbol type="1">'
+         '<point_symbol><element><symbol type="2"><line_symbol color="20" line_width="150"/></symbol>'
+         '<object type="1"><coords count="2">-680 0;670 0;</coords></object></element></point_symbol></symbol></pattern></area_symbol>', True),
+    ],
+)
+def test_marsh_hatch_style(area_xml, dashed):
+    from app.pipeline.oom_preview import _style_from_area
+
+    style = _style_from_area(ET.fromstring(area_xml))
+    assert style is not None and style.mid_mode == "hatch" and style.color == 20
+    assert style.dashed is dashed
+    if dashed:
+        assert style.dash_length == pytest.approx(1350) and style.break_length == pytest.approx(370)
