@@ -169,9 +169,15 @@ def test_feature_parts_draw_merged_network(tmp_path, preset):
     ],
 )
 @pytest.mark.parametrize("preset", ["forest_10000", "mtbo_10000"])
-def test_street_with_parking_profile(tmp_path, preset, strips, dtm, areas):
+def test_street_with_parking_profile(tmp_path, monkeypatch, preset, strips, dtm, areas):
     # Ulice se stáním jako celek (Petr 2026-11-06, varianta A): rozhoduje profil přesahu stání za kresbu podél osy.
     from shapely.geometry import shape
+
+    from app.pipeline import street_profile
+
+    if dtm:  # DTM vstupy profilu jsou od 3.100.0 vypnuté, mechanismus zůstává; bez DTM se kresba nesmí změnit
+        monkeypatch.setattr(street_profile, "MTBO_STREET_PROFILE_DTM", True)
+        monkeypatch.setattr(street_profile, "FOREST_STREET_PROFILE_DTM", True)
 
     feats = [_area(x0, y0, x1, y1, "parking") for x0, x1, y0, y1 in strips]
     _write_job(tmp_path, feats, [_road([(-60, 0), (200, 0)], "road_3")])
@@ -453,7 +459,10 @@ def test_forest_symbols_from_dtm_width(tmp_path, monkeypatch):
     assert lengths["505.0"] == pytest.approx(200, abs=1.0)
 
 
-def test_forest_wide_dtm_walk_becomes_paved_area(tmp_path):
+def test_forest_wide_dtm_walk_becomes_paved_area(tmp_path, monkeypatch):
+    from app.pipeline import dtm_import as _di
+
+    monkeypatch.setattr(_di, "FOREST_DTM_WALK_AREAS", True)  # od 3.100.0 vypnuto, mechanismus zůstává
     # Pěší plocha z DTM 20 m široká → zpevněná plocha 501.1 + okraj, pěšina uvnitř se nekreslí.
     walk = _line([(0, 50), (200, 50)], "footway")
     _write_job(tmp_path, [], [walk])
@@ -836,8 +845,11 @@ def test_network_polygons_valid_after_map_rounding():
 def test_mtbo_paved_network_contains_dtm_areas(tmp_path, monkeypatch):
     from app.pipeline import junction_areas
 
+    from app.pipeline import dtm_import as _di
+
     monkeypatch.setattr(junction_areas, "ROAD_AREAS", True)
     monkeypatch.setattr(junction_areas, "JUNCTION_AREAS", False)  # koridor podle šířky (záložní režim)
+    monkeypatch.setattr(_di, "MTBO_SIDEWALK_AREAS", True)  # od 3.100.0 v MTBO vypnuto, mechanismus zůstává
     # MTBO s DTM: koridor silnice (silnice 12 m z DTM) a široký chodník z DTM už nejsou samostatné části, ale prvky
     # (kind "paved_dtm") sítě zpevněných ploch – síť je MÁ pokrývat (jedna plocha, jeden okraj z paved_surface);
     # dřív (UNIFIED_PAVED = False) se z nich síť ořezávala, aby se tatáž plocha nekreslila dvakrát.
@@ -1189,3 +1201,23 @@ def test_paved_area_on_bridge_gets_edge(tmp_path):
     _write_job(tmp_path, [_area(0, 0, 40, 40, "parking", structure="bridge")], [])
     assert _edge_length(_parts_with_edge(tmp_path)) == pytest.approx(160, abs=2.0)
 
+
+
+@pytest.mark.parametrize("preset", ["forest_10000", "mtbo_10000"])
+def test_street_profile_ignores_dtm_by_default(tmp_path, preset):
+    # Od 3.100.0 profil v lese a MTBO DTM nebere: s DTM vychází stejně jako bez něj (zahraničí a Česko bez DTM beze změny).
+    from shapely.geometry import shape
+
+    strips = [_area(0, 4, 60, 9.5, "parking")]
+    roads = [_road([(-60, 0), (200, 0)], "road_3")]
+
+    def areas(work, with_dtm):
+        work.mkdir()
+        _write_job(work, strips, roads)
+        if with_dtm:
+            _write_dtm(work, "roads.json", [(-60, -3, 200, 3), (0, 3, 80, 9.5)])
+            _write_dtm(work, "parking.json", [(100, 4, 180, 9.5)])
+        out = op.merge_parking_into_road(work, strips, op._paths_features_for_network(work), preset, 10000)
+        return sorted(tuple(round(v) for v in shape(f["geometry"]).bounds) for f in out if (f.get("properties") or {}).get("street"))
+
+    assert areas(tmp_path / "osm", False) == areas(tmp_path / "dtm", True) != []

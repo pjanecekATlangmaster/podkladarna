@@ -1344,6 +1344,23 @@ def test_short_osm_bridge_is_kept():
     assert osm_oom_code(OSM_BRIDGE_HIGHWAY, "mtbo_10000") == "834"
 
 
+@pytest.mark.parametrize(
+    "highway, preset, code",
+    [
+        # silnice na mostě je plynulá silnice (Harrachov, Petr 2026-11-20), ne pěšina 816 / tenká čára 512
+        ("bridge:road_4", "mtbo_10000", "502.1"),
+        ("bridge:road_3", "mtbo_10000", "502"),
+        ("bridge:track", "mtbo_10000", "833"),
+        ("bridge:road_3", "forest_10000", "502"),
+        ("bridge:footway", "forest_10000", "512"),
+    ],
+)
+def test_osm_oom_code_bridge_keeps_base(highway, preset, code):
+    from app.pipeline.osm_paths import osm_oom_code
+
+    assert osm_oom_code(highway, preset) == code
+
+
 def test_osm_oom_code_sidewalk():
     from app.pipeline.osm_paths import (
         osm_oom_code,

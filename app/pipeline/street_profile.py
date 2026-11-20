@@ -22,6 +22,10 @@ from pathlib import Path
 
 # Les a MTBO kreslí ulici se stáním podle profilu; False = slévání po kusech stání (3.12.4 – 3.16.x).
 STREET_PROFILE = True
+# Profil v MTBO a lese nebere parkoviště ani plochu silnic z DTM, jen stání z OSM: s DTM dával v měřítku nepravidelné
+# pruhy podél ulic (Petr 2026-11-20, Harrachov). Bez DTM (zahraničí, Česko bez DTM) se kresba nemění. True = jako 3.96.
+MTBO_STREET_PROFILE_DTM = False
+FOREST_STREET_PROFILE_DTM = False
 T_MM = 0.3  # přesah, od kterého se rozšíření kreslí (1:10 000 = 3 m)
 L_MM = 5.0  # nejkratší rozšířený úsek
 G_MM = 4.0  # mezera mezi rozšířenými úseky, která se zacelí
@@ -37,6 +41,11 @@ ROUND_M = 0.5
 
 def enabled(preset_id: str) -> bool:
     return STREET_PROFILE and not preset_id.startswith("sprint")
+
+
+def uses_dtm(preset_id: str) -> bool:
+    """Bere profil v presetu parkoviště a plochu silnic z DTM?"""
+    return MTBO_STREET_PROFILE_DTM if preset_id.startswith("mtbo") else FOREST_STREET_PROFILE_DTM
 
 
 def _load_dtm(work_dir: Path, names) -> list:
@@ -144,7 +153,7 @@ def _chains(roads: list) -> list:
     return out
 
 
-def street_areas(work_dir: Path, roads: list, strips: list, scale: int) -> list[dict]:
+def street_areas(work_dir: Path, roads: list, strips: list, scale: int, *, use_dtm: bool = True) -> list[dict]:
     """Plochy ulic se stáním (prvky GeoJSON ``kind`` ``parking``, ``street`` True) z profilu přesahu.
 
     ``roads``: [(LineString, půlka kresby)] kreslených silnic (bez mostů a tunelů); ``strips``: OSM stání (shapely),
@@ -156,11 +165,11 @@ def street_areas(work_dir: Path, roads: list, strips: list, scale: int) -> list[
 
     from app.pipeline.osm_paths import mm_to_ground_m
 
-    surf = list(strips) + _load_dtm(work_dir, ("parking",))
+    surf = list(strips) + (_load_dtm(work_dir, ("parking",)) if use_dtm else [])
     if not surf or not roads or scale <= 0:
         return []
     S = prep(unary_union(surf))
-    dtm_roads = _load_dtm(work_dir, ("roads",))
+    dtm_roads = _load_dtm(work_dir, ("roads",)) if use_dtm else []
     SA = prep(unary_union(surf + dtm_roads)) if dtm_roads else None
     T = mm_to_ground_m(T_MM, scale)
     gap_n = int(mm_to_ground_m(G_MM, scale) / STEP_M)

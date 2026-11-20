@@ -520,6 +520,13 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   `SAMPLES_REFRESH_HOURS` (1-5, Europe/Prague) hned, přes den po `SAMPLES_REFRESH_IDLE_MIN` (60) min bez nového jobu. ZIP a popisek
   v `samples.json` se vymění atomicky jen po `done` ve správném jazyce a u `dtm: true` s balíky DTM; jinak zůstane stará ukázka,
   další pokus za den, nejvýš 3 za kolo. Stav `DATA_ROOT/samples/.refresh_state.json`, vypínač `SAMPLES_REFRESH=0`.
+- **Les a MTBO bez zpevněných ploch z DTM** (3.100.0, Petr 2026-11-20, Harrachov 1:10 000 / 1:15 000): chodníky, parkoviště
+  a profil ulice se stáním z DTM daly v měřítku cáry podél silnic a černé cesty na nich končily; zpevněné plochy kreslí OSM.
+  Z DTM zůstávají budovy, ploty, šířky silnic pro volbu symbolu a plochy složitých křižovatek. Parkoviště z DTM jen jednoduchého
+  tvaru (`is_simple_area`: obdélník ≥ 85 %, do 8 vrcholů, bez děr), a jen jeho část, kterou OSM nemá, čitelná mimo kresbu silnice
+  (šířka ≥ 0,8 mm, plocha ≥ 1 mm², `DTM_PARKING_SIMPLE`). Přepínače `MTBO_SIDEWALK_AREAS`, `MTBO_DTM_PARKING`, `FOREST_DTM_PARKING`,
+  `FOREST_DTM_WALK_AREAS`, `street_profile.MTBO_STREET_PROFILE_DTM` / `FOREST_STREET_PROFILE_DTM` (profil ulice se stáním zůstává, jen bez vstupů z DTM; True = jako 3.96). Silnice na mostě
+  je v lese i MTBO plynulá silnice v tahu (`is_road_bridge_highway`), MTBO u mostů bere symbol navazující cesty (dřív 816).
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch
