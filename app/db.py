@@ -293,6 +293,54 @@ def private_email_jobs_since(email: str, since: datetime) -> list[str]:
     return [str(r[0]) for r in rows]
 
 
+def origin_jobs_since(client_ip: str, since: datetime) -> tuple[list[str], list[str]]:
+    """Časy založení webových jobů (ne API, ne ukázky) z této IP a z její sítě /24 od ``since``, vzestupně.
+
+    Z ``job_origin`` (IP jen jako značky); denní limit podle IP a sítě."""
+    ip_tag = _origin_tag("ip", client_ip)
+    net_tag = _origin_tag("net", _ip_network(client_ip))
+    out: list[list[str]] = []
+    with connect() as conn:
+        for col, tag in (("ip_tag", ip_tag), ("ip_net_tag", net_tag)):
+            if not tag:
+                out.append([])
+                continue
+            rows = conn.execute(
+                f"SELECT created_at FROM job_origin WHERE {col} = ? AND api_client = 0 AND created_at >= ? "
+                "ORDER BY created_at",
+                (tag, since.isoformat()),
+            ).fetchall()
+            out.append([str(r[0]) for r in rows])
+    return out[0], out[1]
+
+
+def recent_jobs_before(job_id: str, hours: float = 24.0) -> int:
+    """Kolik jobů z téže IP nebo s týmž e-mailem vzniklo za ``hours`` před tímto jobem (férová fronta)."""
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT created_at, ip_tag, email_tag FROM job_origin WHERE job_id = ?", (job_id,)
+        ).fetchone()
+        if row is None:
+            return 0
+        created = str(row["created_at"])
+        try:
+            since = (datetime.fromisoformat(created) - timedelta(hours=hours)).isoformat()
+        except ValueError:
+            return 0
+        best = 0
+        for col in ("ip_tag", "email_tag"):
+            tag = row[col]
+            if not tag:
+                continue
+            n = conn.execute(
+                f"SELECT COUNT(*) FROM job_origin WHERE {col} = ? AND created_at >= ? AND created_at < ? "
+                "AND job_id != ?",
+                (tag, since, created, job_id),
+            ).fetchone()[0]
+            best = max(best, int(n))
+    return best
+
+
 def _ip_network(ip: str) -> str:
     """Síť klienta (IPv4 /24, IPv6 /48) – jen jako vstup značky, neukládá se."""
     try:

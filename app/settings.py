@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.103.0"
+APP_VERSION = "3.104.0"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -91,7 +91,10 @@ JOB_RETENTION_DAYS = int(os.environ.get("JOB_RETENTION_DAYS", "0"))  # legacy; p
 # ZIPů a náhledu (rozbalené kopie). Log zůstává. Celý job pak smaže JOB_RETENTION_HOURS. 0 = nemazat (Petr 2026-11-20).
 JOB_TRIM_AFTER_MINUTES = int(os.environ.get("JOB_TRIM_AFTER_MINUTES", "180") or 0)
 MAX_ACTIVE_JOBS_PER_IP = int(os.environ.get("MAX_ACTIVE_JOBS_PER_IP", "2"))
-MAX_JOBS_PER_IP_HOUR = int(os.environ.get("MAX_JOBS_PER_IP_HOUR", "10"))
+# Petr 2026-11-20: build trvá 5–20 min, 10 za hodinu nikoho nebrzdilo; brzdí denní strop (IP, síť /24 kvůli CGNAT volněji).
+MAX_JOBS_PER_IP_HOUR = int(os.environ.get("MAX_JOBS_PER_IP_HOUR", "4"))
+MAX_JOBS_PER_IP_DAY = int(os.environ.get("MAX_JOBS_PER_IP_DAY", "15"))  # 0 = vypnuto
+MAX_JOBS_PER_NET_DAY = int(os.environ.get("MAX_JOBS_PER_NET_DAY", "40"))  # síť /24 (IPv6 /48); 0 = vypnuto
 # Soukromé joby na jeden e-mail za klouzavých 24 h (Petr 2026-11-20, mírný limit proti zneužití); 0 = vypnuto.
 # E-mail se počítá normalizovaný (bez +značky, u Gmailu bez teček) a jen jako HMAC značka v job_origin.
 MAX_PRIVATE_JOBS_PER_EMAIL_DAY = int(os.environ.get("MAX_PRIVATE_JOBS_PER_EMAIL_DAY", "8"))

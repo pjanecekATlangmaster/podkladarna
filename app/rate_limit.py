@@ -9,7 +9,9 @@ from app.settings import (
     API_KEY_MAX_JOBS_HOUR,
     BANNED_EMAILS,
     MAX_ACTIVE_JOBS_PER_IP,
+    MAX_JOBS_PER_IP_DAY,
     MAX_JOBS_PER_IP_HOUR,
+    MAX_JOBS_PER_NET_DAY,
     MAX_PRIVATE_JOBS_PER_EMAIL_DAY,
     RATE_LIMIT_EXEMPT_IPS,
 )
@@ -32,10 +34,32 @@ def check_create_job(client_ip: str) -> str | None:
     hourly = db.count_jobs_for_ip_since(client_ip, since)
     if hourly >= MAX_JOBS_PER_IP_HOUR:
         return Msg("api.rate.ip_hourly", limit=MAX_JOBS_PER_IP_HOUR)
+    now = datetime.now(timezone.utc)
+    ip_times, net_times = db.origin_jobs_since(client_ip, now - DAY_WINDOW)
+    for times, limit, key in (
+        (ip_times, MAX_JOBS_PER_IP_DAY, "api.rate.ip_daily"),
+        (net_times, MAX_JOBS_PER_NET_DAY, "api.rate.net_daily"),
+    ):
+        if limit > 0 and len(times) >= limit:
+            hours, minutes = _wait_until_free(times, limit, now)
+            return Msg(key, limit=limit, hours=hours, minutes=minutes)
     return None
 
 
-EMAIL_WINDOW = timedelta(hours=24)
+DAY_WINDOW = timedelta(hours=24)
+
+
+def _wait_until_free(times: list[str], limit: int, now: datetime) -> tuple[int, int]:
+    """(hodiny, minuty), než z klouzavého 24h okna vypadne tolik jobů, aby šel založit další."""
+    try:
+        free_at = datetime.fromisoformat(times[len(times) - limit]) + DAY_WINDOW
+    except ValueError:
+        free_at = now + DAY_WINDOW
+    wait_min = max(1, int((free_at - now).total_seconds() // 60) + 1)
+    return wait_min // 60, wait_min % 60
+
+
+EMAIL_WINDOW = DAY_WINDOW
 
 
 def is_banned_email(email: str) -> bool:
@@ -63,12 +87,8 @@ def check_private_email(email: str, client_ip: str = "") -> str | None:
     times = db.private_email_jobs_since(email, now - EMAIL_WINDOW)
     if len(times) < limit:
         return None
-    try:
-        free_at = datetime.fromisoformat(times[len(times) - limit]) + EMAIL_WINDOW
-    except ValueError:
-        free_at = now + EMAIL_WINDOW
-    wait_min = max(1, int((free_at - now).total_seconds() // 60) + 1)
-    return Msg("api.rate.email_daily", limit=limit, hours=wait_min // 60, minutes=wait_min % 60)
+    hours, minutes = _wait_until_free(times, limit, now)
+    return Msg("api.rate.email_daily", limit=limit, hours=hours, minutes=minutes)
 
 
 def check_create_api_job() -> str | None:
@@ -83,14 +103,15 @@ def check_create_api_job() -> str | None:
     return None
 
 
-def queue_priority_key(job_id: str) -> tuple[int, str]:
-    """Nižší = dřív ve frontě. Upřednostní IP s méně aktivními joby."""
+def queue_priority_key(job_id: str) -> tuple[int, int, str]:
+    """Nižší = dřív ve frontě. Férová fronta (3.104.0): přednost má, kdo za posledních 24 h založil
+    méně jobů (z IP nebo s e-mailem), pak IP s méně aktivními joby, pak dřívější job."""
     try:
         job = db.get_job(job_id)
     except KeyError:
-        return (999, job_id)
+        return (999, 999, job_id)
     ip = (job.get("options") or {}).get("client_ip") or ""
     if is_exempt(ip):
-        return (0, job.get("created_at") or "")
+        return (0, 0, job.get("created_at") or "")
     active = db.count_active_jobs_for_ip(ip)
-    return (active, job.get("created_at") or "")
+    return (db.recent_jobs_before(job_id), active, job.get("created_at") or "")

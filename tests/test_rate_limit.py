@@ -308,3 +308,46 @@ def test_private_email_limit_default_8(data_dir, monkeypatch):
     db.create_job("p", "sprint_2m", {"private": True, "notify_email": "d@example.cz"})
     msg = check_private_email("d@example.cz", "10.0.4.1")
     assert msg is not None and msg.params["limit"] == 8 and "omezen na 8 za 24 hodin" in msg
+
+
+@pytest.mark.parametrize(
+    ("env", "ips", "key"),
+    [
+        ({"MAX_JOBS_PER_IP_DAY": "3", "MAX_JOBS_PER_NET_DAY": "0"}, ["10.0.5.1"] * 3, "api.rate.ip_daily"),
+        ({"MAX_JOBS_PER_IP_DAY": "0", "MAX_JOBS_PER_NET_DAY": "3"}, ["10.0.5.1", "10.0.5.2", "10.0.5.3"], "api.rate.net_daily"),
+    ],
+)
+def test_daily_ip_and_net_limit(data_dir, monkeypatch, env, ips, key):
+    import app.db as db
+
+    _reload_settings(monkeypatch, MAX_JOBS_PER_IP_HOUR="100", MAX_ACTIVE_JOBS_PER_IP="100", **env)
+    from app.rate_limit import check_create_job as check
+
+    db.init_db()
+    for ip in ips[:-1]:
+        db.create_job("d", "sprint_2m", {"client_ip": ip})
+    assert check("10.0.5.1") is None
+    db.create_job("d", "sprint_2m", {"client_ip": ips[-1]})
+    msg = check("10.0.5.1")
+    assert msg is not None and msg.key == key and msg.params["limit"] == 3
+    # Jiná síť limit nezasáhne; staré joby z okna vypadnou.
+    assert check("10.0.6.1") is None
+    old = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
+    with db.connect() as conn:
+        conn.execute("UPDATE job_origin SET created_at = ?", (old,))
+        conn.commit()
+    assert check("10.0.5.1") is None
+
+
+def test_fair_queue_prefers_fewer_jobs_in_24h(data_dir):
+    import app.db as db
+
+    db.init_db()
+    for _ in range(5):  # těžký uživatel: hotové joby za posledních 24 h
+        db.update_job(db.create_job("h", "sprint_2m", {"client_ip": "10.0.7.1"})["id"], status="done")
+    heavy = db.create_job("h", "sprint_2m", {"client_ip": "10.0.7.1"})
+    db.update_job(heavy["id"], status="queued")
+    light = db.create_job("l", "sprint_2m", {"client_ip": "10.0.7.2"})  # založen později
+    db.update_job(light["id"], status="queued")
+    assert queue_priority_key(light["id"]) < queue_priority_key(heavy["id"])
+    assert queue_priority_key(heavy["id"])[0] == 5
