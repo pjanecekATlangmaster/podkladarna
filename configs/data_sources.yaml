@@ -478,7 +478,7 @@ sources:
     url: https://www.skgeodesy.sk/files/geoportal/licencne-podmienky/terms_and_conditions_of_provision_and_use_orthophotomosaic.pdf
     attribution: "GKÚ Bratislava, NLC"
   access: free
-  checked: "Claude 2026-11-20: stránky ZBGIS WMS / WMTS a Orthophotomosaic (CC BY 4.0, 3. cyklus 2023–2025 15 cm, EPSG:5514), PDF podmínek zdrojových dat; vrstvy 1,2,3 podle QGIS pluginu czech_slovak_freegeodata. GetMap z cloudu neověřen (reset spojení)."
+  checked: "Claude 2026-11-20: stránky ZBGIS WMS / WMTS a Orthophotomosaic (CC BY 4.0, 3. cyklus 2023–2025 15 cm, EPSG:5514), PDF podmínek zdrojových dat; vrstvy 3,2,1 (1 navrch nejostřejší, ověřil Petr v QGIS 2026-11-20). GetMap z cloudu neověřen (reset), z PC Petra ortofoto, katastr i ZBGIS v QGIS načtené 2026-11-20."
   issues:
     - "zbgisws.skgeodesy.sk z cloudu odmítá spojení (reset) – bez sondy v source_status; stažení předem na serveru se neověřovalo."
 
@@ -500,7 +500,7 @@ sources:
     url: https://www.skgeodesy.sk/geoportal-en/services/web-map-services/wms/wms-zbgis/
     attribution: "ESKN © ÚGKK SR, ZBGIS © GKÚ Bratislava – CC BY 4.0"
   access: free
-  checked: "Claude 2026-11-20: stránky WMS ESKN a WMS ZBGIS (CC BY 4.0, S-JTSK); vrstvy z katalogu Freemap.sk (kn_wms_norm 1–15 bez 9, ZBGIS seznam vrstev). GetMap z cloudu neověřen (reset spojení)."
+  checked: "Claude 2026-11-20: stránky WMS ESKN a WMS ZBGIS (CC BY 4.0, S-JTSK); vrstvy z katalogu Freemap.sk (kn_wms_norm 1–15 bez 9, ZBGIS seznam vrstev). GetMap z cloudu neověřen (reset), z PC Petra ortofoto, katastr i ZBGIS v QGIS načtené 2026-11-20."
   issues:
     - "Katastr jen jako obrázek hranic a čísel parcel (kn_wms_norm, průhledný), vlastníci ne."
     - "ZBGIS WMS nemá společnou skupinu vrstev – seznam je dlouhý a může se změnit (pak šablona vyjde prázdná)."
