@@ -620,7 +620,11 @@ def load_milestones(path: Path = MILESTONES_PATH) -> list[dict[str, str]]:
         title = str(item.get("title") or "").strip()
         if not date_s or not title:
             continue
-        out.append({"date": date_s[:10], "title": title, "body": ""})
+        row = {"date": date_s[:10], "title": title, "body": ""}
+        scope = str(item.get("scope") or "").strip().lower()
+        if scope:
+            row["scope"] = scope  # cz / intl – filtruje app.whats_new podle domény
+        out.append(row)
     return out
 
 
@@ -712,6 +716,8 @@ def render_yaml(
             lines.append(f"  - date: \"{item['date']}\"")
             lines.append(f"    title: \"{title}\"")
             lines.append('    body: ""')
+            if item.get("scope"):
+                lines.append(f"    scope: \"{item['scope']}\"")
     return "\n".join(lines) + "\n"
 
 
