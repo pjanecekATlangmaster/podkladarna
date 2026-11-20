@@ -50,6 +50,7 @@ from app.pipeline.geodanmark_dk import GEODK_PROBE
 from app.pipeline.reference_dk import DK_ELEVATION_PROBE, with_key as dk_with_key
 from app.pipeline.reference_no import NO_ELEVATION_PROBE
 from app.pipeline.reference_si import SI_ELEVATION_PROBE
+from app.pipeline.reference_us import US_ELEVATION_PROBE, US_INDEX_PROBE
 from app.pipeline.reference_be import BE_ELEVATION_PROBE, BE_GRB_PROBE, BE_ORTHO_PROBE, BE_URBIS_PROBE
 from app.pipeline.reference_de_nw import DE_NW_DOP_PROBE, DE_NW_ELEVATION_PROBE
 from app.pipeline.reference_de_states import DE_WCS_STATES, elevation_probe, elevation_probe_method, ortho_probe
@@ -390,6 +391,23 @@ PROBES: tuple[Probe, ...] = (
         fatal=True,
         countries=("SI",),
     ),
+    # USA: index projektů WESM (výběr mračna QL 0 – QL 2) a ept.json jednoho projektu v bucketu 3DEP (~3 kB).
+    Probe(
+        "us_index",
+        "Index projektů LiDAR WESM (USGS)",
+        (US_INDEX_PROBE,),
+        "Bez indexu nejde vybrat mračno výřezu, mapa se nevytvoří.",
+        fatal=True,
+        countries=("US",),
+    ),
+    Probe(
+        "us_elevation",
+        "Mračno LiDAR 3DEP (USGS, AWS) – terén a povrch",
+        (US_ELEVATION_PROBE,),
+        "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
+        fatal=True,
+        countries=("US",),
+    ),
     # Skotsko: HEAD malé dlaždice terénu v S3 bucketu Scottish Remote Sensing Portal.
     Probe(
         "sct_elevation",
@@ -569,7 +587,7 @@ PROBES: tuple[Probe, ...] = (
 
 
 # Zdroje výšek z rastru mimo Česko (``prepare_raster_surfaces``), jejichž klíč nekončí ``_elevation``.
-_ELEVATION_KEYS = frozenset({"at_bev", "ch_swisstopo", "nl_ahn", "de_berlin", "fr_lidarhd"})
+_ELEVATION_KEYS = frozenset({"at_bev", "ch_swisstopo", "nl_ahn", "de_berlin", "fr_lidarhd", "us_index"})
 
 
 def probe_role(key: str | None) -> str | None:

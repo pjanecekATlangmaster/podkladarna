@@ -31,6 +31,8 @@ DEFAULT_COUNTRY = "CZ"
 # Aspoň polovina výřezu ve vybrané zemi; od FULL_SHARE výše se přesah neohlašuje (tolerance polygonu).
 MIN_SHARE = 0.5
 FULL_SHARE = 0.99
+# ``crs`` země bez jednoho systému (USA): souřadnice jobu = NAD83 / UTM zóna středu výřezu.
+UTM_NAD83 = "UTM-NAD83"
 
 
 class CountryError(ValueError):
@@ -124,6 +126,16 @@ class Country:
     @property
     def has_technical_map(self) -> bool:
         return self.technical_map not in ("", "none")
+
+    def job_crs(self, bbox=None) -> str:
+        """CRS jobu: ``crs`` země, u ``UTM-NAD83`` (USA) zóna NAD83 / UTM podle středu výřezu (EPSG:269xx)."""
+        if self.crs.upper() == UTM_NAD83:
+            if not bbox:
+                return ""
+            from app.pipeline.reference_us import utm_label
+
+            return utm_label(bbox)
+        return self.crs
 
     def technical_map_covers(self, bbox) -> bool:
         """Zasahuje výřez do území technické mapy? Bez ``technical_map_area`` (celá země) vždy ano."""

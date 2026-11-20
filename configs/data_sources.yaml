@@ -1993,6 +1993,97 @@ sources:
     vrací 503.
   - Data 2011–2015, část listů ze snímkování bez listí – výška porostu listnáčů může být nižší.
 
+- id: us_3dep
+  countries:
+  - US
+  kinds:
+  - point_cloud
+  - elevation
+  name: Mračno LiDAR 3DEP (Entwine Point Tile na AWS, EPSG:3857, výšky NAVD88 m)
+  provider: U.S. Geological Survey (3D Elevation Program), AWS Open Data
+  url: https://s3-us-west-2.amazonaws.com/usgs-lidar-public/
+  info: https://registry.opendata.aws/usgs-lidar/
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (us_3dep), app/pipeline/reference_us.py
+  provider_key: us_3dep
+  probe: us_elevation
+  license:
+    class: public
+    name: public domain (U.S. Government work), atribuce „Courtesy of the U.S. Geological Survey“
+    url: https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits
+    attribution: Courtesy of the U.S. Geological Survey
+  access: free
+  checked: '2026-11-20 Claude: bucket bez klíče (2 297 složek EPT), NY_SE4County_1_A22 0,28 km² = 67 uzlů, 24 MB LAZ, 6 s,
+    5,9 bodu/m² (třídy 1, 2, 7); výšky země proti EPQS 3DEP DEM do 0,35 m, i u projektu ve stopách (NC_JohnstonCo_2014)'
+  issues:
+  - Novější projekty (zhruba 2024+, 357 z 1 979 projektů QL 0 – QL 2) v bucketu EPT ještě nejsou; vezme se starší projekt
+    téhož místa, jinak výřez hlásí, že data nejsou. Hotové LAZ těchto projektů jsou jen po dlaždicích na rockyweb.
+  - Velká část projektů je ze snímkování bez listí (jaro, podzim) – výška listnáčů z větví bývá nižší.
+- id: us_wesm
+  countries:
+  - US
+  kinds:
+  - point_cloud
+  name: WESM – index projektů LiDAR 3DEP (kvalita QL, období, obrys)
+  provider: U.S. Geological Survey (The National Map)
+  url: https://index.nationalmap.gov/arcgis/rest/services/3DEPElevationIndex/MapServer/24
+  info: https://www.usgs.gov/ngp-standards-and-specifications/wesm-data-dictionary
+  role: výšky
+  status: used
+  code: app/pipeline/reference_us.py (wesm_workunits)
+  probe: us_index
+  license:
+    class: public
+    name: public domain (U.S. Government work)
+    url: https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits
+    attribution: Courtesy of the U.S. Geological Survey
+  access: free
+  checked: '2026-11-20 Claude: dotaz podle obálky bez klíče, 2 876 projektů (QL 2 1 167, QL 1 803, QL 0 9, QL 3 240, Other 657)'
+  issues:
+  - ImageServer 3DEP na elevation.nationalmap.gov občas vrací 502 – proto se terén nebere z něj, ale z mračna.
+
+- id: us_imagery
+  countries: ["US"]
+  kinds: [orthophoto]
+  name: USGS Imagery Only – ortofoto NAIP (WMS The National Map)
+  provider: U.S. Geological Survey (The National Map), snímky USDA NAIP
+  url: https://basemap.nationalmap.gov/arcgis/services/USGSImageryOnly/MapServer/WMSServer
+  info: https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits
+  role: šablona
+  reference_keys: ["online_us_ortho*"]
+  image_in_zip: allowed
+  status: used
+  code: app/pipeline/reference_us.py, app/pipeline/online_templates.py
+  license:
+    class: public
+    name: public domain (U.S. Government work)
+    url: https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits
+    attribution: Courtesy of the U.S. Geological Survey
+  access: free
+  checked: "Claude 2026-11-20: GetMap 1000 × 1190 px v EPSG:26910 z cloudu (St. Edward State Park, letní snímek)."
+  issues: []
+- id: us_topo
+  countries: ["US"]
+  kinds: [map]
+  name: USGS Topo (WMS The National Map)
+  provider: U.S. Geological Survey (The National Map)
+  url: https://basemap.nationalmap.gov/arcgis/services/USGSTopo/MapServer/WMSServer
+  info: https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits
+  role: šablona
+  reference_keys: ["online_us_topo*"]
+  image_in_zip: allowed
+  status: used
+  code: app/pipeline/reference_us.py, app/pipeline/online_templates.py
+  license:
+    class: public
+    name: public domain (U.S. Government work)
+    url: https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits
+    attribution: Courtesy of the U.S. Geological Survey
+  access: free
+  checked: "Claude 2026-11-20: GetCapabilities z cloudu 200 (vrstva 0)."
+  issues: []
+
 - id: si_clss
   countries:
   - SI
