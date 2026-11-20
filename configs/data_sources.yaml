@@ -1855,6 +1855,37 @@ sources:
     ne WCS: https://pnoa.ign.es/web/portal/pnoa-lidar/productos-a-descarga'
   - 'opencode: Catastro zákaz hromadného stahování patří jinému poskytovateli: https://www.catastro.hacienda.gob.es/es-ES/wms.html'
 
+- id: si_arso
+  countries:
+  - SI
+  kinds:
+  - point_cloud
+  - elevation
+  name: Klasifikované mračno LiDAR GKOT 2011–2015 (listy 1 km LAZ)
+  provider: Agencija Republike Slovenije za okolje (ARSO)
+  url: https://gis.arso.gov.si/lidar/gkot/laz/
+  info: https://kazalci.arso.gov.si/en/content/legal-note
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (si_arso), app/pipeline/reference_si.py
+  provider_key: si_arso
+  probe: si_elevation
+  license:
+    class: public
+    name: opakované užití veřejných informací ARSO i komerčně s uvedením zdroje (právní upozornění ARSO)
+    url: https://kazalci.arso.gov.si/en/content/legal-note
+    attribution: Agencija Republike Slovenije za okolje (ARSO)
+  access: free
+  checked: '2026-11-20 Claude: list b_35/D96TM/TM_462_101.laz bez klíče (48,6 MB, LAS 1.2, 12,2 bodu/m², země 4,7/m², třídy
+    2–7), HEAD v blocích b_23, b_24, b_26, b_33, b_35, b_37; právní upozornění ARSO („reuse of public information … for
+    commercial or non-commercial purposes … subject to citation of the source, is permitted“)'
+  issues:
+  - Licence je obecné právní upozornění webů ARSO, u dat LiDAR samotných konkrétní licence uvedená není (OSM komunita 2015
+    na totéž upozorňovala). Před ostrým provozem ověřit u ARSO.
+  - Blok listu v adrese nejde spočítat, zjišťuje se HEAD po blocích (cache blocks.json). Index listů (fishnet) na gis.arso.gov.si
+    vrací 503.
+  - Data 2011–2015, část listů ze snímkování bez listí – výška porostu listnáčů může být nižší.
+
 - id: si_clss
   countries:
   - SI

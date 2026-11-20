@@ -46,6 +46,7 @@ from app.pipeline.reference_it import TN_ELEVATION_PROBE, TN_ORTHO_PROBE
 from app.pipeline.geodanmark_dk import GEODK_PROBE
 from app.pipeline.reference_dk import DK_ELEVATION_PROBE, with_key as dk_with_key
 from app.pipeline.reference_no import NO_ELEVATION_PROBE
+from app.pipeline.reference_si import SI_ELEVATION_PROBE
 from app.pipeline.reference_be import BE_ELEVATION_PROBE, BE_GRB_PROBE, BE_ORTHO_PROBE, BE_URBIS_PROBE
 from app.pipeline.reference_de_nw import DE_NW_DOP_PROBE, DE_NW_ELEVATION_PROBE
 from app.pipeline.reference_de_states import DE_WCS_STATES, elevation_probe, elevation_probe_method, ortho_probe
@@ -375,6 +376,16 @@ PROBES: tuple[Probe, ...] = (
         "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
         fatal=True,
         countries=("NO",),
+    ),
+    # Slovinsko: HEAD listu mračna ARSO u Ljubljany (bez klíče, ~50 MB se nestahuje).
+    Probe(
+        "si_elevation",
+        "Mračno LiDAR (ARSO) – terén a povrch",
+        (SI_ELEVATION_PROBE,),
+        "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
+        method="HEAD",
+        fatal=True,
+        countries=("SI",),
     ),
     Probe(
         "be_grb",
