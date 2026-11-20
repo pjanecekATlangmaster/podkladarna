@@ -525,20 +525,18 @@ def _count_waterway_objects(tmp_path, preset, scale, flag):
     return xml.count(f'symbol="{idx}"')
 
 
-def test_waterway_under_water_area_not_drawn_in_sprint(tmp_path):
+@pytest.mark.parametrize(
+    "preset,scale",
+    [("sprint_4000", 4000), ("forest_10000", 10000), ("mtbo_10000", 10000)],
+)
+def test_waterway_under_water_area_not_drawn(tmp_path, preset, scale):
     pytest.importorskip("pyogrio")
     pytest.importorskip("shapely")
     # bez potlačení všechny tři toky; s ním tok celý pod vodou zmizí,
-    # druhý se zkrátí na část mimo jezero, třetí zůstane
-    assert _count_waterway_objects(tmp_path, "sprint_4000", 4000, False) == 3
-    assert _count_waterway_objects(tmp_path, "sprint_4000", 4000, True) == 2
+    # druhý se zkrátí na část mimo jezero (navazuje na břeh), třetí zůstane
+    assert _count_waterway_objects(tmp_path, preset, scale, False) == 3
+    assert _count_waterway_objects(tmp_path, preset, scale, True) == 2
 
-
-def test_waterway_flag_off_keeps_forest_unchanged(tmp_path):
-    pytest.importorskip("pyogrio")
-    pytest.importorskip("shapely")
-    # les / MTBO se potlačení neúčastní (výchozí False)
-    assert _count_waterway_objects(tmp_path, "forest_10000", 10000, False) == 3
 
 def test_zabaged_area_under_osm_area_is_omitted(tmp_path):
     """Priorita OSM: ZABAGED plocha pod / menší než OSM plocha se vynechá."""
