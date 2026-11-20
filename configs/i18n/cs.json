@@ -501,6 +501,8 @@
   "web.js.form.your_email": "váš e-mail",
   "web.js.map.show_all": "Zobrazit všechna dostupná území",
   "web.js.legend.title": "Dostupná data",
+  "web.js.legend.show": "Zobrazit legendu",
+  "web.js.legend.hide": "Skrýt legendu",
   "web.js.legend.full": "Výšky + technická mapa (budovy, chodníky, ploty)",
   "web.js.legend.osm_only": "Výšky, kresba jen z OSM",
   "web.js.legend.outside": "Mimo území",

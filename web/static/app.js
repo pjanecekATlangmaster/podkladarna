@@ -2172,6 +2172,15 @@ function czBounds() {
   return L.latLngBounds([CZ.south, CZ.west], [CZ.north, CZ.east]);
 }
 
+// Posun mapy smí o kus za povolené území (doladění výřezu u okraje, legenda nezakryje roh);
+// dál pruží zpět, aby se uživatel neztratil (Petr 2026-11-20).
+const MAP_PAN_PAD = 0.25;
+const MAP_PAN_VISCOSITY = 0.75;
+
+function panBounds() {
+  return czBounds().pad(MAP_PAN_PAD);
+}
+
 function inCzechia(latlng) {
   return (
     latlng.lat >= CZ.south &&
@@ -2285,9 +2294,9 @@ function initBboxMap() {
   loadCoverage();
   bboxMap = L.map(el, {
     scrollWheelZoom: true,
-    maxBounds: bounds,
-    maxBoundsViscosity: 1.0,
-    minZoom: 6,
+    maxBounds: bounds.pad(MAP_PAN_PAD),
+    maxBoundsViscosity: MAP_PAN_VISCOSITY,
+    minZoom: 5,
     worldCopyJump: false,
   }).setView(BBOX_INITIAL_VIEW.center, BBOX_INITIAL_VIEW.zoom);
   // Uživatel s mapou pohnul dřív, než přišlo /api/coverage → úvodní pohled už neměnit.
@@ -2339,7 +2348,7 @@ async function loadCoverage() {
     east: Math.max(...items.map((c) => c.bounds[3])) + COVERAGE_MARGIN.lng,
   };
   if (!bboxMap) return;
-  bboxMap.setMaxBounds(czBounds());
+  bboxMap.setMaxBounds(panBounds());
   updateBboxMinZoom();
   bboxMap.on("resize", updateBboxMinZoom);
   addShowAllControl();
@@ -2404,12 +2413,12 @@ function allCoverageBounds() {
   return b;
 }
 
-/** Odzoomovat jde tak, aby byla vidět všechna dostupná území najednou (i na úzkém mobilu). */
+/** Odzoomovat jde tak, aby byla vidět všechna dostupná území najednou (i na úzkém mobilu), a o stupeň dál. */
 function updateBboxMinZoom() {
   if (!bboxMap) return;
   bboxMap.setMinZoom(2); // getBoundsZoom ořízne výsledek na aktuální minZoom
   const fit = bboxMap.getBoundsZoom(czBounds(), false);
-  bboxMap.setMinZoom(Math.max(2, Math.min(6, fit)));
+  bboxMap.setMinZoom(Math.max(2, Math.min(5, fit - 1)));
 }
 
 function addShowAllControl() {
@@ -2529,11 +2538,34 @@ function addDataAvailabilityLayers(items) {
   bboxMap.on("zoomend", toggleSmall);
   toggleSmall();
 
-  const legend = L.control({ position: "topright" });
+  // Vlevo dole (vpravo nahoře je stav výřezu). Na malé mapě sbalená do tlačítka; text legendy
+  // gesta nechytá (pointer-events: none v CSS), posun i zoom jdou i přes ni, klik jen na hlavičku.
+  const legend = L.control({ position: "bottomleft" });
   legend.onAdd = () => {
-    const box = L.DomUtil.create("div", "map-legend");
-    const title = L.DomUtil.create("div", "map-legend-title", box);
+    const wrap = L.DomUtil.create("div", "map-legend");
+    const toggle = L.DomUtil.create("button", "map-legend-toggle", wrap);
+    toggle.type = "button";
+    const title = L.DomUtil.create("span", "map-legend-title", toggle);
     title.textContent = t("web.js.legend.title");
+    const chevron = L.DomUtil.create("span", "map-legend-chevron", toggle);
+    chevron.setAttribute("aria-hidden", "true");
+    const box = L.DomUtil.create("div", "map-legend-body", wrap);
+    box.id = "map-legend-body";
+    toggle.setAttribute("aria-controls", box.id);
+    const setOpen = (open) => {
+      wrap.classList.toggle("is-collapsed", !open);
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+      toggle.title = open ? t("web.js.legend.hide") : t("web.js.legend.show");
+    };
+    const saved = storageGet(MAP_LEGEND_KEY);
+    setOpen(saved ? saved === "open" : legendFitsMap());
+    L.DomEvent.disableClickPropagation(toggle);
+    L.DomEvent.on(toggle, "click", (e) => {
+      L.DomEvent.preventDefault(e);
+      const open = wrap.classList.contains("is-collapsed");
+      setOpen(open);
+      storageSet(MAP_LEGEND_KEY, open ? "open" : "closed");
+    });
     const rows = [["full", t("web.js.legend.full")]];
     if (hasOsmOnly) rows.push(["osm", t("web.js.legend.osm_only")]);
     rows.push(["outside", t("web.js.legend.outside")]);
@@ -2557,10 +2589,17 @@ function addDataAvailabilityLayers(items) {
         L.DomUtil.create("span", "", row).textContent = label;
       }
     }
-    L.DomEvent.disableClickPropagation(box);
-    return box;
+    return wrap;
   };
   legend.addTo(bboxMap);
+}
+
+const MAP_LEGEND_KEY = "podkladarna-map-legend";
+
+/** Rozbalená legenda jen na velké mapě a vysoké obrazovce; na notebooku a mobilu by zakryla kus mapy. */
+function legendFitsMap() {
+  const size = bboxMap ? bboxMap.getSize() : null;
+  return Boolean(size && size.x >= 700 && size.y >= 450 && window.innerHeight >= 850);
 }
 
 function countryName(code) {
@@ -3012,8 +3051,8 @@ function initBboxBadge() {
   if (!bboxMap || typeof L === "undefined") return;
   const ctl = L.control({ position: "topright" });
   ctl.onAdd = () => {
+    // Jen text stavu: gesta propouští na mapu (pointer-events: none v CSS).
     const div = L.DomUtil.create("div", "bbox-badge");
-    L.DomEvent.disableClickPropagation(div);
     bboxBadgeEl = div;
     return div;
   };
