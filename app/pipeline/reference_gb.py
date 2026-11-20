@@ -30,3 +30,10 @@ SCT_ELEVATION_PROBE = (
     "https://srsp-open-data.s3.eu-west-2.amazonaws.com/lidar/national-lidar-programme/dtm/27700/gridded/"
     "NG2106_50cm_DTM_ScotlandNationalLiDAR.tif"
 )
+
+# Wales (DataMapWales, Welsh Government LiDAR 2020–23, OGL v3): terén a povrch 1 m, každý jeden COG na celý Wales
+# v EPSG:27700 (Float32 DEFLATE, NoData -9999, přehledy), výšky ODN (nic se nepřevádí). Sonda = HEAD na COG terénu.
+WLS_COG_BASE = "https://dmwproductionblob.blob.core.windows.net/cogs/lidar"
+WLS_DTM_URL = f"{WLS_COG_BASE}/wales_dtm_32bit_cog.tif"
+WLS_DSM_URL = f"{WLS_COG_BASE}/wales_dsm_32bit_cog.tif"
+WLS_ELEVATION_PROBE = WLS_DTM_URL

@@ -55,7 +55,7 @@ from app.pipeline.reference_be import BE_ELEVATION_PROBE, BE_GRB_PROBE, BE_ORTHO
 from app.pipeline.reference_de_nw import DE_NW_DOP_PROBE, DE_NW_ELEVATION_PROBE
 from app.pipeline.reference_de_states import DE_WCS_STATES, elevation_probe, elevation_probe_method, ortho_probe
 from app.pipeline.reference_by import BY_ELEVATION_PROBE, BY_ORTHO_PROBE
-from app.pipeline.reference_gb import GB_EA_PROBE, SCT_ELEVATION_PROBE
+from app.pipeline.reference_gb import GB_EA_PROBE, SCT_ELEVATION_PROBE, WLS_ELEVATION_PROBE
 from app.pipeline.reference_pl import PL_ELEVATION_PROBE, PL_ORTHO_PROBE
 from app.pipeline.reference_lu import LU_ELEVATION_PROBE, LU_ORTHO_PROBE
 from app.pipeline.mtk_fi import FI_MTK_PROBE
@@ -417,6 +417,16 @@ PROBES: tuple[Probe, ...] = (
         method="HEAD",
         fatal=True,
         countries=("GB-SCT",),
+    ),
+    # Wales: HEAD na celostátní COG terénu DataMapWales (Azure Blob).
+    Probe(
+        "wls_elevation",
+        "Výšky DataMapWales – LiDAR DTM a DSM",
+        (WLS_ELEVATION_PROBE,),
+        "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
+        method="HEAD",
+        fatal=True,
+        countries=("GB-WLS",),
     ),
     Probe(
         "be_grb",
