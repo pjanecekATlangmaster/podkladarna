@@ -177,10 +177,14 @@ def format_area_km2_cs(area_km2: float | None) -> str | None:
 
 
 def format_area_km2(area_km2: float | None, lang: str = "cs") -> str | None:
-    """Plocha v km²; desetinná čárka v češtině (a dalších jazycích s čárkou), tečka v angličtině."""
+    """Plocha vždy v km² (ne ha), desetin podle velikosti: od 1 km² jedna, od 0,1 dvě, menší tři.
+
+    Desetinná čárka v češtině (a dalších jazycích s čárkou), tečka v angličtině; web ``formatAreaKm2`` stejně.
+    """
     if area_km2 is None or area_km2 <= 0:
         return None
-    text = f"{area_km2:.2f}" if area_km2 < 1 else f"{area_km2:.1f}"
+    digits = 1 if area_km2 >= 1 else 2 if area_km2 >= 0.1 else 3
+    text = f"{area_km2:.{digits}f}"
     if lang != "en":
         text = text.replace(".", ",")
     return text + " km²"

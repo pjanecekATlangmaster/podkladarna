@@ -1189,11 +1189,12 @@ function formatWhen(iso) {
   return d.toLocaleString(LOCALE, { dateStyle: "short", timeStyle: "medium" });
 }
 
-/** Plocha mapy jako v e-mailu: „2,4 km²“, pod 1 km² „0,85 km²“. */
+/** Plocha mapy vždy v km² jako v e-mailu (`mail.format_area_km2`): „2,4 km²“, pod 1 km² „0,85 km²“,
+ *  pod 0,1 km² „0,045 km²“. Jediná definice – druhá stejného jména dřív přepsala tuto a pod 1 km² psala ha. */
 function formatAreaKm2(km2) {
   const v = Number(km2);
   if (km2 == null || !Number.isFinite(v) || v <= 0) return "";
-  const digits = v < 1 ? 2 : 1;
+  const digits = v >= 1 ? 1 : v >= 0.1 ? 2 : 3;
   return `${v.toLocaleString(LOCALE, { minimumFractionDigits: digits, maximumFractionDigits: digits })} km²`;
 }
 
@@ -2979,12 +2980,6 @@ function formatSizeKm(w, h) {
   // „800 × 600 m“ – stejnou jednotku řekni jen jednou.
   const unitA = a.split(" ").pop();
   return unitA === b.split(" ").pop() ? `${a.replace(` ${unitA}`, "")} × ${b}` : `${a} × ${b}`;
-}
-
-/** Plocha: pod 1 km² v ha, jinak km² na 1 desetinné místo. */
-function formatAreaKm2(km2) {
-  if (km2 < 1) return `${formatNumCz(Math.round(km2 * 100), 0)} ha`;
-  return `${formatNumCz(km2, 1)} km²`;
 }
 
 function sheetNamesText(data) {
