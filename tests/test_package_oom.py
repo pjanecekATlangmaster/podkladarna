@@ -269,10 +269,7 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert not any(n.startswith("kp/") for n in names)
     # Materiálový ZIP: žádné mapové PNG náhledy (Pillow / Mapper georef).
     assert "preview/preview.png" not in names
-    assert not any(
-        n.startswith("preview/") and n.endswith(".png") and "hillshade" not in n
-        for n in names
-    )
+    assert not any(n.startswith("preview/") and n.endswith(".png") for n in names)
     assert "base/contours_gdal.shp" in names
     assert "base/contours_kp.dxf" not in names
     assert "archive/contours_kp.dxf" not in names

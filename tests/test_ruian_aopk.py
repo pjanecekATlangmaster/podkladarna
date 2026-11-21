@@ -200,7 +200,6 @@ def test_doplnky_in_oom_zip(tmp_path: Path, monkeypatch):
         out,
         zabaged_clean=zab,
         metadata={"scale": 4000, "label": "test"},
-        include_png=False,
         include_dxf=False,
         ruian_buildings=ruian_gj,
     )

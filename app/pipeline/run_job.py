@@ -1835,8 +1835,6 @@ def _package_output(
             include_zabaged_archive=bool(
                 options.get("output_zabaged_clean", False) and zabaged
             ),
-            # Stínování v preview/ je PNG podklad – jen se zapnutými referenčními podklady.
-            include_png=bool(options.get("output_png", True)) and want_refs,
             ruian_buildings=ruian_path,
             include_dxf=bool(options.get("output_dxf", True)),
             include_cliffs=cliff_symbol != "off",
