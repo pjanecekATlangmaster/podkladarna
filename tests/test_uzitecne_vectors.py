@@ -1,4 +1,4 @@
-"""Testy složky uzitecne/ (vegetace / srázy / skály pouzite vs vyhozene)."""
+"""Testy složky uzitecne/ (vegetace / srázy / skály v_plne_mape vs vyrazene_filtry)."""
 
 from __future__ import annotations
 
@@ -73,17 +73,17 @@ def test_cliff_inspection_and_finalize(tmp_path: Path):
     )
     root = finalize_uzitecne_vectors(kp)
     assert (root / "README.txt").is_file()
-    assert (root / "pouzite" / "srazy_104.shp").is_file()
-    assert (root / "pouzite" / "skaly_201.shp").is_file()
-    assert (root / "pouzite" / "vegetace.shp").is_file()
-    assert (root / "vyhozene" / "srazy_104.shp").is_file()
-    assert (root / "vyhozene" / "skaly_201.shp").is_file()
+    assert (root / "v_plne_mape" / "srazy_104.shp").is_file()
+    assert (root / "v_plne_mape" / "skaly_201.shp").is_file()
+    assert (root / "v_plne_mape" / "vegetace.shp").is_file()
+    assert (root / "vyrazene_filtry" / "srazy_104.shp").is_file()
+    assert (root / "vyrazene_filtry" / "skaly_201.shp").is_file()
 
     out = tmp_path / "output"
     out.mkdir()
     n = copy_uzitecne_to_output(kp, out)
     assert n >= 5
-    assert (out / "uzitecne" / "pouzite" / "vegetace.shp").is_file()
+    assert (out / "uzitecne" / "v_plne_mape" / "vegetace.shp").is_file()
 
 
 def test_build_oom_zip_includes_uzitecne(tmp_path: Path):
@@ -113,7 +113,7 @@ def test_build_oom_zip_includes_uzitecne(tmp_path: Path):
     with zipfile.ZipFile(dest) as zf:
         names = set(zf.namelist())
     assert "uzitecne/README.txt" in names
-    assert "uzitecne/pouzite/vegetace.shp" in names
-    assert "uzitecne/pouzite/srazy_104.shp" in names
+    assert "uzitecne/v_plne_mape/vegetace.shp" in names
+    assert "uzitecne/v_plne_mape/srazy_104.shp" in names
     readme = zipfile.ZipFile(dest).read("README_OOM.txt").decode("utf-8")
     assert "uzitecne" in readme

@@ -10,7 +10,7 @@ from app.pipeline.zip_names import EN_STEMS, localize_arcname
     [
         ("references/vyska_vegetace.png", "cs", "references/vyska_vegetace.png"),
         ("osm/OSM_budovy.shp", "cs", "osm/OSM_budovy.shp"),
-        ("uzitecne/pouzite/srazy_104.shp", "cs", "uzitecne/pouzite/srazy_104.shp"),
+        ("uzitecne/v_plne_mape/srazy_104.shp", "cs", "uzitecne/v_plne_mape/srazy_104.shp"),
         ("references/vyska_vegetace.pgw", "en", "references/vegetation_height.pgw"),
         ("references/katastr.gpkg", "en", "references/cadastre.gpkg"),
         ("references/ortofoto_cuzk_stredni.xml", "en", "references/orthophoto_cuzk_medium.xml"),
@@ -19,7 +19,7 @@ from app.pipeline.zip_names import EN_STEMS, localize_arcname
         ("osm/OSM_budovy.shx", "en", "osm/OSM_buildings.shx"),
         ("osm/OSM_residential_zbytek_stredni.dbf", "en", "osm/OSM_residential_rest_medium.dbf"),
         ("osm/README.txt", "en", "osm/README.txt"),
-        ("uzitecne/vyhozene/vegetace.shp", "en", "useful/filtered_out/vegetation.shp"),
+        ("uzitecne/vyrazene_filtry/vegetace.shp", "en", "useful/filtered_out/vegetation.shp"),
         ("ocad_symboly/ISOM_2017_10000.ocd", "en", "ocad_symbols/ISOM_2017_10000.ocd"),
         ("zabaged/Cesta.shp", "en", "zabaged/Cesta.shp"),
     ],

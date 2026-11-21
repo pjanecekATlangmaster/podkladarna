@@ -8,8 +8,8 @@ Layout ve ZIPu i v ``output/``::
 
     uzitecne/
       README.txt
-      pouzite/vegetace.*  srazy_104.*  skaly_201.*
-      vyhozene/vegetace.* srazy_104.*  skaly_201.*
+      v_plne_mape/vegetace.*      srazy_104.*  skaly_201.*
+      vyrazene_filtry/vegetace.*  srazy_104.*  skaly_201.*
 """
 
 from __future__ import annotations
@@ -20,8 +20,10 @@ from pathlib import Path
 from app.pipeline.crs_5514 import write_prj
 
 UZITECNE_DIR_NAME = "uzitecne"
-POUZITE = "pouzite"
-VYHOZENE = "vyhozene"
+# Petr 2026-11-21: „použité“ se pletlo s čistou mapou (4.10.0), ta zeleň a prvky z DEM vynechává i odtud.
+POUZITE = "v_plne_mape"
+VYHOZENE = "vyrazene_filtry"
+_LEGACY_DIRS = ("pouzite", "vyhozene")
 
 _SHP_SIDE = (".shp", ".shx", ".dbf", ".prj", ".cpg")
 
@@ -29,8 +31,9 @@ UZITECNE_README = """Užitečné vektory – vegetace, srázy, skály
 ========================================
 Prohlížení a ruční import v OOM / QGIS (EPSG:5514).
 
-pouzite/   … co zůstalo v auto .omap po filtrech
-vyhozene/  … kandidáti zahození (atribut duvod = důvod filtru)
+v_plne_mape/      … co zůstalo v mapě po filtrech (les / MTBO: plná mapa *_full.omap;
+                    čistá mapa vynechává zeleň a prvky z DEM i odtud)
+vyrazene_filtry/  … kandidáti vyřazení filtry (atribut duvod = důvod filtru)
 
 Vrstvy
 ------
@@ -38,7 +41,7 @@ vegetace.*   polygony porostů (cls, code = 401/406/408/410)
 srazy_104.*  zemní srázy (linie ISOM 104)
 skaly_201.*  skalní plochy (polygony 201.2 / 206)
 
-Důvody ve vyhozene (příklady): mala_plocha, kompaktni_flek, min_plocha,
+Důvody ve vyrazene_filtry (příklady): mala_plocha, kompaktni_flek, min_plocha,
 zamotany, nizky_schod, deprese, budova, prekryv_104, occupancy,
 husté_vrstevnice.
 
@@ -55,6 +58,8 @@ def ensure_uzitecne_dirs(kp_cwd: Path) -> tuple[Path, Path, Path]:
     root = uzitecne_root(kp_cwd)
     pouzite = root / POUZITE
     vyhozene = root / VYHOZENE
+    for legacy in _LEGACY_DIRS:  # převzatá pracovní složka staršího jobu – ať ZIP nemá obě sady
+        shutil.rmtree(root / legacy, ignore_errors=True)
     pouzite.mkdir(parents=True, exist_ok=True)
     vyhozene.mkdir(parents=True, exist_ok=True)
     return root, pouzite, vyhozene
@@ -178,7 +183,7 @@ def write_cliff_inspection_vectors(
     earth_code: str = "104",
     log=None,
 ) -> Path:
-    """Zapíše srázy/skály do ``uzitecne/pouzite|vyhozene/``."""
+    """Zapíše srázy/skály do ``uzitecne/v_plne_mape|vyrazene_filtry/``."""
     _root, pouzite, vyhozene = ensure_uzitecne_dirs(kp_cwd)
     used_earth = used_earth or []
     used_rocks = used_rocks or []
@@ -213,7 +218,7 @@ def write_cliff_inspection_vectors(
 
 
 def finalize_uzitecne_vectors(kp_cwd: Path, *, log=None) -> Path:
-    """Doplní vegetaci do pouzite/, README; připraví složku před ZIP/output."""
+    """Doplní vegetaci do v_plne_mape/, README; připraví složku před ZIP/output."""
     root, pouzite, vyhozene = ensure_uzitecne_dirs(kp_cwd)
     vege = Path(kp_cwd) / "vegetation" / "vegetation.shp"
     if vege.is_file():
@@ -225,7 +230,7 @@ def finalize_uzitecne_vectors(kp_cwd: Path, *, log=None) -> Path:
     (root / "README.txt").write_text(UZITECNE_README, encoding="utf-8")
     if log:
         n_files = sum(1 for p in root.rglob("*") if p.is_file())
-        log(f"uzitecne/: {n_files} souborů (vegetace/srázy/skály pouzite+vyhozene)")
+        log(f"uzitecne/: {n_files} souborů (vegetace/srázy/skály v_plne_mape+vyrazene_filtry)")
     return root
 
 

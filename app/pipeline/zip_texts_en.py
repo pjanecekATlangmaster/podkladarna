@@ -196,7 +196,7 @@ Co je uvnitř
 - *-sprint/les/mtbo.omap … podle názvu projektu a měřítka, otevřete v OpenOrienteering Mapper (OOM)
 - *-sprint/les/mtbo.ocd  … totéž pro OCAD (OCD12 přes Mapper convert; lossy OK; .omap zůstává)
 - base/                … vrstevnice GDAL (contours_gdal.*), vegetace / srázy / kupky
-- uzitecne/            … vegetace / srázy 104 / skály: pouzite/ (ponechané) vs vyhozene/ (vyřazené filtry)
+- uzitecne/            … vegetace / srázy 104 / skály: v_plne_mape/ vs vyrazene_filtry/ (vyřazené filtry)
 - osm/                 … vrstvy OSM jako shapefily pro ruční skládání (cesty, budovy, skály podklad, …)
 {zabaged_line}- references/          … podklady (ortofoto, OSM, …) jako online šablony (.xml) nebo stažené rastry
                          (jen pro kreslení, ne do tisku)
