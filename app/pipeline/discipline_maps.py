@@ -102,6 +102,9 @@ def build_discipline_maps_serial(
                 from app.pipeline.oom_preview import convert_omap_to_ocd
 
                 convert_omap_to_ocd(omap_p, log=log)
+                clean_p = call.kwargs.get("clean_dest")
+                if clean_p and Path(clean_p).is_file():
+                    convert_omap_to_ocd(Path(clean_p), log=log)  # čistá verze les / MTBO
             except Exception as exc:
                 log_issue(log, f"OOM OCD: přeskočeno ({call.variant_name}): {exc}")
             log(f"OOM OCD: {call.variant_name} za {format_elapsed(time.monotonic() - t_ocd)}")
