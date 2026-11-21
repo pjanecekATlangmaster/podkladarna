@@ -27,7 +27,7 @@ from app.pipeline.osm_paths import (
     resolve_path_source,
 )
 from app.pipeline.build_oom_map import write_oom_map
-from app.pipeline.job_progress import map_phase
+from app.pipeline.job_progress import log_issue, map_phase
 from app.pipeline.crs_5514 import CRS_LABEL, IS_KROVAK, crs_text_cs, projected_to_wgs84
 from app.pipeline.fetch_openzu import crop_bounds_5514
 from app.pipeline.geom_clip import expand
@@ -1616,24 +1616,29 @@ def _prepare_oom_map(
     )
     # Les a MTBO: čistá verze (bez zeleně, drobných luk a objektů z DEM) z týchž hotových objektů.
     if written and clean_dest is not None:
-        from app.pipeline import clean_map
+        # Volitelná verze nesmí shodit plnou mapu (už je na disku).
+        try:
+            from app.pipeline import clean_map
 
-        clean_stats: dict = {}
-        clean_parts = clean_map.clean_object_parts(object_parts, scale=scale, stats=clean_stats)
-        write_oom_map(
-            clean_dest,
-            map_name=map_name,
-            scale=scale,
-            ref_x=ref_x,
-            ref_y=ref_y,
-            ref_lat=ref_lat,
-            ref_lon=ref_lon,
-            templates=templates,
-            object_parts=clean_parts or None,
-            preset_id=preset_id,
-        )
-        if log:
-            log(clean_map.log_line(clean_stats))
+            clean_stats: dict = {}
+            clean_parts = clean_map.clean_object_parts(object_parts, scale=scale, stats=clean_stats)
+            write_oom_map(
+                clean_dest,
+                map_name=map_name,
+                scale=scale,
+                ref_x=ref_x,
+                ref_y=ref_y,
+                ref_lat=ref_lat,
+                ref_lon=ref_lon,
+                templates=templates,
+                object_parts=clean_parts or None,
+                preset_id=preset_id,
+            )
+            if log:
+                log(clean_map.log_line(clean_stats))
+        except Exception as exc:
+            Path(clean_dest).unlink(missing_ok=True)
+            log_issue(log, f"OOM: čistá verze přeskočena ({exc})")
     return written
 
 
