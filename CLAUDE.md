@@ -555,6 +555,11 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   výška pobřeží = 90. percentil DTM v pásu 3 m za OSM mořem (strop medián moře + 3,5 m), zóna = pixely pod ní s CHM < 1 m a sklonem
   < 4° souvisle napojené na moře (krok 2 m, kusy od 500 m²), mimo OSM zástavbu, zpevněné plochy, pole a silnice (`BUILT_KINDS`,
   `ROAD_HIGHWAYS`; přístav a nábřeží), kreslí se 213 (`intertidal`); písek se ořízne o moře. V Česku klasifikace beze změny.
+- **Čistá verze les a MTBO** (4.10.0, Petr 2026-11-21, `app/pipeline/clean_map.py`, `CLEAN_MAPS`): mapa se skládá jednou,
+  před zápisem vznikne z týchž hotových objektů druhá verze jen s „jistými“ daty pro mapaře, který domaluje sám: bez zeleně
+  406–410 z výšek, bez 401 ∪ 403 z výšek / ortofota v souvislých plochách pod `CLEAN_OPEN_MIN_M2` (0,3 ha) a bez části z DEM
+  (srázy, skály, balvany, kupky, `CLEAN_DROP_DEM`). Data OSM / ZABAGED / DTM a vrstevnice zůstávají. Čistá nese hlavní jméno
+  (`*-les.omap`, `.ocd`), plná `*-les_full.omap`; náhled webu a ukázky z plné. Sprint beze změny.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch

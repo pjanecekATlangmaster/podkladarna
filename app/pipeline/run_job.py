@@ -68,6 +68,7 @@ from app.pipeline.oom_preview import (
     output_georef_enabled,
     write_job_oom_preview,
 )
+from app.pipeline.clean_map import CLEAN_MAPS, full_variant_name
 from app.pipeline.package_oom import (
     OUTPUT_ZIP_NAME,
     BUILD_CERTAIN_MAPS,
@@ -1718,6 +1719,12 @@ def _package_output(
                         disc_tag, path_tag, map_name=job_name or "",
                         certain_only=certain, lang=zip_lang(options),
                     )
+                    # Les a MTBO: hlavní jméno nese čistá verze, plná mapa má příponu ``_full`` (clean_map).
+                    clean_dest = (
+                        output_dir / variant_name
+                        if CLEAN_MAPS and not certain and disc_tag != "sprint"
+                        else None
+                    )
                     calls.append(
                         MapCall(
                             variant_name=variant_name,
@@ -1726,7 +1733,9 @@ def _package_output(
                                 f"OOM: {variant_name} ({disc_preset_id}, 1:{scale}, {path_src}"
                                 + (", jen čistá data)" if certain else ")")
                             ),
-                            dest=output_dir / variant_name,
+                            dest=output_dir / (
+                                full_variant_name(variant_name) if clean_dest else variant_name
+                            ),
                             kwargs=dict(
                                 map_name=(job_name or disc_preset_id)
                                 + (CERTAIN_MAP_NAME_SUFFIX if certain else ""),
@@ -1750,6 +1759,7 @@ def _package_output(
                                 use_dtm=resolve_use_dtm(options, disc_preset_id),
                                 max_residual_m2=max_residual_m2,
                                 certain_only=certain,
+                                clean_dest=clean_dest,
                             ),
                         )
                     )
@@ -1770,6 +1780,9 @@ def _package_output(
                     if omap_p:
                         # Náhled jen z plné mapy; „čistá“ jde do ZIPu a OCD navíc.
                         (certain_paths if call.certain else omap_paths).append(omap_p)
+                        clean_p = call.kwargs.get("clean_dest")
+                        if clean_p and Path(clean_p).is_file():
+                            certain_paths.append(Path(clean_p))  # čistá verze: ZIP a OCD, náhled z plné
 
             if progress is not None:
                 progress.begin(PREVIEW_STEP)
