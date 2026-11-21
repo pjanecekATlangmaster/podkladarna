@@ -407,7 +407,9 @@ def _pick_omap_name(names: list[str]) -> str | None:
     if not omaps:
         return None
     sprint = [n for n in omaps if "sprint" in Path(n).name.lower()]
-    return (sprint or omaps)[0]
+    # Les a MTBO: ukázka z plné kresby (``*_full.omap``), ne z čisté verze.
+    full = [n for n in omaps if Path(n).stem.endswith("_full")]
+    return (sprint or full or omaps)[0]
 
 
 def build_sample_zip(

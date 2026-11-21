@@ -27,7 +27,7 @@ from app.pipeline.osm_paths import (
     resolve_path_source,
 )
 from app.pipeline.build_oom_map import write_oom_map
-from app.pipeline.job_progress import map_phase
+from app.pipeline.job_progress import log_issue, map_phase
 from app.pipeline.crs_5514 import CRS_LABEL, IS_KROVAK, crs_text_cs, projected_to_wgs84
 from app.pipeline.fetch_openzu import crop_bounds_5514
 from app.pipeline.geom_clip import expand
@@ -252,7 +252,9 @@ def _write_ocad_symbol_sets(
     for omap_path in omap_paths:
         if not omap_path.is_file():
             continue
-        stem = omap_path.stem.removesuffix(CERTAIN_TAG)
+        from app.pipeline.clean_map import strip_full_tag
+
+        stem = strip_full_tag(omap_path.stem.removesuffix(CERTAIN_TAG))
         tag = stem.rsplit("-", 1)[-1].lower()
         tag = {v: k for k, v in DISCIPLINE_FILE_TAGS_EN.items()}.get(tag, tag)
         path = ocad_symbol_set_path(tag, scale)
@@ -810,6 +812,10 @@ def _oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
         "-----------------------\n"
         "1. Rozbalte celý ZIP do jedné složky. Otevřete vybraný *-sprint.omap / *-les.omap / *-mtbo.omap\n"
         "   (podle měřítka; cesty z OSM) – nebo stejnojmenný *.ocd v OCAD.\n"
+        "   Les a MTBO jsou ve dvou verzích: *-les.omap / *-mtbo.omap (a .ocd) je čistá verze jen s jistými\n"
+        "   daty – bez zeleně z výšek, bez luk a pasek pod 0,3 ha a bez srázů, skal, balvanů a kupek z DEM\n"
+        "   (data OSM, ZABAGED a DTM a vrstevnice zůstávají); *_full.omap / *_full.ocd je plná kresba.\n"
+        "   Vynechané objekty najdete v plné verzi a v podkladech (DXF, SHP, PNG).\n"
         "   Výchozí pohled: jen vektory (vrstevnice, zeleň, ZABAGED, OSM budovy, srázy, …).\n"
         "   Fialový obdélník = váš výřez; vně je jen přesah polohopisu.\n"
         f"   Vrstevnice ({_c('101')}/{_c('102')}): Chaikin → DP simplify (~0,08 mm) → Bézier; zamčené (is_protected)\n"
@@ -1001,9 +1007,13 @@ def _prepare_oom_map(
     max_residual_m2: float = 500.0,
     certain_only: bool = False,
     veg_smooth: int = 0,
+    clean_dest: Path | None = None,
     log=None,
 ) -> Path | None:
-    """``certain_only``: jen čistá data – bez vegetace, OSM polí a LiDAR/DEM výstupů."""
+    """``certain_only``: jen čistá data – bez vegetace, OSM polí a LiDAR/DEM výstupů.
+
+    ``clean_dest`` (les a MTBO): vedle plné mapy ``dest`` zapíše i čistou verzi z týchž hotových objektů
+    (``clean_map.clean_object_parts``); vrací cestu k plné mapě."""
     del formline
     map_phase("polohopis a vegetace")
     drain_unmapped_codes()  # počítadlo chybějících symbolů jen pro tento job
@@ -1593,7 +1603,7 @@ def _prepare_oom_map(
     templates = collect_oom_templates(kp_cwd, built_refs=built_refs)
     # Prázdné šablony jsou OK: bez referenčních PNG je výchozí pohled
     # jen vektorová mapa (vegetace/vrstevnice/OSM/ZABAGED objekty).
-    return write_oom_map(
+    written = write_oom_map(
         dest,
         map_name=map_name,
         scale=scale,
@@ -1605,6 +1615,32 @@ def _prepare_oom_map(
         object_parts=object_parts or None,
         preset_id=preset_id,
     )
+    # Les a MTBO: čistá verze (bez zeleně, drobných luk a objektů z DEM) z týchž hotových objektů.
+    if written and clean_dest is not None:
+        # Volitelná verze nesmí shodit plnou mapu (už je na disku).
+        try:
+            from app.pipeline import clean_map
+
+            clean_stats: dict = {}
+            clean_parts = clean_map.clean_object_parts(object_parts, scale=scale, stats=clean_stats)
+            write_oom_map(
+                clean_dest,
+                map_name=map_name,
+                scale=scale,
+                ref_x=ref_x,
+                ref_y=ref_y,
+                ref_lat=ref_lat,
+                ref_lon=ref_lon,
+                templates=templates,
+                object_parts=clean_parts or None,
+                preset_id=preset_id,
+            )
+            if log:
+                log(clean_map.log_line(clean_stats))
+        except Exception as exc:
+            Path(clean_dest).unlink(missing_ok=True)
+            log_issue(log, f"OOM: čistá verze přeskočena ({exc})")
+    return written
 
 
 def build_oom_zip(
