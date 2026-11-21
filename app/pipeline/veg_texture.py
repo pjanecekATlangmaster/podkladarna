@@ -20,6 +20,14 @@ nižšího lesa a zrnitost bere i běžnou drsnost vysokých smrčin. Místo ``A
 v okně ``UNDER_WINDOW_M`` aspoň ``UNDER_SHARE`` pixelů CHM ``UNDER_LOW_M``–``UNDER_HIGH_M`` (mlází a podrost v mezerách)
 v lesním okolí → 406, čištění masky stejné. Montevaccino zeleň 23 %, F1 0,33 → 0,31, Lavarone 14 %, F1 0,22 → 0,26
 (`/mnt/project-files/evropa-data/zahranicni-build/it/zrnitost/`).
+
+Pojistka proti zelenému lesu (4.12.0, Petr 2026-11-21: „nesmí nám vyjít celý les zelený, když mapař kreslí bílý“): když
+zrnitost v režimu ``laser`` zazelená víc než ``LASER_FOREST_MAX`` lesního okolí výřezu (a les tvoří aspoň
+``LASER_MIN_FOREST`` výřezu), bere drsnost porostu za běžnou drsnost koruny (horský les, borovice na dunách, lesy jihu
+USA) a výřez se počítá jako ``understory``. Kontrola proti 37 mapám z Liveloxu (zeleň v lese naše / mapař, laser →
+pojistka): Zirbenland 57 → 29 / 19 %, Korutany 59 → 33 / 22 %, Georgie 76 → 16 / 12 %, Wales 55 → 19 / 12 %, Sasko 50 →
+11 / 16 %, JK Anglie 54 → 41 / 42 %; nížinné lesy pod hranicí (Lucembursko, Hesensko, Francie, Vídeňský les) beze změny.
+Měření v ``scripts/livelox_quality``.
 """
 
 from __future__ import annotations
@@ -39,6 +47,8 @@ BOTH_MIN_AREA_M2 = 200.0
 UNDER_WINDOW_M = 25.0  # režim ``understory``: okno podílu nízkého patra
 UNDER_LOW_M, UNDER_HIGH_M = 1.0, 8.0
 UNDER_SHARE = 0.15
+LASER_FOREST_MAX = 0.55  # pojistka: víc zeleně ze zrnitosti v lesním okolí → režim understory
+LASER_MIN_FOREST = 0.20  # pojistka jen při dost velkém lese ve výřezu (malý vzorek rozhodnutí nenese)
 
 WHITE, LIGHT, MID, DENSE = 0, 2, 3, 4  # třídy rastru porostu (vegetation_density / vegetation_chm)
 
@@ -98,10 +108,12 @@ def _shares(out):
     return {code: float(np.count_nonzero(out == v)) / out.size * 100 for code, v in (("406", LIGHT), ("408", MID), ("410", DENSE))}
 
 
-def add_texture_green(classified, chm, cell_m: float, mode: str = "laser"):
+def add_texture_green(classified, chm, cell_m: float, mode: str = "laser", info: dict | None = None):
     """Třídy porostu (0 bílá, 1 401, 2–4 zeleň, 5 403) doplněné o zeleň ze zrnitosti; vrací (rastr, podíly %).
 
-    ``mode`` = ``laser`` (výchozí) nebo ``understory`` (podíl nízkého patra, horský les v Trentinu).
+    ``mode`` = ``laser`` (výchozí) nebo ``understory`` (podíl nízkého patra, horský les v Trentinu). Když v režimu
+    ``laser`` zasáhne pojistka (``LASER_FOREST_MAX``), vrátí výsledek ``understory`` a do ``info`` zapíše
+    ``fallback`` = podíl zeleně ze zrnitosti v lesním okolí.
     """
     from app.pipeline.vegetation_density import DEFAULT_PARAMS, young_stand_to_green
 
@@ -139,4 +151,11 @@ def add_texture_green(classified, chm, cell_m: float, mode: str = "laser"):
     out[g & (out == WHITE)] = LIGHT
     out[both & g] = MID
     out[cl == DENSE] = DENSE
+    n_forest = int(np.count_nonzero(forest))
+    if n_forest >= LASER_MIN_FOREST * forest.size:
+        share = float(np.count_nonzero(forest & np.isin(out, (LIGHT, MID, DENSE)))) / n_forest
+        if share > LASER_FOREST_MAX:
+            if info is not None:
+                info["fallback"] = share
+            return add_texture_green(classified, chm, cell_m, mode="understory")
     return out, _shares(out)

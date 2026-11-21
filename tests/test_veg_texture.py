@@ -20,6 +20,9 @@ def _scene(kind: str):
         # under: vzrostlý les s mlázím 2–6 m v pruzích (podíl ~0,4); tall_rough: drsná smrčina 14–26 m bez nízkého patra
         lo, hi = (4.0, 22.0) if kind == "under" else (14.0, 26.0)
         chm[70:130, 70:130] = np.where((yy % 5 < 2), lo, hi).astype(np.float32)
+    if kind == "rough_all":
+        # celý výřez drsný (koruny 14–26 m bez nízkého patra): zrnitost by zazelenala celý les → pojistka understory
+        chm[:] = np.where((np.indices((200, 200))[0] % 5 < 2), 14.0, 26.0)
     if kind == "field_rough":
         chm[:] = 0.3
         cl[:] = 1  # 401
@@ -34,6 +37,7 @@ def _scene(kind: str):
         ("rough", T.LIGHT, "laser"),  # mezerovitý porost v lese → 406
         ("rough_green", T.MID, "laser"),  # zeleň z výšky porostu + zrnitost → 408
         ("field_rough", 1, "laser"),  # solitéry v poli bez lesního okolí: 401 zůstává
+        ("rough_all", T.WHITE, "laser"),  # zrnitost přes LASER_FOREST_MAX lesa: pojistka, drsná koruna zůstává bílá
         ("under", T.LIGHT, "understory"),  # Trentino: les s nízkým patrem → 406
         ("tall_rough", T.WHITE, "understory"),  # Trentino: drsná vysoká smrčina bez nízkého patra zůstává bílá
         ("smooth", T.WHITE, "understory"),

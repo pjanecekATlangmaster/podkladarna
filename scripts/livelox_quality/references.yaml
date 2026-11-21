@@ -64,3 +64,300 @@ references:
     data: AHN raster, BGT
     accepted:
       "oliva": "soukromé zahrady v datech chybí (Petr 2026-11-20)"
+  # Rozšíření na všechny zařazené země (Petr 2026-11-21): les, jedna mapa na oblast, hlavní kritérium = zeleň v lese reference.
+  # Bez použitelné mapy: ES-NC (mapy Urbasa v Liveloxu skryté), Berlín, DE-SL, DE-HB, DE-RP (jen vinice), GB-SCT (JK 2026 nesedí
+  # georeference, posun nenalezen) – doplnit, až se mapa najde.
+  - id: at-zirbenland-les
+    country: AT
+    class_id: 1188466
+    event: ÖM / 9. AC Langdistanz Zirbenlandopen 2026
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: horský jehličnatý les, Štýrsko
+    data: BEV ALS DTM + DSM 1 m, kresba OSM
+  - id: at-wienerwald-les
+    country: AT
+    class_id: 1060151
+    event: WrNö Lang 2025
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: listnatý les, Vídeňský les
+    data: BEV ALS DTM + DSM 1 m, kresba OSM
+  - id: at-kaernten-les
+    country: AT
+    class_id: 963842
+    event: 2. Austria Cup ÖSTM & ÖM Langdistanz 2025
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: smíšený les, Korutany
+    data: BEV ALS DTM + DSM 1 m, kresba OSM
+  - id: be-bosbergen-les
+    country: BE
+    class_id: 884424
+    event: Sylvester Day 1 De Bosbergen 2024
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: borový les na písku, Kempen
+    data: DHMV II zimní výšky (leafoff), GRB
+  - id: ch-sm-mittel-les
+    country: CH
+    class_id: 649384
+    event: Mitteldistanz Schweizermeisterschaft 2023
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: smíšený les, Mittelland
+    data: swissALTI3D + swissSURFACE3D, AV
+  - id: de-bb-dm-lang-les
+    country: DE-BB
+    class_id: 1063682
+    event: Deutsche Meisterschaften Lang-OL 2025
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: borový les na písku, Braniborsko
+    data: DGM1 + bDOM ze snímků (photo), kresba OSM
+  - id: de-bw-bwm-lang-les
+    country: DE-BW
+    class_id: 998403
+    event: Baden-Württembergische Meisterschaft Langdistanz 2025
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: listnatý a smíšený les
+    data: DGM1 + nDOM ze snímků (photo), kresba OSM
+  - id: de-by-brl-mittel-les
+    country: DE-BY
+    class_id: 1261984
+    event: Bundesranglistenlauf & BayernCup Mittel-OL 2026
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: smíšený les, Bavorsko
+    data: DGM1 + DOM20 ze snímků (photo), kresba OSM
+  - id: de-he-dm-mittel-les
+    country: DE-HE
+    class_id: 1169713
+    event: Deutsche Meisterschaften Mittel-OL 2026
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: listnatý les, Hesensko
+    data: DGM1 + DOM1 (laser), kresba OSM
+  - id: de-hh-prolog-les
+    country: DE-HH
+    class_id: 992630
+    event: Hamburg-OL 2025 Prolog
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: příměstský les, Hamburk
+    data: DGM1 + bDOM ze snímků (photo), kresba OSM
+  - id: de-mv-lm-lang-les
+    country: DE-MV
+    class_id: 1128326
+    event: SHTV-Landesmeisterschaften Langdistanz 2026
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: nížinný les, Meklenbursko
+    data: DGM1 + DOM1 (laser), kresba OSM
+  - id: de-ni-lrl-mittel-les
+    country: DE-NI
+    class_id: 1246288
+    event: 2. LRL Niedersachsen und EDYG middle distance 2026
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: nížinný les, Dolní Sasko
+    data: DGM1 + DOM1 (laser), kresba OSM
+  - id: de-nw-haltern-les
+    country: DE-NW
+    class_id: 1038909
+    event: LM NRW Haltern 2025
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: borovice na písku s podrostem, Hohe Mark
+    data: DGM1 + zimní DOM1 + letní nDOM50, kresba OSM
+  - id: de-sh-jlvk-les
+    country: DE-SH
+    class_id: 1278618
+    event: JLVK Einzel 2026
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: nížinný les, Šlesvicko-Holštýnsko
+    data: DGM1 + bDOM20 ze snímků (photo), kresba OSM
+  - id: de-sn-saxonia-les
+    country: DE-SN
+    class_id: 1267839
+    event: Saxonia-O-Festival 2026 Tag 3 BRL Mitteldistanz
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: smíšený les, Sasko
+    data: DGM1 + DOM1 (laser), kresba OSM
+  - id: de-st-advent-les
+    country: DE-ST
+    class_id: 1085859
+    event: Advents-OL 2025
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: příměstský les a otevřené plochy, Sasko-Anhaltsko
+    data: DGM1 + DOM1 (laser), kresba OSM
+  - id: dk-silkeborg-les
+    country: DK
+    class_id: 1130025
+    event: Mitteldistanz & Multitechnik OL TL Dänemark 2026 (Silkeborg Vesterskov)
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: smíšený les, Jutsko
+    data: DHM 0,4 m jarní lidar (leafoff), GeoDanmark
+  - id: ee-em-tavarada-les
+    country: EE
+    class_id: 1269407
+    event: Eesti meistrivõistlused 2026 tavarada
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: severský smíšený les
+    data: Maa-amet DTM + DSM 1 m, ETAK
+  - id: es-pv-bizkaia-les
+    country: ES-PV
+    class_id: 1086459
+    event: XXII Bizkaia Saria (etapa 1) Liga Norte 2025
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: kopcovitý les a pastviny, Biskajsko
+    data: mračno LAZ 2017 geoEuskadi, kresba OSM
+  - id: fi-icepower-les
+    country: FI
+    class_id: 982568
+    event: Ice Power -rastit 2025
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: severský les, skalky a bažiny
+    data: MML korkeusmalli 2 m + latvusmalli, kresba OSM
+    accepted:
+      "zeleň": "sever bez zrnitosti zeleně od 3.94.0 (Petr 2026-11-20)"
+      "bílý les": "důsledek severu bez zeleně (Petr 2026-11-20)"
+  - id: fr-cfmd2026-les
+    country: FR
+    class_id: 1174425
+    event: Championnat de France de Moyenne Distance 2026
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: smíšený les
+    data: LiDAR HD 0,5 m, kresba OSM
+  - id: fr-bombannes-les
+    country: FR
+    class_id: 951333
+    event: Championnat de France Moyenne Distance Bombannes 2025
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: borovice na dunách, Landy
+    data: LiDAR HD 0,5 m, kresba OSM
+  - id: gb-eng-jk-middle-les
+    country: GB-ENG
+    class_id: 938496
+    event: JK Middle 2025
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: les, Anglie
+    data: EA LIDAR Composite 1 m, kresba OSM
+  - id: gb-wls-shuoc-les
+    country: GB-WLS
+    class_id: 904432
+    event: SHUOC Wales Weekend Morning 2025
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: les, Wales
+    data: Welsh Government LiDAR 2020–23 1 m, kresba OSM
+  - id: it-coppa-middle-les
+    country: IT
+    class_id: 768177
+    event: Coppa Italia CO bosco 2024, 3. prova middle
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: horský les, Trentino
+    data: LiDAR PAT 2014 0,5 m (understory), kresba OSM
+  - id: nl-hogevijvers-les
+    country: NL
+    class_id: 872178
+    event: Forest cup Hoge Vijvers 2024
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: les na písku a vřesoviště
+    data: AHN 0,5 m, BGT
+  - id: no-trondheim-les
+    country: "NO"
+    class_id: 1192820
+    event: Trondheim Open 2026 dag 2
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: severský jehličnatý les a bažiny
+    data: Kartverket DTM/DOM, kresba OSM
+    accepted:
+      "zeleň": "sever bez zrnitosti zeleně od 3.94.0 (Petr 2026-11-20)"
+      "bílý les": "důsledek severu bez zeleně (Petr 2026-11-20)"
+  - id: pl-slask-middle-les
+    country: PL
+    class_id: 534780
+    event: Puchar Śląska 2022 Middle
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: smíšený les, Slezsko
+    data: NMT + NMPT ze snímků (photo), kresba OSM
+  - id: si-kras-les
+    country: SI
+    class_id: 445356
+    event: TK Kras T5 Veliki dol 2022
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: kras, řídký les a pastviny
+    data: mračno GKOT ARSO (leafoff), kresba OSM
+  - id: us-nationals-middle-les
+    country: US
+    class_id: 1112666
+    event: US Nationals Middle Distance 2026 (Maryland)
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: listnatý les východního pobřeží
+    data: mračno 3DEP (EPT), kresba OSM
+  - id: us-georgia-les
+    country: US
+    class_id: 1100969
+    event: Georgia Navigator Cup 2026 Saturday Classic (Chat Bend)
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: listnatý a borový les, Georgie
+    data: mračno 3DEP (EPT), kresba OSM
+  - id: us-ousa-middle-les
+    country: US
+    class_id: 1067731
+    event: OUSA Nationals 2025 Middle (Massachusetts)
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: listnatý les, skalky, Nová Anglie
+    data: mračno 3DEP (EPT), kresba OSM
