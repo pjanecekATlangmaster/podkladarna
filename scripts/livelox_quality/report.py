@@ -29,6 +29,12 @@ AREA_CHECKS = {
     ],
 }
 CONTOUR_RATIO = (0.6, 1.6)   # délka vrstevnic na km² naše / reference (jen les)
+# Zeleň v lese reference (Petr 2026-11-21: nesmí vyjít celý les zelený, když mapař kreslí bílý). Data jsou, jaká jsou,
+# méně zeleně než mapař je běžné (hlásí se jen informativně); hlásí se přebytek zeleně a les kreslený jako otevřený.
+FOREST_GREEN_EXCESS_PP = 0.20   # naše zeleň v lese minus zeleň mapaře
+FOREST_GREEN_RATIO = 2.0        # … nebo aspoň dvojnásobek zeleně mapaře
+FOREST_GREEN_MIN = 0.30         # … při naší zeleni v lese aspoň 30 %
+FOREST_OPEN_MAX = 0.15          # podíl lesa mapaře, který kreslíme jako otevřený 401/403
 F1_GREEN_MIN = 0.25          # pod tím zeleň leží jinde než v referenci
 DRIFT_PP = 0.05              # změna proti minulému běhu, která se hlásí i bez překročení prahů
 
@@ -45,6 +51,14 @@ def check(kind: str, m: dict) -> list[str]:
         rc, oc = r["contour_km_per_km2"], o["contour_km_per_km2"]
         if rc > 0 and not CONTOUR_RATIO[0] <= oc / rc <= CONTOUR_RATIO[1]:
             out.append(f"vrstevnice: naše {oc:.0f} km/km², reference {rc:.0f} km/km² ({oc / rc:.1f}×)")
+        fo = m.get("forest")
+        if fo:
+            og, rg = fo["ours_green"], fo["ref_green"]
+            if og - rg > FOREST_GREEN_EXCESS_PP or (og >= FOREST_GREEN_MIN and og >= FOREST_GREEN_RATIO * rg):
+                out.append(f"zelený les místo bílého: v lese zeleň naše {fo['ours_green']:.0%}, reference {fo['ref_green']:.0%}, "
+                           f"bílý les mapaře kreslíme zeleně z {fo['green_on_ref_white']:.0%}")
+            if fo["ours_open"] > FOREST_OPEN_MAX:
+                out.append(f"les jako otevřený prostor: {fo['ours_open']:.0%} lesa reference kreslíme 401/403")
         if m.get("f1_green") is not None and r["green"] >= 0.05 and m["f1_green"] < F1_GREEN_MIN:
             out.append(f"zeleň leží jinde než v referenci (F1 {m['f1_green']:.2f})")
     return out
@@ -95,6 +109,10 @@ def main(results_p: Path, out_md: Path, history: Path | None) -> int:
             summary = (f"bílá {o['white']:.0%}/{r['white']:.0%}, zeleň {o['green']:.0%}/{r['green']:.0%}, "
                        f"otevřené {o['open']:.0%}/{r['open']:.0%}, vrstevnice {o['contour_km_per_km2']:.0f}/{r['contour_km_per_km2']:.0f} km/km², "
                        f"F1 zeleň {m['f1_green']}")
+            fo = m.get("forest")
+            if fo:
+                summary += (f"; v lese zeleň {fo['ours_green']:.0%}/{fo['ref_green']:.0%}, bílý les mapaře zeleně "
+                            f"{fo['green_on_ref_white']:.0%}, otevřeně {fo['ours_open']:.0%}")
         else:
             summary = (f"budovy {o['grey']:.0%}/{r['grey']:.0%}, 501 {o['paved']:.0%}/{r['paved']:.0%}, "
                        f"otevřené {o['open']:.0%}/{r['open']:.0%}, zeleň {o['green']:.0%}/{r['green']:.0%}, oliva {o['olive']:.0%}/{r['olive']:.0%}")

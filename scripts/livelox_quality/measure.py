@@ -88,10 +88,17 @@ def ref_with_gcps(ref_dir: Path, tmp: Path) -> Path:
     return vrt
 
 
+def our_omap(job: Path) -> Path:
+    """Plná verze mapy. Od 4.10.0 les a MTBO zapisují i čistou verzi bez zeleně z výšek pod hlavním jménem
+    (`*-les.omap`) a plnou jako `*_full.omap`; porovnává se plná (s ní se zeleň a otevřený prostor dají měřit)."""
+    maps = sorted((job / "output").glob("*.omap"))
+    return next((p for p in maps if p.stem.endswith("_full")), maps[0])
+
+
 def render_ours(repo: Path, job: Path, tmp: Path, res: float) -> tuple[Path, Path]:
     sys.path.insert(0, str(repo))
     from app.pipeline.oom_preview import render_omap_xml_png, write_preview_pgw
-    omap = next((job / "output").glob("*.omap"))
+    omap = our_omap(job)
     scale = int(re.search(r'<georeferencing scale="(\d+)"', omap.read_text(encoding="utf-8")).group(1))
     png = tmp / "ours.png"
     r = render_omap_xml_png(omap, png, max_side=20000, target_dpi=int(round(25.4 / (res * 1000.0 / scale))),
@@ -120,6 +127,20 @@ def metrics(cls: np.ndarray, mask: np.ndarray, res: float, scale: int) -> dict:
         # délka vrstevnic (km na km²) z plochy hnědé děleno šířkou čáry v terénu
         "contour_km_per_km2": round(brown_m2 / line_m / 1000.0 / max(area_km2, 1e-9), 2),
     }
+
+
+def drawn_extent(cls: np.ndarray, res: float, gap_m: float = 50.0) -> np.ndarray:
+    """Kreslená část referenční mapy bez bílého papíru kolem (legenda, loga, prázdný okraj listu).
+
+    Bílý papír by se jinak počítal jako bílý les a naše zeleň nebo louka mimo mapu mapaře jako odchylka
+    (Zirbenland, Ballenberg: dolní polovina obrázku jsou loga). Uzavření kresby o `gap_m` a zalití děr:
+    bílý les uvnitř mapy zůstane, papír dál než `gap_m` od kresby ne.
+    """
+    ink = cls != CLASSES.index("white")
+    r = gap_m / res
+    dil = ndi.distance_transform_edt(~ink) <= r          # dilatace kresby
+    closed = ndi.distance_transform_edt(dil) > r          # eroze zpět = uzavření
+    return ndi.binary_fill_holes(closed)
 
 
 def align(co: np.ndarray, cr: np.ndarray, valid: np.ndarray, res: float, max_m: float = 40.0) -> tuple[int, int]:
@@ -153,12 +174,39 @@ def _area_mask(cls: np.ndarray, names: tuple[str, ...], res: float) -> np.ndarra
     return ndi.binary_closing(ndi.binary_opening(m, iterations=it), iterations=it * 2)
 
 
+def forest_metrics(co: np.ndarray, cr: np.ndarray, mask: np.ndarray, res: float) -> dict | None:
+    """Porost uvnitř lesa reference (bílý les ∪ zeleň mapaře): jaký podíl kreslíme zeleně, bíle a otevřeně.
+
+    Hlavní kritérium kontroly (Petr 2026-11-21): nesmí nám vyjít celý les zelený, když ho mapař kreslí bílý.
+    Podíl je z plošných masek (bez čar), takže cesty a vrstevnice přes les ho nezkreslí.
+    """
+    green = ("green1", "green2", "green3")
+    rg = _area_mask(cr, green, res) & mask
+    rw = _area_mask(cr, ("white",), res) & mask & ~rg
+    rf = rg | rw
+    n = int(rf.sum())
+    if n * res * res < 50_000:  # pod 5 ha lesa v referenci nemá podíl smysl
+        return None
+    og = _area_mask(co, green, res)
+    ow = _area_mask(co, ("white",), res) & ~og
+    oo = _area_mask(co, ("open", "rough_open"), res) & ~og & ~ow
+    return {
+        "forest_km2": round(n * res * res / 1e6, 3),
+        "ref_green": round(float(rg.sum()) / n, 3),
+        "ours_green": round(float((og & rf).sum()) / n, 3),
+        "ours_white": round(float((ow & rf).sum()) / n, 3),
+        "ours_open": round(float((oo & rf).sum()) / n, 3),
+        # kde mapař kreslí bílý les: kolik z toho kreslíme zeleně (zelený les místo bílého)
+        "green_on_ref_white": round(float((og & rw).sum()) / max(int(rw.sum()), 1), 3),
+    }
+
+
 def measure(repo: Path, job: Path, ref_dir: Path, kind: str, ref_scale: int, bbox, debug: Path | None = None) -> dict:
     res = 1.0 if kind == "les" else 0.5
     tmp = Path(tempfile.mkdtemp())
     png, prj = render_ours(repo, job, tmp, res)
     our_scale = int(re.search(r'<georeferencing scale="(\d+)"',
-                              next((job / "output").glob("*.omap")).read_text(encoding="utf-8")).group(1))
+                              our_omap(job).read_text(encoding="utf-8")).group(1))
     lon, lat = (bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2
     epsg = _utm_epsg(lon, lat)
     # rozsah naší mapy v UTM
@@ -173,7 +221,7 @@ def measure(repo: Path, job: Path, ref_dir: Path, kind: str, ref_scale: int, bbo
     shift = align(co, cr, om & rm, res)
     ref, rm, cr = (np.roll(x, shift, axis=(0, 1)) for x in (ref, rm, cr))
     # okraj 30 m pryč (legenda, rámeček, ořez mapy), přetisk tratí z masky
-    mask = ndi.binary_erosion(om & rm, iterations=int(30 / res))
+    mask = ndi.binary_erosion(om & rm, iterations=int(30 / res)) & drawn_extent(cr, res)
     course = (cr == CLASSES.index("course")) | (co == CLASSES.index("course"))  # přetisk tratí, náš rámeček mapy
     mask &= ~ndi.binary_dilation(course, iterations=int(2 / res))
     if debug:
@@ -181,7 +229,9 @@ def measure(repo: Path, job: Path, ref_dir: Path, kind: str, ref_scale: int, bbo
         Image.fromarray(ours).save(debug / "ours.jpg", quality=80); Image.fromarray(ref).save(debug / "ref.jpg", quality=80)
     mo, mr = metrics(co, mask, res, our_scale), metrics(cr, mask, res, ref_scale)
     green = ("green1", "green2", "green3")
+    forest = forest_metrics(co, cr, mask, res) if kind == "les" else None
     return {
+        "forest": forest,
         "ours": mo, "ref": mr, "our_scale": our_scale, "ref_scale": ref_scale, "epsg": epsg,
         "shift_m": [round(shift[1] * res, 1), round(-shift[0] * res, 1)],
         "f1_green": f1(_area_mask(co, green, res), _area_mask(cr, green, res), mask),

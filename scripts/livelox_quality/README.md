@@ -23,6 +23,14 @@ se nahlásí v projektu.
 
 ## Metriky a prahy
 
+**Hlavní kritérium (Petr 2026-11-21): nesmí nám vyjít celý les zelený, když ho mapař kreslí bílý.** Uvnitř lesa
+reference (bílý les ∪ zeleň mapaře, plošné masky bez čar) se měří, jakou část kreslíme zeleně (`forest.ours_green`
+proti `forest.ref_green`), jakou část bílého lesa mapaře kreslíme zeleně (`green_on_ref_white`) a jakou část lesa
+kreslíme jako otevřený prostor (`ours_open`). Hlásí se přebytek zeleně nad 20 p. b. nebo dvojnásobek při naší zeleni
+aspoň 30 % a les kreslený z víc než 15 % jako 401/403. Méně zeleně než mapař je běžné (data jsou, jaká jsou) a hlásí se
+jen ostatními metrikami. Měří se plná verze mapy (`*_full.omap`; od 4.10.0 je pod hlavním jménem čistá verze bez zeleně
+z výšek) a jen kreslená část reference (bílý papír s legendou a logy dál než 50 m od kresby se vynechá).
+
 Podíl plochy mapy: bílý les, zeleň 406–410 (a stupně), otevřený prostor 401/403, voda, oliva, budovy (šedá),
 zpevněné 501; délka vrstevnic v km/km² (plocha hnědé / šířka čáry 0,14 mm v měřítku mapy); F1 shody zeleně,
 bílého lesa a otevřeného prostoru. Výrazná odchylka (les): rozdíl podílu nad 15 p. b. (otevřené 10, voda 5),
@@ -37,7 +45,7 @@ Prostředí jako u cloudové otočky: `apt-get install gdal-bin python3-gdal`, v
 `gdal_fillnodata`, `gdal_polygonize` volající venv python. Server:
 
 ```bash
-MAX_ACTIVE_JOBS_PER_IP=50 MAX_JOBS_PER_IP_HOUR=100 PODKLADARNA_DATA=$DATA SITES="localhost=cs:free:*" COUNTRIES_BETA="*" \
+MAX_QUEUE_SIZE=100 MAX_JOBS_PER_NET_DAY=0 MAX_JOBS_PER_IP_DAY=0 MAX_ACTIVE_JOBS_PER_IP=50 MAX_JOBS_PER_IP_HOUR=100 PODKLADARNA_DATA=$DATA SITES="localhost=cs:free:*" COUNTRIES_BETA="*" \
   python -m uvicorn app.main:app --port 8672 &
 python scripts/livelox_quality/run_check.py --base http://localhost:8672 --data $DATA --cache $CACHE --out $OUT \
   --history /mnt/project-files/kontrola-livelox/history.jsonl

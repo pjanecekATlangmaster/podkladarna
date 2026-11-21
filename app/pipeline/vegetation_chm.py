@@ -436,13 +436,17 @@ def _with_texture_green(classified, arr, nodata, gt, *, log=None, mode="laser"):
         chm = np.asarray(arr, dtype=np.float32)
         if nodata is not None:
             chm = np.where(chm == float(nodata), np.nan, chm)
-        out, shares = add_texture_green(classified, chm, abs(float(gt[1])), mode=texture_mode(mode))
+        info: dict = {}
+        out, shares = add_texture_green(classified, chm, abs(float(gt[1])), mode=texture_mode(mode), info=info)
     except Exception as exc:  # noqa: BLE001 – zeleň navíc nesmí shodit vegetaci
         if log:
             log(f"Vegetace: zeleň ze zrnitosti přeskočena ({exc})")
         return classified
+    if log and "fallback" in info:
+        log(f"Vegetace: zrnitost by zazelenala {100.0 * info['fallback']:.0f} % lesa – zeleň z podílu nízkého patra (pojistka)")
     if log and shares:
-        log(("Vegetace: zeleň z podílu nízkého patra – " if texture_mode(mode) == "understory" else "Vegetace: zeleň ze zrnitosti porostu – ") + ", ".join(f"{k} {v:.1f} %" for k, v in shares.items()))
+        under = texture_mode(mode) == "understory" or "fallback" in info
+        log(("Vegetace: zeleň z podílu nízkého patra – " if under else "Vegetace: zeleň ze zrnitosti porostu – ") + ", ".join(f"{k} {v:.1f} %" for k, v in shares.items()))
     return out
 
 
