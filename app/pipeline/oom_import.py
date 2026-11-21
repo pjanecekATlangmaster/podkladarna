@@ -2282,7 +2282,7 @@ def build_dxf_object_part(
             cliff_symbol == KP_CLIFF_SYMBOL_206 or cliff_line_code == "201"
         )
         # Zamotané nejdřív necháme v merge projít (reject_tangled=False), ať
-        # uzitecne/vyhozene dostane duvod=zamotany. Min-délka zůstává v merge.
+        # uzitecne/vyrazene_filtry dostane duvod=zamotany. Min-délka zůstává v merge.
         merged = merge_cliff_ticks(
             cliff_ticks,
             as_polygons=as_polygons,

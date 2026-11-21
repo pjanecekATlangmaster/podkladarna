@@ -12,8 +12,8 @@ from pathlib import PurePosixPath
 # Složky (kterákoli úroveň cesty).
 EN_DIRS: dict[str, str] = {
     "uzitecne": "useful",
-    "pouzite": "kept",
-    "vyhozene": "dropped",
+    "v_plne_mape": "in_full_map",
+    "vyrazene_filtry": "filtered_out",
     "ocad_symboly": "ocad_symbols",
 }
 
