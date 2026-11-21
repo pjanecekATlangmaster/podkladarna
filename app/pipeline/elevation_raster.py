@@ -1950,20 +1950,29 @@ FR_RETRIES = 3  # WMS-R občas vrátí 502 / přeruší spojení; další pokus 
 SERVER_FAULT_MARKERS = ("database connection failed", "mspostgislayeropen", "is the database running")
 
 
-def _ows_exception_text(exc) -> str:
-    """Text ``ows:ExceptionText`` (nebo začátek těla) chybové odpovědi WCS; prázdný, když tělo není."""
+def _ows_exception(exc) -> tuple[str, bool]:
+    """Text chybové odpovědi OGC (``ows:ExceptionText`` WCS nebo ``ServiceException`` WMS) a zda tělo takovou
+    zprávu obsahuje; bez ní začátek těla (může být prázdný) a False."""
     try:
         raw = exc.read(4096) if exc.fp is not None else b""
     except Exception:  # noqa: BLE001 – tělo chyby je jen doplněk hlášky
         raw = b""
     text = raw.decode("utf-8", "replace")
-    m = re.search(r"<(?:\w+:)?ExceptionText>(.*?)</(?:\w+:)?ExceptionText>", text, re.S)
-    return " ".join((m.group(1) if m else text).split())[:200]
+    m = re.search(r"<(?:\w+:)?(?:ExceptionText|ServiceException)\b[^>]*>(.*?)</(?:\w+:)?(?:ExceptionText|ServiceException)>",
+                  text, re.S)
+    return " ".join((m.group(1) if m else text).split())[:200], m is not None
 
 
-def _download_retry(url: str, dest: Path, *, retries: int = FR_RETRIES, log=None, wait_s: float = 3.0) -> Path:
+def _download_retry(url: str, dest: Path, *, retries: int = FR_RETRIES, log=None, wait_s: float = 3.0,
+                    retry_bare_400: bool = False) -> Path:
     """``_download`` s opakováním po přechodné chybě (5xx, 429, síť, výpadek databáze služby); jiná 4xx a odpověď
-    bez GeoTIFFu hned dál."""
+    bez GeoTIFFu hned dál.
+
+    ``retry_bare_400``: HTTP 400 bez chybové zprávy OGC je chyba služby, ne dotazu (WMS-R IGN 2026-11-21, job
+    ec7893e3175a: jedna dlaždice MNS 400 bez popisu, tentýž výřez MNT i opakovaný dotaz prošly). Skutečně chybný
+    dotaz služba vrací se ``ServiceException`` (limit pixelů, neznámá vrstva, CRS, BBOX) a ten se neopakuje.
+    Hláška chyby 4xx nese text ze ``ServiceException`` / ``ExceptionText``, ne jen „Bad Request“.
+    """
     import time
     import urllib.error
 
@@ -1971,13 +1980,18 @@ def _download_retry(url: str, dest: Path, *, retries: int = FR_RETRIES, log=None
         try:
             return _download(url, dest, log=log)
         except urllib.error.HTTPError as exc:
-            detail = _ows_exception_text(exc) if 400 <= exc.code < 500 else ""
-            server_fault = any(m in detail.lower() for m in SERVER_FAULT_MARKERS)
+            detail, ogc = _ows_exception(exc) if 400 <= exc.code < 500 else ("", False)
+            server_fault = any(m in detail.lower() for m in SERVER_FAULT_MARKERS) or (
+                retry_bare_400 and exc.code == 400 and not ogc
+            )
             if server_fault and attempt >= retries:
                 raise RuntimeError(
-                    f"výšková služba má výpadek na své straně (HTTP {exc.code}: {detail}); zkuste to později"
+                    f"výšková služba má výpadek na své straně (HTTP {exc.code}: {detail or 'bez popisu chyby'}, "
+                    f"{retries + 1} pokusy); zkuste to později"
                 ) from exc
             if not server_fault and (attempt >= retries or not (exc.code >= 500 or exc.code == 429)):
+                if detail:
+                    exc.msg = f"{exc.msg} – {detail}"  # str(HTTPError) = „HTTP Error 400: Bad Request – <důvod>“
                 raise
         except (urllib.error.URLError, TimeoutError, ConnectionError):
             if attempt >= retries:
@@ -2007,7 +2021,8 @@ def fr_lidarhd_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
     bounds_l93 = _bounds_in(bounds, CRS_WKT, FR_CRS)
     jobs = [(kind, k, url) for kind in FR_LAYERS for k, url in enumerate(fr_lidarhd_urls(kind, bounds_l93))]
     with ThreadPoolExecutor(max_workers=2, thread_name_prefix="fr-lidarhd") as ex:
-        tiles = list(ex.map(lambda j: _download_retry(j[2], out_dir / f"fr_{j[0]}_{j[1]}.tif", log=log), jobs))
+        tiles = list(ex.map(lambda j: _download_retry(j[2], out_dir / f"fr_{j[0]}_{j[1]}.tif", log=log,
+                                                      retry_bare_400=True), jobs))
     out = {}
     for kind in FR_LAYERS:
         vrt = out_dir / f"fr_lidarhd_{kind}.vrt"

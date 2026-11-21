@@ -94,6 +94,62 @@ def test_lidarhd_download_retries_transient_errors(monkeypatch, tmp_path):
     assert len(calls) == 4
 
 
+
+def test_lidarhd_download_bare_400_is_service_fault(monkeypatch, tmp_path):
+    """WMS-R IGN 2026-11-21 (job ec7893e3175a): 400 bez ServiceException se u Francie opakuje a po vyčerpání pokusů
+    hlásí výpadek služby; skutečně chybný dotaz (ServiceException) se neopakuje a hláška nese důvod."""
+    import io
+    import urllib.error
+
+    calls = []
+
+    def bare_then_ok(url, dest, log=None):
+        calls.append(url)
+        if len(calls) < 2:
+            raise urllib.error.HTTPError(url, 400, "Bad Request", {}, io.BytesIO(b""))
+        return dest
+
+    monkeypatch.setattr(elevation_raster, "_download", bare_then_ok)
+    assert elevation_raster._download_retry("u", tmp_path / "t.tif", wait_s=0, retry_bare_400=True) == tmp_path / "t.tif"
+    assert len(calls) == 2
+
+    def bare(url, dest, log=None):
+        calls.append(url)
+        raise urllib.error.HTTPError(url, 400, "Bad Request", {}, io.BytesIO(b"<html>gateway</html>"))
+
+    monkeypatch.setattr(elevation_raster, "_download", bare)
+    calls.clear()
+    with pytest.raises(RuntimeError, match="výšková služba má výpadek na své straně.*HTTP 400"):
+        elevation_raster._download_retry("u", tmp_path / "t.tif", wait_s=0, retry_bare_400=True)
+    assert len(calls) == 4
+
+    body = (b'<ServiceExceptionReport version="1.3.0" xmlns="http://www.opengis.net/ogc"><ServiceException '
+            b'code="InvalidParameterValue">WIDTH query parameter exceed the limit (5010)</ServiceException>'
+            b'</ServiceExceptionReport>')
+
+    def too_wide(url, dest, log=None):
+        calls.append(url)
+        raise urllib.error.HTTPError(url, 400, "Bad Request", {}, io.BytesIO(body))
+
+    monkeypatch.setattr(elevation_raster, "_download", too_wide)
+    calls.clear()
+    with pytest.raises(urllib.error.HTTPError, match="WIDTH query parameter exceed the limit"):
+        elevation_raster._download_retry("u", tmp_path / "t.tif", wait_s=0, retry_bare_400=True)
+    assert len(calls) == 1
+
+
+def test_lidarhd_provider_retries_bare_400(monkeypatch, tmp_path):
+    """Provider Francie stahuje s ``retry_bare_400``; ostatní země beze změny (výchozí False)."""
+    seen = []
+    monkeypatch.setattr(elevation_raster, "_download_retry",
+                        lambda url, dest, log=None, **kw: seen.append(kw.get("retry_bare_400")) or dest)
+    monkeypatch.setattr(elevation_raster, "run_cmd", lambda *a, **k: None)
+    monkeypatch.setattr(elevation_raster, "_gdal_tool", lambda name: name)
+    monkeypatch.setattr(elevation_raster, "_bounds_in", lambda b, *_a: b)
+    elevation_raster.fr_lidarhd_provider((652000.0, 6861000.0, 652500.0, 6861500.0), tmp_path)
+    assert seen and all(seen)
+
+
 def _tile(x0: float, y0: float, mnt: bool = True, mns: bool = True) -> dict:
     feat = _feat(x0, y0, 1.0)
     feat["properties"] = {"url_mnt": "a" if mnt else None, "url_mns": "b" if mns else None}
