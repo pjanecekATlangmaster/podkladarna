@@ -779,7 +779,7 @@ def _oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
         "vegetace z hustoty LiDAR odrazů (vegetation.*, záloha CHM), "
         f"srázy zem ({_c('104')}) / skála ({_c('206')}) "
         f"a volitelné knolly ({_c('109')}).\n"
-        "   uzitecne/pouzite vs uzitecne/vyhozene: stejné vrstvy po filtrech "
+        "   uzitecne/v_plne_mape vs uzitecne/vyrazene_filtry: stejné vrstvy po filtrech "
         "(min-size, occupancy, husté vrstevnice, …) – SHP k prohlížení.\n"
         "   ZABAGED louky nejsou auto-zdroj vegetace – jen v zabaged/ pro ruční import.\n"
         f"{georef_note}"
