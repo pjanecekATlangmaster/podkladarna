@@ -19,7 +19,7 @@ from app.pipeline.zip_names import EN_STEMS, localize_arcname
         ("osm/OSM_budovy.shx", "en", "osm/OSM_buildings.shx"),
         ("osm/OSM_residential_zbytek_stredni.dbf", "en", "osm/OSM_residential_rest_medium.dbf"),
         ("osm/README.txt", "en", "osm/README.txt"),
-        ("uzitecne/vyhozene/vegetace.shp", "en", "useful/dropped/vegetation.shp"),
+        ("uzitecne/vyhozene/vegetace.shp", "en", "useful/filtered_out/vegetation.shp"),
         ("ocad_symboly/ISOM_2017_10000.ocd", "en", "ocad_symbols/ISOM_2017_10000.ocd"),
         ("zabaged/Cesta.shp", "en", "zabaged/Cesta.shp"),
     ],

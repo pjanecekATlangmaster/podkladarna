@@ -137,7 +137,7 @@ What is inside
 - *-sprint/les/mtbo.omap … by project name and scale (les = forest), open in OpenOrienteering Mapper (OOM)
 - *-sprint/les/mtbo.ocd  … the same for OCAD (OCD12 via Mapper convert; lossy OK; the .omap stays)
 - base/                … GDAL contours (contours_gdal.*), vegetation / cliffs / knolls
-- useful/              … vegetation / earth banks 104 / rocks: kept/ vs dropped/ (dropped by filters)
+- useful/              … vegetation / earth banks 104 / rocks: in_full_map/ vs filtered_out/ (dropped by filters)
 - osm/                 … OSM shapefile layers for manual composition (paths, buildings, rock base, …)
 {zabaged_line}- references/          … base maps (orthophoto, OSM, …) as online templates (.xml) or downloaded rasters
                          (for drawing only, not for print)
@@ -288,8 +288,9 @@ UZITECNE_README_EN = """Useful vectors – vegetation, earth banks, rocks
 ===============================================
 For viewing and manual import in OOM / QGIS (coordinate system of the job).
 
-kept/      … what stayed in the automatic .omap after filtering
-dropped/   … dropped candidates (attribute duvod = filter reason)
+in_full_map/   … what stayed in the map after filtering (forest / MTBO: the full map *_full.omap;
+               the clean map leaves out green and DEM features even from here)
+filtered_out/  … candidates dropped by the filters (attribute duvod = filter reason)
 
 Layers
 ------
@@ -297,7 +298,7 @@ vegetation.*       vegetation polygons (cls, code = 401/406/408/410)
 earth_banks_104.*  earth banks (ISOM 104 lines)
 cliffs_201.*       rock areas (polygons 201.2 / 206)
 
-Reasons in dropped (examples): mala_plocha (small area), kompaktni_flek (compact patch),
+Reasons in filtered_out (examples): mala_plocha (small area), kompaktni_flek (compact patch),
 min_plocha (minimum area), zamotany (tangled), nizky_schod (low step), deprese (depression),
 budova (building), prekryv_104 (overlaps 104), occupancy, husté_vrstevnice (dense contours).
 
@@ -542,7 +543,7 @@ def oom_readme_en(
         "vegetation from LiDAR return density (vegetation.*, fallback CHM), "
         f"earth banks ({code('104')}) / rock ({code('206')}) "
         f"and optional knolls ({code('109')}).\n"
-        "   useful/kept vs useful/dropped: the same layers after filters "
+        "   useful/in_full_map vs useful/filtered_out: the same layers after filters "
         "(min-size, occupancy, dense contours, …) – SHP for viewing.\n"
         f"{georef_note}"
         "   The web PNG preview (Pillow) is not part of the material package.\n\n"
