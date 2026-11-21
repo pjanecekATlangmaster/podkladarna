@@ -64,8 +64,11 @@ def test_withhold_images_drops_forbidden_rasters_keeps_online(tmp_path: Path):
     assert (refs / "osm.vrt").exists()
 
 
-@pytest.mark.parametrize("lang, notice", [("cs", "CHYBEJICI_PODKLADY.txt"), ("en", "MISSING_BASE_MAPS.txt")])
-def test_zip_keeps_own_osm_render_withholds_forbidden_with_notice(tmp_path: Path, lang, notice):
+@pytest.mark.parametrize(
+    "lang, notice, ztm",
+    [("cs", "CHYBEJICI_PODKLADY.txt", "mapa_ztm.png"), ("en", "MISSING_BASE_MAPS.txt", "ztm_basemap.png")],
+)
+def test_zip_keeps_own_osm_render_withholds_forbidden_with_notice(tmp_path: Path, lang, notice, ztm):
     """osm.png (vlastní render) do ZIPu jde, zakázaný obrázek (Trento) ne a ZIP dostane vysvětlení."""
     kp = tmp_path / "kp"
     kp.mkdir()
@@ -81,7 +84,7 @@ def test_zip_keeps_own_osm_render_withholds_forbidden_with_notice(tmp_path: Path
         names = set(zf.namelist())
         text = zf.read(f"references/{notice}").decode("utf-8")
         readme = zf.read("README_OOM.txt").decode("utf-8")
-    assert {"references/osm.png", "references/mapa_ztm.png"} <= names
+    assert {"references/osm.png", f"references/{ztm}"} <= names
     assert "references/ortofoto_trento.jpg" not in names
     assert "OpenStreetMap" not in text
     assert notice in readme

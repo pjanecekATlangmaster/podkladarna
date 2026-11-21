@@ -1867,6 +1867,8 @@ def _package_output(
         if bool(options.get("output_references", True)) or built_refs:
             refs_src = kp_cwd / "references"
             if refs_src.is_dir():
+                from app.pipeline.zip_names import localize_name
+
                 refs_dst = output_dir / "references"
                 refs_dst.mkdir(parents=True, exist_ok=True)
                 for path in refs_src.glob("*"):
@@ -1880,7 +1882,8 @@ def _package_output(
                         ".xml",
                         ".vrt",
                     } and not path.name.lower().endswith(".aux.xml"):
-                        shutil.copy2(path, refs_dst / path.name)
+                        # anglický výstup: názvy jako v ZIPu a v šablonách .omap (zip_names)
+                        shutil.copy2(path, refs_dst / localize_name(path.name, zip_lang(options)))
         # Vegetace / srázy / skály (použité vs vyhozené) – stejné jako v ZIPu.
         try:
             from app.pipeline.uzitecne_vectors import (

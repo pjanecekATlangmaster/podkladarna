@@ -303,6 +303,25 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "zabaged/" in readme
     assert "vectors/" not in readme
     assert "uzitecne" in readme
+
+    # Anglický ZIP (Omapic): anglické názvy souborů a složek, šablony .omap stejně (zip_names).
+    refs = tmp_path / "refs"
+    refs.mkdir()
+    (refs / "vyska_vegetace.png").write_bytes(b"png")
+    (refs / "vyska_vegetace.pgw").write_text("1\n0\n0\n-1\n0\n0\n", encoding="utf-8")
+    dest_en = tmp_path / "out" / "omapic_oom.zip"
+    meta_en = oom_metadata(
+        "sprint_2m",
+        {"label": "Sprint 1:4000 · 2 m", "contour_interval": 2, "scalefactor": 0.4, "formline": 0},
+        {"scalefactor": 0.4, "formline": 0, "lang": "en"},
+        job_name="test-job",
+    )
+    build_oom_zip(kp, dest_en, zabaged_clean=zabaged, metadata=meta_en, reference_dir=refs)
+    with zipfile.ZipFile(dest_en) as zf:
+        en_names = set(zf.namelist())
+    assert {"osm/OSM_paths.shp", "osm/OSM_buildings.shp", "osm/OSM_hunting_stands.shp", "useful/README.txt"} <= en_names
+    assert {"references/vegetation_height.png", "references/vegetation_height.pgw", "zabaged/Cesta.shp"} <= en_names
+    assert not any(n.startswith("uzitecne/") or "OSM_budovy" in n or "vyska_vegetace" in n for n in en_names)
     about = zipfile.ZipFile(dest).read("CO_JE_PODKLADARNA.txt").decode("utf-8")
     assert "zabaged/" in about
     assert "vectors/" not in about

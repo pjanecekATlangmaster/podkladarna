@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
-from app.pipeline.country_profile import process_uses_cz_sources
+from app.pipeline.country_profile import process_lang, process_uses_cz_sources
 from app.pipeline.online_templates import online_labels
 from app.pipeline.reference_layers import HILLSHADE_VARIANTS, orthophoto_items
 from app.pipeline.terrain_shade_png import TERRAIN_SHADES
+from app.pipeline.zip_names import localize_arcname
 
 # Skupiny v okně šablon OOM (atribut group=).
 GROUP_REFERENCE = 1
@@ -166,4 +167,8 @@ def collect_oom_templates(
                 )
             )
 
+    # Anglický výstup: cesty šablon jako v anglickém ZIPu (zip_names), ať .omap podklady najde.
+    lang = process_lang()
+    if lang != "cs":
+        templates = [replace(t, relpath=localize_arcname(t.relpath, lang)) for t in templates]
     return templates
