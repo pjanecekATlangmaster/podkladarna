@@ -581,7 +581,7 @@ def test_zip_texts_follow_job_language(country, refs):
     readme = oom_readme(en, sentinel_info="")
     assert name == "ABOUT_OMAPIC.txt" and en["lang"] == "en"
     czech = re.compile(r"[ěščřžůĚŠČŘŽŮ]|Podkladárn|Nejprve|Měřítko|Doporučený")
-    allowed = ("ČÚZK", "Křovák", "Janeček", "Ruumiamet", "Straßen", "vyska_vegetace", "husté_vrstevnice")
+    allowed = ("ČÚZK", "Křovák", "Janeček", "Ruumiamet", "Straßen", "husté_vrstevnice")
     for text in (about, readme):
         scrub = text
         for word in allowed:

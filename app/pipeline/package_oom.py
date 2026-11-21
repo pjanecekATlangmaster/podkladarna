@@ -39,6 +39,7 @@ from app.pipeline.oom_import import (
     build_zabaged_object_parts,
 )
 from app.pipeline.oom_coords import projected_to_map_coord
+from app.pipeline import zip_names
 from app.pipeline.oom_layers import collect_oom_templates
 from app.pipeline.oom_symbol_map import (
     describe_code,
@@ -1651,7 +1652,6 @@ def build_oom_zip(
     reference_dir: Path | None = None,
     omap_paths: list[Path] | None = None,
     include_zabaged_archive: bool = False,
-    include_png: bool = True,
     include_dxf: bool = True,
     include_cliffs: bool = True,
     ruian_buildings: Path | None = None,
@@ -1664,9 +1664,11 @@ def build_oom_zip(
     part_zip = dest_zip.with_name(dest_zip.name + ".part")
     part_zip.unlink(missing_ok=True)
 
-    with zipfile.ZipFile(part_zip, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(*zip_about(metadata))
+    with zipfile.ZipFile(part_zip, "w", zipfile.ZIP_DEFLATED) as raw_zf:
         english = zip_texts_en.zip_lang(metadata) == "en"
+        # Anglický ZIP: anglické názvy souborů a složek (zip_names); český beze změny.
+        zf = zip_names.LocalizedZip(raw_zf, "en") if english else raw_zf
+        zf.writestr(*zip_about(metadata))
         if omap_paths:
             for omap_path in omap_paths:
                 if omap_path.is_file():
@@ -1695,10 +1697,8 @@ def build_oom_zip(
 
             for path in list_georef_preview_files(Path(georef_preview_dir)):
                 zf.write(path, f"preview/{path.name}")
-        shade_dir = kp_cwd / "shade"
-        if include_png and shade_dir.is_dir():
-            for name in ("hillshade.png", "hillshade.pgw"):
-                _write_if_exists(zf, shade_dir / name, f"preview/{name}")
+        # Stínování jobu (work/shade/hillshade.png) do ZIPu nejde: je to duplikát references/hillshade_dmr5g.png
+        # (zahraničí hillshade_dtm.png), .omap ho nepoužívá (Petr 2026-11-21).
         if reference_dir and reference_dir.is_dir():
             # PNG (+ .pgw) a ortofoto JPEG dlaždice (+ .jgw); obrázky zdrojů, které licence do ZIPu nepouští,
             # ne (zip_images – pojistka, stahování je přeskakuje) a místo nich vysvětlení.

@@ -2,8 +2,8 @@
 
 Jazyk ZIPu = jazyk stránky, ze které job přišel (``options["lang"]``, v metadatech ``lang``); bez něj česky
 (starší joby, API). Katalog ``configs/i18n`` na dlouhé texty ZIPu nestačí, proto jsou tady celé – stejně jako
-anglický úvod webu v ``guide_text``. Názvy souborů a složek (``base/``, ``uzitecne/``, ``vyska_vegetace.png`` …)
-zůstávají, jsou to technické identifikátory; texty je vysvětlují.
+anglický úvod webu v ``guide_text``. Názvy souborů a složek jsou v anglickém ZIPu anglické (``zip_names``:
+``useful/``, ``vegetation_height.png``, ``OSM_buildings.shp`` …), texty je tak uvádějí.
 """
 
 from __future__ import annotations
@@ -137,7 +137,7 @@ What is inside
 - *-sprint/les/mtbo.omap … by project name and scale (les = forest), open in OpenOrienteering Mapper (OOM)
 - *-sprint/les/mtbo.ocd  … the same for OCAD (OCD12 via Mapper convert; lossy OK; the .omap stays)
 - base/                … GDAL contours (contours_gdal.*), vegetation / cliffs / knolls
-- uzitecne/            … vegetation / earth banks 104 / rocks: pouzite/ (kept) vs vyhozene/ (dropped by filters)
+- useful/              … vegetation / earth banks 104 / rocks: kept/ vs dropped/ (dropped by filters)
 - osm/                 … OSM shapefile layers for manual composition (paths, buildings, rock base, …)
 {zabaged_line}- references/          … base maps (orthophoto, OSM, …) as online templates (.xml) or downloaded rasters
                          (for drawing only, not for print)
@@ -269,14 +269,14 @@ Same purpose as the zabaged/ folder (Czech jobs): pick a SHP and import it into 
 (File → Import…) with a symbol assignment.
 
 Most objects are in the .omap as well; here you have them as a source for free composition.
-Including OSM_budovy.shp (buildings, the same source as the automatic buildings in the .omap).
+Including OSM_buildings.shp (buildings, the same source as the automatic buildings in the .omap).
 
-OSM rocks: OSM_skaly (natural=bare_rock) goes into the automatic .omap as bare rock {describe_code("214")}
-(MTBO does not have it, there it stays a base layer). OSM_skaly_linie / OSM_sutina are base layers only.
+OSM rocks: OSM_bare_rock (natural=bare_rock) goes into the automatic .omap as bare rock {describe_code("214")}
+(MTBO does not have it, there it stays a base layer). OSM_cliffs / OSM_scree are base layers only.
 Other rocks in the output are computed from LiDAR/DEM ({describe_code("206")}).
 
-Residential remainder: OSM_residential_zbytek_mensi / _stredni / _velke (smaller / medium / large)
-and _ridke (sparsely mapped – not in the automatic .omap). Symbol {describe_code("501")}.
+Residential remainder: OSM_residential_rest_small / _medium / _large
+and _sparse (sparsely mapped – not in the automatic .omap). Symbol {describe_code("501")}.
 
 Symbol codes are the codes of the OCAD sets ISOM / ISSprOM (MTBO has its own numbering).
 
@@ -288,16 +288,16 @@ UZITECNE_README_EN = """Useful vectors – vegetation, earth banks, rocks
 ===============================================
 For viewing and manual import in OOM / QGIS (coordinate system of the job).
 
-pouzite/   … what stayed in the automatic .omap after filtering
-vyhozene/  … dropped candidates (attribute duvod = filter reason)
+kept/      … what stayed in the automatic .omap after filtering
+dropped/   … dropped candidates (attribute duvod = filter reason)
 
 Layers
 ------
-vegetace.*   vegetation polygons (cls, code = 401/406/408/410)
-srazy_104.*  earth banks (ISOM 104 lines)
-skaly_201.*  rock areas (polygons 201.2 / 206)
+vegetation.*       vegetation polygons (cls, code = 401/406/408/410)
+earth_banks_104.*  earth banks (ISOM 104 lines)
+cliffs_201.*       rock areas (polygons 201.2 / 206)
 
-Reasons in vyhozene (examples): mala_plocha (small area), kompaktni_flek (compact patch),
+Reasons in dropped (examples): mala_plocha (small area), kompaktni_flek (compact patch),
 min_plocha (minimum area), zamotany (tangled), nizky_schod (low step), deprese (depression),
 budova (building), prekryv_104 (overlaps 104), occupancy, husté_vrstevnice (dense contours).
 
@@ -486,9 +486,9 @@ def oom_readme_en(
     if online and not cz:
         refs_intro = (
             "Base maps are online templates (.xml / .vrt files in the references/ folder, GDAL WMS) of the local\n"
-            "services of the area's country (and OpenStreetMap when the image was not drawn), each at maximum and medium zoom (_stredni, 4× coarser).\n"
+            "services of the area's country (and OpenStreetMap when the image was not drawn), each at maximum and medium zoom (_medium, 4× coarser).\n"
             "They are switched off in the OOM template list; once switched on they download from the internet.\n"
-            "Vegetation height (vyska_vegetace.png) and terrain and surface hillshade (hillshade_dtm.png,\n"
+            "Vegetation height (vegetation_height.png) and terrain and surface hillshade (hillshade_dtm.png,\n"
             "hillshade_dsm.png) are from the job's own elevation models. OCAD does not open .xml files –\n"
             "connect the base maps as WMS:\n" + "\n".join(wms_lines(country)) + "\n"
             + ("The OpenStreetMap image (osm.png) is our own rendering of OSM data (© OpenStreetMap contributors).\n"
@@ -499,7 +499,7 @@ def oom_readme_en(
             "Base maps are online templates (.xml / .vrt files in the references/ folder, GDAL WMS): ČÚZK orthophoto,\n"
             "archive orthophoto 2003–2005, ZTM topographic map, cadastre, regional DTM, DMP OK preview, DMR 5G\n"
             "hillshade and slope (basic, Z10, Z20 hillshade) and OpenStreetMap (without osm.png), each at maximum and medium zoom\n"
-            "(_stredni, 4× coarser). They are switched off in the OOM template list; once switched on they download\n"
+            "(_medium, 4× coarser). They are switched off in the OOM template list; once switched on they download\n"
             "from the internet (maximum zoom takes a while). Offline base maps: tick “Download reference templates\n"
             "in advance” when generating.\n"
             "OCAD does not open .xml files – connect the base maps as WMS (Background map → Online map):\n"
@@ -511,28 +511,28 @@ def oom_readme_en(
     elif cz:
         refs_intro = (
             "DMR 5G hillshade (ČÚZK WMS): basic, Z10 and Z20 in the references/ folder, DMR 5G slope\n"
-            "(sklon_dmr5g.png: grey flat, yellow to brown steep slope).\n"
+            "(slope_dmr5g.png: grey flat, yellow to brown steep slope).\n"
             "Base maps: ČÚZK orthophoto, "
             + ("OpenStreetMap (osm.png, own rendering of OSM data), " if "osm.png" in refs else "")
             + "ZTM topographic map, cadastral map and DMP OK preview\n"
-            "(downloaded rasters, they work offline and in OCAD). Vegetation height (vyska_vegetace.png,\n"
+            "(downloaded rasters, they work offline and in OCAD). Vegetation height (vegetation_height.png,\n"
             "DMP OK − DMR 5G: yellow bushes, orange thicket, green forest, below 0.5 m transparent). Online template\n"
             "(.xml): archive orthophoto 2003–2005.\n"
         )
     else:
         refs_intro = (
             "Base maps are downloaded rasters in the references/ folder (they work offline and in OCAD).\n"
-            "Vegetation height (vyska_vegetace.png) and terrain and surface hillshade (hillshade_dtm.png,\n"
+            "Vegetation height (vegetation_height.png) and terrain and surface hillshade (hillshade_dtm.png,\n"
             "hillshade_dsm.png) are from the job's own elevation models.\n"
             + ("The OpenStreetMap image (osm.png) is our own rendering of OSM data (© OpenStreetMap contributors).\n"
                if "osm.png" in refs else "")
         )
     buildings = (
         "3. Buildings in the .omap come from the regional DTM (where available), completed by OSM. Sources:\n"
-        "   osm/OSM_budovy.shp, Budova* and RUIAN_budovy.shp in zabaged/. ZABAGED paths are in zabaged/ for manual import.\n"
+        "   osm/OSM_buildings.shp, Budova* and RUIAN_budovy.shp in zabaged/. ZABAGED paths are in zabaged/ for manual import.\n"
         if cz
         else "3. Buildings in the .omap come from the technical map of the country (where available), completed by\n"
-        "   OSM. Source: osm/OSM_budovy.shp.\n"
+        "   OSM. Source: osm/OSM_buildings.shp.\n"
     )
     steps = (
         "2. Switch on base maps (orthophoto, OSM, hillshade, …) as needed\n"
@@ -542,7 +542,7 @@ def oom_readme_en(
         "vegetation from LiDAR return density (vegetation.*, fallback CHM), "
         f"earth banks ({code('104')}) / rock ({code('206')}) "
         f"and optional knolls ({code('109')}).\n"
-        "   uzitecne/pouzite vs uzitecne/vyhozene: the same layers after filters "
+        "   useful/kept vs useful/dropped: the same layers after filters "
         "(min-size, occupancy, dense contours, …) – SHP for viewing.\n"
         f"{georef_note}"
         "   The web PNG preview (Pillow) is not part of the material package.\n\n"
@@ -587,7 +587,7 @@ def oom_readme_en(
         "   – unlock in the symbol panel; optionally Convert to curves in OOM.\n"
         f"{steps}"
         "OCAD: open the *.ocd of the same name (OCD12 from Mapper convert; lossy OK).\n"
-        "   The original OCAD symbol set for the given standard is in the ocad_symboly/ folder\n"
+        "   The original OCAD symbol set for the given standard is in the ocad_symbols/ folder\n"
         "   (ISOM / ISSprOM / ISMTBOM) – you can use it in OCAD to replace symbols\n"
         "   (symbol codes match).\n"
         "OCAD does not open the .omap file natively – it stays for OOM; or use DXF/SHP/PNG+PGW.\n\n"
