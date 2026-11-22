@@ -66,6 +66,7 @@ from app.pipeline.reference_lu import LU_ELEVATION_PROBE, LU_ORTHO_PROBE
 from app.pipeline.reference_es import (
     AN_ELEVATION_PROBE,
     CT_ELEVATION_PROBE,
+    VC_ELEVATION_PROBE,
     ES_ORTHO_PROBE,
     NAV_ELEVATION_PROBE,
     PV_ELEVATION_PROBE,
@@ -524,12 +525,22 @@ PROBES: tuple[Probe, ...] = (
         fatal=True,
         countries=("ES-CT",),
     ),
+    # Valencie: HEAD jednoho listu MDT ICV (úložiště souborů; seznam listů z WFS je v cache 30 dní).
+    Probe(
+        "vc_elevation",
+        "Výšky ICV (Valencie) – MDT a MDS 1 m",
+        (VC_ELEVATION_PROBE,),
+        "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
+        method="HEAD",
+        fatal=True,
+        countries=("ES-VC",),
+    ),
     Probe(
         "es_ortho",
         "Ortofoto PNOA (IGN)",
         (ES_ORTHO_PROBE,),
         "Šablona ortofota bude chybět.",
-        countries=("ES-NC", "ES-PV", "ES-AN", "ES-CT"),
+        countries=("ES-NC", "ES-PV", "ES-AN", "ES-CT", "ES-VC"),
     ),
     Probe(
         "be_grb",

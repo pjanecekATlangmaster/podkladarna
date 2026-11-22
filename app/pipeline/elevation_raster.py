@@ -367,7 +367,7 @@ def cog_windows(
                     "-projwin_srs", crs,
                     *nodata_args,
                     "-co", "COMPRESS=DEFLATE",
-                    f"/vsicurl/{url}",
+                    url if Path(url).is_file() else f"/vsicurl/{url}",  # místní soubor (řídká kopie okna) bez /vsicurl
                     str(dest),
                 ],
                 log=log,
@@ -3486,6 +3486,125 @@ PROVIDERS["es_an"] = _es_an_provider
 PROVIDERS["es_ct"] = _es_ct_provider
 
 
+# --------------------------------------------------------------------------- ES-VC: ICV listy MTN50 (MDT a MDS 1 m)
+
+VC_INDEX_MAX_AGE_DAYS = 30
+_VC_INDEX_LOCK = threading.Lock()
+
+
+def _vc_sheets(recurso: str, *, fetch=None) -> list[list]:
+    """Listy jedné sady ICV z WFS rozdělení listů: ``[[xmin, ymin, xmax, ymax], link_tif]`` v EPSG:25830."""
+    import urllib.parse
+    import urllib.request
+
+    from app.pipeline.fetch_openzu import USER_AGENT
+    from app.pipeline.reference_es import VC_WFS, VC_WFS_LAYER
+
+    def default_fetch(url: str) -> str:
+        import time
+
+        for attempt in range(3):  # WFS ICV občas spojení shodí (reset)
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    return resp.read(50_000_000).decode("utf-8")
+            except OSError:
+                if attempt == 2:
+                    raise
+                time.sleep(3 * (attempt + 1))
+        raise AssertionError("nedosažitelné")
+
+    q = urllib.parse.urlencode({
+        "service": "WFS", "version": "2.0.0", "request": "GetFeature", "typeNames": VC_WFS_LAYER,
+        "srsName": "EPSG:25830", "outputFormat": "geojsonstream",
+    })
+    data = json.loads((fetch or default_fetch)(f"{VC_WFS.format(recurso=recurso)}?{q}"))
+    out = []
+    for ft in data.get("features", []):
+        link = (ft.get("properties") or {}).get("link_tif")
+        pts: list = []
+        stack = [(ft.get("geometry") or {}).get("coordinates") or []]
+        while stack:  # Polygon i MultiPolygon: všechny vrcholy
+            item = stack.pop()
+            if item and isinstance(item[0], (int, float)):
+                pts.append(item)
+            else:
+                stack.extend(item)
+        if not link or not pts:
+            continue
+        xs, ys = [c[0] for c in pts], [c[1] for c in pts]
+        out.append([[min(xs), min(ys), max(xs), max(ys)], link])
+    return out
+
+
+def vc_index(*, fetch=None, max_age_days: float = VC_INDEX_MAX_AGE_DAYS) -> dict[str, list[list]]:
+    """Listy MDT a MDS všech provincií: ``{"dtm": [[obdélník, url]…], "dsm": […]}`` z cache, jinak z WFS ICV."""
+    import time
+
+    from app.pipeline.reference_es import VC_PROVINCES
+
+    path = settings.CACHE_DIR / "es_vc" / "index.json"
+    with _VC_INDEX_LOCK:
+        try:
+            if time.time() - path.stat().st_mtime < max_age_days * 86400:
+                return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+        index: dict[str, list[list]] = {"dtm": [], "dsm": []}
+        for mdt, mds, _label in VC_PROVINCES:
+            index["dtm"] += _vc_sheets(mdt, fetch=fetch)
+            index["dsm"] += _vc_sheets(mds, fetch=fetch)
+        if not index["dtm"]:
+            raise RuntimeError("Valencie: seznam listů MDT z WFS ICV je prázdný")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}")
+        tmp.write_text(json.dumps(index), encoding="utf-8")
+        tmp.replace(path)
+        return index
+
+
+def vc_tiles(kind: str, window, index) -> list[str]:
+    """Odkazy listů ``kind`` zasahujících do okna v pořadí sad (pozdější má ve VRT přednost)."""
+    xmin, ymin, xmax, ymax = window
+    return [url for box, url in index.get(kind, []) if box[0] < xmax and box[2] > xmin and box[1] < ymax and box[3] > ymin]
+
+
+def es_vc_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """Valencijské společenství: MDT a MDS 1 m – okno výřezu z listů MTN50 ICV (řádky okna jedním dotazem Range)."""
+    from app.pipeline.reference_es import ES_CRS
+
+    from app.pipeline.strip_tiff import StripTiffError, fetch_window
+
+    window = _buffered(bounds, ES_CRS, ES_COG_BUFFER_M)
+    index = vc_index()
+    out: dict[str, Path | None] = {}
+    for kind in ("dtm", "dsm"):
+        # Listy nejsou COG: řádky okna se stáhnou jedním dotazem do řídké místní kopie, GDAL čte místně.
+        local: list[Path] = []
+        for k, url in enumerate(vc_tiles(kind, window, index)):
+            try:
+                part = fetch_window(url, window, out_dir / f"es_vc_{kind}_src{k}.tif", log=log)
+            except (StripTiffError, OSError) as exc:
+                log_issue(log, f"Valencie (ICV): list {url.rsplit('/', 1)[-1]} se nestáhl, část výřezu může být bez "
+                               f"terénu nebo porostu ({exc})")
+                continue
+            if part is not None:
+                local.append(part)
+        try:
+            out[kind] = cog_windows([str(p) for p in local], window, ES_CRS, out_dir, f"es_vc_{kind}", log=log) if local else None
+        finally:
+            for p in local:
+                p.unlink(missing_ok=True)
+    if out["dtm"] is None:
+        raise ElevationUnavailable("výřez je mimo pokrytí výšek ICV (Valencijské společenství)")
+    if out["dsm"] is None:
+        log_issue(log, "Valencie (ICV): povrch (MDS) pro výřez chybí, výška porostu se nespočítá")
+    return SourceRasters(out["dtm"], out["dsm"])
+
+
+PROVIDERS["es_vc"] = es_vc_provider
+
+
 # --------------------------------------------------------------------------- DK: DHM terén + povrch (Datafordeler)
 
 # DHM/Terræn a DHM/Overflade (Klimadatastyrelsen, lidar, mřížka 0,4 m, CC BY 4.0) z WCS Datafordeleru v nativním
@@ -4020,6 +4139,7 @@ SOURCE_LABELS = {
     "es_pv": "mračno LiDAR 2017, Gobierno Vasco (geoEuskadi)",
     "es_an": "MDT a MDS PNOA-LiDAR 2020–21, Junta de Andalucía (REDIAM)",
     "es_ct": "MET a MDS LiDAR 2021–23, ICGC",
+    "es_vc": "MDT a MDS LiDAR 2015–17, Institut Cartogràfic Valencià",
     USER_UPLOAD: "vlastní data zadavatele",
 }
 
