@@ -63,6 +63,7 @@ from app.pipeline.reference_by import BY_ELEVATION_PROBE, BY_ORTHO_PROBE
 from app.pipeline.reference_gb import GB_EA_PROBE, SCT_ELEVATION_PROBE, WLS_ELEVATION_PROBE
 from app.pipeline.reference_pl import PL_ELEVATION_PROBE, PL_ORTHO_PROBE
 from app.pipeline.reference_lu import LU_ELEVATION_PROBE, LU_ORTHO_PROBE
+from app.pipeline.reference_nz import NZ_ELEVATION_PROBE
 from app.pipeline.reference_es import (
     AN_ELEVATION_PROBE,
     CT_ELEVATION_PROBE,
@@ -545,6 +546,16 @@ PROBES: tuple[Probe, ...] = (
         method="HEAD",
         fatal=True,
         countries=("ES-CL",),
+    ),
+    # Nový Zéland: HEAD collection.json celostátní mozaiky DEM 1 m v bucketu nz-elevation (LINZ).
+    Probe(
+        "nz_elevation",
+        "Výšky LINZ (Nový Zéland) – DEM a DSM 1 m",
+        (NZ_ELEVATION_PROBE,),
+        "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
+        method="HEAD",
+        fatal=True,
+        countries=("NZ",),
     ),
     Probe(
         "es_ortho",

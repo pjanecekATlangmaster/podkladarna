@@ -55,6 +55,7 @@ Ověřeno: datum a způsob ověření licence; „neověřeno“ = převzato z p
 | SI Slovinsko | beta | `si_clss` | `none` | 3 | 3 |
 | PT Portugalsko | beta | `pt_dgt` | `none` | 1 | 1 |
 | US Spojené státy | beta | `us_3dep` | `us_city` | 6 | 4 |
+| NZ Nový Zéland | beta | `nz_linz` | `none` | 1 | 1 |
 | ES Španělsko | kandidát | `–` | `–` | 3 | 3 |
 | IE Irsko | kandidát | `–` | `–` | 1 | 1 |
 | LT Litva | kandidát | `–` | `–` | 1 | 1 |
@@ -517,6 +518,14 @@ Stav `beta`, CRS `UTM-NAD83`. Citace v mapě: „Base map: Omapic · USGS · OSM
 | technická mapa, budovy | **DC Planimetrics 2023 (Roads, Sidewalks, Building Footprints) – ArcGIS MapServer DC GIS**<br>District of Columbia, Office of the Chief Technology Officer (DC GIS)<br><https://maps2.dcgis.dc.gov/dcgis/rest/services/DCGIS_DATA/Planimetrics_2023/MapServer> · [info](https://opendata.dc.gov/) | 🟢 public – [CC BY 4.0](https://opendata.dc.gov/)<br>citace: „DC GIS / Office of the Chief Technology Officer“ | volný | napojeno (kresba)<br>sonda `us_dc` | • Planimetrie po dvou letech (2023 je nejnovější); „hidden“ plochy pod mosty a přechody se neberou. | Claude 2026-11-20: dotaz podle obálky (inSR 4326, f=geojson) bez klíče, 0,6 km² u Bílého domu 692 objektů, 2,7 MB, 1 s; stránkování po 2 000. |
 | ortofoto | **USGS Imagery Only – ortofoto NAIP (WMS The National Map)**<br>U.S. Geological Survey (The National Map), snímky USDA NAIP<br><https://basemap.nationalmap.gov/arcgis/services/USGSImageryOnly/MapServer/WMSServer> · [info](https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits) | 🟢 public – [public domain (U.S. Government work)](https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits)<br>citace: „Courtesy of the U.S. Geological Survey“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano | – | Claude 2026-11-20: GetMap 1000 × 1190 px v EPSG:26910 z cloudu (St. Edward State Park, letní snímek). |
 | mapa | **USGS Topo (WMS The National Map)**<br>U.S. Geological Survey (The National Map)<br><https://basemap.nationalmap.gov/arcgis/services/USGSTopo/MapServer/WMSServer> · [info](https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits) | 🟢 public – [public domain (U.S. Government work)](https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits)<br>citace: „Courtesy of the U.S. Geological Survey“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano | – | Claude 2026-11-20: GetCapabilities z cloudu 200 (vrstva 0). |
+
+## NZ – Nový Zéland
+
+Stav `beta`, CRS `EPSG:2193`. Citace v mapě: „Base map: Omapic · LINZ · OSM, [year]“.
+
+| Druh dat | Zdroj a server | Licence | Přístup | Stav | Problémy a poznámky | Ověřeno |
+|---|---|---|---|---|---|---|
+| výšky (DTM/DSM) | **New Zealand LiDAR 1m DEM a 1m DSM (celostátní mozaiky, COG po listech Topo50)**<br>Toitū Te Whenua Land Information New Zealand (LINZ)<br><https://nz-elevation.s3.ap-southeast-2.amazonaws.com/new-zealand/new-zealand/dem_1m/2193/collection.json> · [info](https://registry.opendata.aws/nz-elevation/) | 🟢 public – [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)<br>citace: „Toitū Te Whenua Land Information New Zealand (LINZ)“ | volný | napojeno (výšky)<br>sonda `nz_elevation` | • Nálety 2008–2026 různé hustoty a sezóny; mozaiku skládá LINZ (novější má přednost), rok výřezu z capture-dates.geojson zatím nečteme.<br>• Ortofoto LINZ Basemaps chce API klíč, online šablona ortofota zatím není. | Claude 2026-11-22 (z cloudu): STAC collection.json license CC-BY-4.0, 424 listů DEM, COG Float32 LERC dlaždice 512, NoData −9999, EPSG:2193, list 24 × 36 km; obrys náletů ~87 % země; okno přes /vsicurl bez klíče. |
 
 ## ES – Španělsko
 

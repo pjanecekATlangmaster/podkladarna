@@ -3625,6 +3625,45 @@ def es_vc_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 PROVIDERS["es_vc"] = es_vc_provider
 
 
+# --------------------------------------------------------------------------- NZ: LINZ DEM a DSM 1 m (nz-elevation)
+
+NZ_BUFFER_M = 20.0
+
+
+def nz_linz_coverage(bbox_wgs84: tuple[float, float, float, float]) -> float:
+    """Podíl výřezu s platným terénem LINZ (z přehledů COG listů, hrubá mřížka 20 m)."""
+    from app.pipeline.reference_nz import NZ_CRS, nz_index, sheet_urls
+
+    window = _bounds_in(bbox_wgs84, "EPSG:4326", NZ_CRS)
+    urls = sheet_urls("dtm", window, nz_index())
+    if not urls:
+        return 0.0
+    return float(sct_valid_mask([f"/vsicurl/{u}" for u in urls], window).mean())
+
+
+def nz_linz_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """Nový Zéland: DEM a DSM 1 m z celostátních mozaik LINZ (okno listů Topo50 přes /vsicurl)."""
+    from app.pipeline.reference_nz import NZ_CRS, nz_index, sheet_urls
+
+    window = _buffered(bounds, NZ_CRS, NZ_BUFFER_M)
+    index = nz_index()
+    out: dict[str, Path | None] = {}
+    for kind in ("dtm", "dsm"):
+        urls = sheet_urls(kind, window, index)
+        out[kind] = cog_windows(urls, window, NZ_CRS, out_dir, f"nz_linz_{kind}", log=log) if urls else None
+    if out["dtm"] is None:
+        raise ElevationUnavailable("výřez je mimo pokrytí LiDARu LINZ")
+    share = float(sct_valid_mask([str(out["dtm"])], window).mean())
+    if share < COVERAGE_MIN_SHARE:
+        raise ElevationUnavailable(f"LiDAR LINZ pokrývá jen {share:.0%} výřezu; posuňte výřez do pokrytého území")
+    if out["dsm"] is None:
+        log_issue(log, "Nový Zéland: povrch (DSM) pro výřez chybí, výška porostu se nespočítá")
+    return SourceRasters(out["dtm"], out["dsm"])
+
+
+PROVIDERS["nz_linz"] = nz_linz_provider
+
+
 # --------------------------------------------------------------------------- DK: DHM terén + povrch (Datafordeler)
 
 # DHM/Terræn a DHM/Overflade (Klimadatastyrelsen, lidar, mřížka 0,4 m, CC BY 4.0) z WCS Datafordeleru v nativním
@@ -4161,6 +4200,7 @@ SOURCE_LABELS = {
     "es_ct": "MET a MDS LiDAR 2021–23, ICGC",
     "es_vc": "MDT a MDS LiDAR 2015–17, Institut Cartogràfic Valencià",
     "es_cl": "mračno PNOA-LiDAR 2025, Junta de Castilla y León (ITACyL)",
+    "nz_linz": "LiDAR DEM a DSM 1 m, LINZ",
     USER_UPLOAD: "vlastní data zadavatele",
 }
 
@@ -4171,6 +4211,7 @@ COVERAGE: dict[str, Callable[[tuple[float, float, float, float]], float]] = {
     "it_trentino": it_trentino_coverage,
     "gb_sct": sct_coverage,
     "us_3dep": us_3dep_coverage,
+    "nz_linz": nz_linz_coverage,
 }
 # Nasnímaná, ale ještě nezveřejněná data ve výřezu (jména projektů) – jen pro přesnější hlášku při nulovém pokrytí.
 COVERAGE_PENDING: dict[str, Callable[[tuple[float, float, float, float]], list[str]]] = {
