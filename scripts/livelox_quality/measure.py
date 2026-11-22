@@ -89,10 +89,11 @@ def ref_with_gcps(ref_dir: Path, tmp: Path) -> Path:
 
 
 def our_omap(job: Path) -> Path:
-    """Plná verze mapy. Od 4.10.0 les a MTBO zapisují i čistou verzi bez zeleně z výšek pod hlavním jménem
-    (`*-les.omap`) a plnou jako `*_full.omap`; porovnává se plná (s ní se zeleň a otevřený prostor dají měřit)."""
+    """Plná verze mapy (s ní se zeleň a otevřený prostor dají měřit). Od 4.16.2 nese plná hlavní jméno
+    (`*-les.omap`) a verze bez vegetace `*_novege.omap`; 4.10.0–4.16.1 byla plná `*_full.omap`."""
     maps = sorted((job / "output").glob("*.omap"))
-    return next((p for p in maps if p.stem.endswith("_full")), maps[0])
+    legacy = [p for p in maps if p.stem.endswith("_full")]
+    return (legacy or [p for p in maps if not p.stem.endswith("_novege")] or maps)[0]
 
 
 def render_ours(repo: Path, job: Path, tmp: Path, res: float) -> tuple[Path, Path]:

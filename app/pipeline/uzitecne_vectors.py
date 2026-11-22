@@ -31,8 +31,8 @@ UZITECNE_README = """Užitečné vektory – vegetace, srázy, skály
 ========================================
 Prohlížení a ruční import v OOM / QGIS (EPSG:5514).
 
-v_plne_mape/      … co zůstalo v mapě po filtrech (les / MTBO: plná mapa *_full.omap;
-                    čistá mapa vynechává zeleň a prvky z DEM i odtud)
+v_plne_mape/      … co zůstalo v mapě po filtrech (les / MTBO: plná mapa *-les.omap;
+                    mapa *_novege vynechává zeleň a prvky z DEM i odtud)
 vyrazene_filtry/  … kandidáti vyřazení filtry (atribut duvod = důvod filtru)
 
 Vrstvy

@@ -9,8 +9,9 @@ Mapa se skládá jednou (plná kresba); před zápisem se z hotových objektů o
 * (``CLEAN_DROP_DEM``) srázy, skály, balvany, kupky a prohlubně odvozené z DEM se vynechají.
 
 Data (OSM, ZABAGED, DTM, RÚIAN, AOPK) a vrstevnice zůstávají, i když mají symbol porostu (OSM křoví, sad,
-vinice, louky a pole ze ZABAGED). Čistá mapa nese hlavní jméno souboru, plná má příponu ``_full``. Sprint
-beze změny.
+vinice, louky a pole ze ZABAGED). Plná mapa nese hlavní jméno souboru, čistá má příponu ``_novege``
+(Petr 2026-11-22, ať je z názvu jasné, že je bez vegetace; 4.10.0–4.16.1 nesla čistá hlavní jméno a plná
+``_full``). Sprint beze změny.
 
 Práh 0,3 ha (měřeno 2026-11-21 na mapách z master): Janov Okrouhlice / Svobodka zůstane 140 z ~2 000
 ploch 401 ∪ 403 a 94 % jejich výměry, Praha 8 z 202 (96 %); zbytek jsou drobky. 0,2 ha nechá o třetinu víc
@@ -24,9 +25,11 @@ from pathlib import Path
 
 from app.pipeline.oom_import import OomObjectPart
 
-# Hlavní vypínač: les a MTBO zapíšou čistou (hlavní jméno) i plnou mapu (``_full``).
+# Hlavní vypínač: les a MTBO zapíšou plnou (hlavní jméno) i čistou mapu (``_novege``).
 CLEAN_MAPS = True
-FULL_TAG = "_full"
+CLEAN_TAG = "_novege"
+# Starší joby (4.10.0–4.16.1): plná mapa měla příponu ``_full``, čistá hlavní jméno.
+LEGACY_FULL_TAG = "_full"
 # Nejmenší souvislá plocha otevřeného terénu z výšek (401 ∪ 403), která v čisté mapě zůstane.
 CLEAN_OPEN_MIN_M2 = 3000.0
 # Vynechat i srázy, skály, balvany, kupky a prohlubně z DEM (část „… – vektory“ z ``build_dxf_object_part``).
@@ -47,14 +50,32 @@ _RING_END = 2 | 16
 _TOUCH_M = 0.05
 
 
-def full_variant_name(name: str) -> str:
-    """``Mapa-les.omap`` → ``Mapa-les_full.omap``."""
+def clean_variant_name(name: str) -> str:
+    """``Mapa-les.omap`` → ``Mapa-les_novege.omap``."""
     p = Path(name)
-    return f"{p.stem}{FULL_TAG}{p.suffix}"
+    return f"{p.stem}{CLEAN_TAG}{p.suffix}"
 
 
-def strip_full_tag(stem: str) -> str:
-    return stem[: -len(FULL_TAG)] if stem.endswith(FULL_TAG) else stem
+def is_clean_variant(stem: str) -> bool:
+    return stem.endswith(CLEAN_TAG)
+
+
+def is_legacy_full_variant(stem: str) -> bool:
+    return stem.endswith(LEGACY_FULL_TAG)
+
+
+def strip_variant_tag(stem: str) -> str:
+    """Stem bez přípony verze (``_novege``, starší ``_full``)."""
+    for tag in (CLEAN_TAG, LEGACY_FULL_TAG):
+        if stem.endswith(tag):
+            return stem[: -len(tag)]
+    return stem
+
+
+def pick_full_map(names: list[str]) -> list[str]:
+    """Plné mapy z výčtu jmen: starší ZIP podle ``_full``, nový = vše kromě ``_novege``."""
+    legacy = [n for n in names if is_legacy_full_variant(Path(n).stem)]
+    return legacy or [n for n in names if not is_clean_variant(Path(n).stem)]
 
 
 def is_dem_part(name: str) -> bool:
