@@ -412,10 +412,10 @@
   "web.js.source.be_grb": "GRB (Flandry) a UrbIS (Brusel)",
   "web.js.grb.failed": "Data GRB a UrbIS se nepodařilo stáhnout, mapa se kreslila z OSM.",
   "web.js.grb.text": "GRB a UrbIS ({n} objektů): příprava na pozadí {dur}.",
-  "web.js.step.ylre": "data YLRE (Helsinky)",
-  "web.js.source.fi_hel": "YLRE (Helsinky)",
-  "web.js.ylre.failed": "Data YLRE Helsinek se nepodařilo stáhnout, mapa se kreslila z OSM.",
-  "web.js.ylre.text": "YLRE Helsinky ({n} objektů): příprava na pozadí {dur}.",
+  "web.js.step.ylre": "data YLRE (Helsinky, Espoo)",
+  "web.js.source.fi_hel": "YLRE (Helsinky) a InfStreet (Espoo)",
+  "web.js.ylre.failed": "Data Helsinek a Espoo se nepodařilo stáhnout, mapa se kreslila z OSM.",
+  "web.js.ylre.text": "Helsinky a Espoo ({n} objektů): příprava na pozadí {dur}.",
   "web.js.step.planimetrics": "data Planimetrics (města USA)",
   "web.js.source.us_city": "Planimetrics (NYC, Washington DC)",
   "web.js.planimetrics.failed": "Planimetrická data města se nepodařilo stáhnout, mapa se kreslila z OSM.",
@@ -1215,5 +1215,7 @@
   "web.js.bdtopo.text": "BD TOPO Francie ({n} objektů): příprava na pozadí {dur}.",
   "web.js.bg.fr_bdtopo": "Data BD TOPO (IGN)",
   "api.source.fr_bdtopo.label": "BD TOPO (IGN) – budovy a silnice mimo Paříž",
-  "api.source.fr_bdtopo.impact": "Budovy a vozovky mimo Paříž se nakreslí jen z OSM."
+  "api.source.fr_bdtopo.impact": "Budovy a vozovky mimo Paříž se nakreslí jen z OSM.",
+  "api.source.fi_espoo.label": "InfStreet a budovy Espoo (kartat.espoo.fi)",
+  "api.source.fi_espoo.impact": "Budovy, vozovky a chodníky v Espoo se nakreslí jen z OSM."
 }

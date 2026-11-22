@@ -1561,6 +1561,30 @@ sources:
     - "Jen Helsinky (technical_map_area)."
     - "Ortofoto Helsinek se při stahování občas nestáhne („Requested rectangle bounds is not contained…“), ručně ano; od 3.55.0 jeden opakovaný pokus."
 
+- id: fi_espoo
+  countries: [FI]
+  kinds: [technical_map, buildings]
+  name: Rejstřík ulic InfStreet (yleisten alueiden rekisteri) a budovy Espoo (WFS 1.1 kartat.espoo.fi)
+  provider: Espoon kaupunki
+  url: https://kartat.espoo.fi/teklaogcweb/wfs.ashx
+  info: https://hri.fi/data/fi/dataset/espoon-kaupungin-yleisten-alueiden-rekisteri
+  role: kresba
+  status: used
+  code: app/pipeline/espoo_fi.py, app/pipeline/ylre_fi.py
+  provider_key: fi_hel
+  probe: fi_espoo
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://hri.fi/data/fi/dataset/espoon-kaupungin-yleisten-alueiden-rekisteri
+    attribution: "© Espoon kaupunki"
+  access: free
+  checked: "Claude 2026-11-22: HRI CKAN (espoon-kaupungin-yleisten-alueiden-rekisteri, espoon-kantakartta: CC BY 4.0), GetCapabilities ows:Fees None, GetFeature z cloudu (Tapiola 3 × 3 km 4 698 částí ulic, 31 MB, 6 s)"
+  issues:
+    - "Jen Espoo (prvek city: Espoo v fi_cities.geojson, obrys ze sjednocených GIS:Kaupunginosat)."
+    - "Server umí jen WFS 1.1 a GML; bbox musí být bez CRS (s CRS vrací 0 objektů); plochy s oblouky gml:Arc."
+    - "Uliční prostor GIS:Katualueet je za přihlášením (401) – pro sprint se skládá ze všech částí ulice kromě parkových cest a podchodů."
+    - "Server nestránkuje; výřez 3 × 3 km je 31 MB, strop odpovědi 300 MB."
 - id: fi_kapsi
   countries:
   - FI
@@ -3690,6 +3714,7 @@ sources:
     Pensasaita, Kivi; CC BY 4.0) – Claude neověřil'
   issues:
   - QGIS doporučuje ?OUTPUTFORMAT=GML2; jen Espoo (technical_map_area).
+  - "Rejstřík ulic InfStreet a budovy ze stejné WFS jsou zapojené jako fi_espoo (4.20.0); kantakartta (KuntaGML) zatím ne."
   - Další města (Vantaa, Tampere, Turku, Oulu, Jyväskylä) mají kantakartta sady pod CC BY 4.0 dle https://avoindata.suomi.fi/data/fi/dataset/?license_id=cc-by-4.0
     , konkrétní WFS endpointy neověřeny.
 
