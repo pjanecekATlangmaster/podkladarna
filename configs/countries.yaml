@@ -469,6 +469,9 @@ ES-AN:
   view: [36.00, -7.52, 38.73, -1.63]
   elevation: es_an          # REDIAM MDT a MDS 1 m PNOA-LiDAR 2020–21, okno z celoandaluských COG (WebDAV veřejného sdílení); výšky ortometrické
   elevation_years: "2020–2021"
+  green: understory         # zrnitost i výchozí pojistka zelenaly pobřežní borovice (Livelox 2026-11-22: La Breña 85 % zeleně v lese proti 15 % u mapaře, bílý les 0,3 %)
+  green_share: 0.25         # přísnější práh podílu nízkého patra jako PT a NL (Petr 2026-11-22)
+  green_low_ratio: 0.45     # nízké patro jen pod 0,45 × nejvyšší koruny v okně 15 m: koruny nízkých borovic nejsou podrost (jako PT)
   technical_map: none
   cz_sources: false
   # Licence: CC BY 4.0 (REDIAM, Junta de Andalucía; podklad PNOA-LiDAR CC BY 4.0 scne.es); ortofoto PNOA CC BY 4.0 (IGN, scne.es).

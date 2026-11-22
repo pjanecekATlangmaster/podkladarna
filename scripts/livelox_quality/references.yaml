@@ -256,6 +256,24 @@ references:
     size_km: 1.4
     terrain: kopcovitý les a pastviny, Biskajsko
     data: mračno LAZ 2017 geoEuskadi, kresba OSM
+  - id: es-an-brena-les
+    country: ES-AN
+    class_id: 926862
+    event: 1ª CPOP Cádiz (Barbate, Breña Este) 2025
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: pobřežní borovice na dunách, Cádiz
+    data: MDT + MDS PNOA-LiDAR 2020–21 REDIAM 1 m, kresba OSM
+  - id: es-ct-bergueda-les
+    country: ES-CT
+    class_id: 1086815
+    event: Dos dies del Berguedà 2025 LD
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: horský smíšený les, Berguedà
+    data: MET + MDS LiDAR 2021–23 ICGC 1 m, kresba OSM (ICGC z cloudu nedostupné → job na testu B)
   - id: fi-icepower-les
     country: FI
     class_id: 982568
