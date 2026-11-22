@@ -131,6 +131,20 @@ def test_ensure_store_downloads_once_and_rechecks(tmp_path, monkeypatch):
     much_later = later + 31 * 86400
     assert dsgk_leipzig.ensure_store(head=head_down, download=download, listing=listing, now=much_later) == store
 
+    def head_new(_url):
+        return {"last_modified": "Thu, 03 Dec 2026 10:00:00 GMT", "size": 456}
+
+    def download_broken(_url, dest):
+        Path(dest).write_bytes(b"not a zip")
+        return 9
+
+    newest = much_later + 31 * 86400
+    assert dsgk_leipzig.ensure_store(head=head_new, download=download_broken, listing=listing, now=newest) == store
+    assert store.is_file() and not list(store.parent.glob("*.part"))
+    calls["head"] = 0
+    dsgk_leipzig.ensure_store(head=head, download=download, listing=listing, now=newest + 3600)
+    assert calls["head"] == 0  # další pokus až za den, ne v každém jobu
+
 
 def test_augment_replaces_alkis_inside_city(tmp_path):
     from pyproj import Transformer

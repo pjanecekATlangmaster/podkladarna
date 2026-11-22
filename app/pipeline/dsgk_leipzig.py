@@ -266,7 +266,15 @@ def ensure_store(
             return store
         if log and meta:
             log("DSGK Lipsko: město vydalo novější verzi, stahuji znovu")
-        return _install(folder, url, remote, now=now, download=download, log=log)
+        try:
+            return _install(folder, url, remote, now=now, download=download, log=log)
+        except Exception as exc:  # nová verze se nestáhla: starší data z cache, další pokus za den
+            if not meta:
+                raise
+            if log:
+                log(f"DSGK Lipsko: stažení novější verze selhalo ({type(exc).__name__}), použita data z cache")
+            _write_meta(folder, {**meta, "checked": now - (VERSION_CHECK_DAYS - 1) * 86400})
+            return store
 
 
 def read_features(store: Path, bounds_src: tuple[float, float, float, float]) -> list[tuple[str, int, int | None, object]]:
@@ -325,6 +333,8 @@ def classify(feats: list[tuple[str, int, int | None, object]]) -> dict[str, list
             continue
         if key == "fences":
             for line in getattr(geom, "geoms", [geom]):
+                if line.geom_type != "LineString":
+                    continue
                 coords = tuple((float(x), float(y)) for x, y in line.coords)
                 if len(coords) >= 2:
                     out["fences"].append(dtm_fences.Fence(coords=coords, druh="", level=0, boundary=False, zpusob="1"))
