@@ -23,6 +23,22 @@
   (BigTIFF, float32, dlaždice 512) na ``datacloud.icgc.cat``. EPSG:25831, výšky ortometrické. Z cloudu Claude
   datacloud.icgc.cat neodpovídá (z české sítě ano, Range ověřen 2026-11-22) – ověřit z ostré A.
 
+- **Valencijské společenství** (Generalitat Valenciana, Institut Cartogràfic Valencià, CC BY 4.0 – dadesobertes.gva.es):
+  MDT a MDS 1 m z PNOA LiDAR 2. pokrytí po provinciích (Valencia 2015 a Alicante 2016 ~0,5 bodu/m², Castellón 2017
+  ~1 bod/m²), GeoTIFF float32 po listech MTN50 (~30 × 20 km, ~420 MB, LZW, strip po 1 řádku, **není COG**). Seznam listů
+  s přímým odkazem ``link_tif`` vrací WFS ``terramapas.icv.gva.es/<recurso>_hojas`` (vrstva ``distribucion_descargas``);
+  soubor ``descargas.icv.gva.es/dcd/03_mde/…`` bez účtu a captchy, Range podporuje. Řádky okna se stahují
+  jedním dotazem Range (řádky listu leží v souboru za sebou). EPSG:25830, výšky ortometrické, NoData −9999. Listy na hranici
+  provincií jsou v obou sadách (každá jen se svou provincií).
+
+- **Kastilie a León** (Junta de Castilla y León, ITACyL, licence **IGCYL-NC** – jen nekomerční užití, citace „©Junta de
+  Castilla y León“, u PNOA „PNOA©Instituto Geográfico Nacional-Junta de Castilla y León“; Decreto 27/2012): PNOA-LiDAR
+  2025 (3. pokrytí), LAZ 1.4 formát 8 po listech 1 × 1 km (~15 bodů/m² včetně překryvu, ~120 MB), v podadresářích
+  podle listu MTN50 ``2025/H50_xxxx/PNOA-LIDAR-2025-CyL_H05-xxxx_<r>-<s>_<E km>-<N km>_NPC01.laz``, kde N je **horní**
+  okraj. Listy na hranici MTN50 jsou oříznuté a leží v obou podadresářích (části se spojí). EPSG:25830, výšky
+  **ortometrické** (ověřeno 2026-11-22 proti WCS MDT05 IGN: 419 vs 422 m). Třídy 1 neklasifikováno, 2 země, 3–5
+  vegetace, (6 budovy), 7 šum.
+
 - Ortofoto PNOA (IGN, CC BY 4.0 „scne.es“, bez klíče): WMS ``pnoa-ma`` v EPSG:25830 pro celé Španělsko.
 
 Stav služby hlídá ``app.source_status``.
@@ -52,6 +68,9 @@ class EsLazRegion:
     unit_m: int = 1000  # jednotka E a N ve jménu listu (Navarra km, Baskicko hm)
     subdir_re: str = ""  # listy jsou v podadresářích výpisu: regulární výraz jména podadresáře (skupina 1)
     workers: int = 3  # souběžná stažení listů v jednom jobu
+    # Jména listů ve výpisu podadresáře jsou bez cesty: URL = podadresář + jméno. Tentýž list ve více podadresářích
+    # (Kastilie a León: list 1 km oříznutý na hranici listu MTN50) = části, spojí se při převodu.
+    relative_names: bool = False
 
 
 NAV_BASE = "https://filescartografia.navarra.es/5_LIDAR/5_6_2024_NAV_cam_EPSG25830"
@@ -87,8 +106,27 @@ ES_LAZ_REGIONS: dict[str, EsLazRegion] = {
     ),
 }
 
+# Kastilie a León: PNOA-LiDAR 2025 (3. pokrytí) z FTP ITACyL přes HTTPS, podadresář = list MTN50 (H50_xxxx).
+CL_BASE = "https://ftp.itacyl.es/cartografia/02_Altimetria/023_LIDAR/2025"
+ES_LAZ_REGIONS["es_cl"] = EsLazRegion(
+    key="es_cl",
+    label="Castilla y León LiDAR 2025",
+    listing=f"{CL_BASE}/",
+    name_re=r"PNOA-LIDAR-2025-CyL_H05-\d{4}_\d+-\d+_(\d{3})-(\d{4})_NPC01\.laz",
+    tile_m=1000,
+    top_corner=True,
+    ground=(2,),
+    surface=(2, 3, 4, 5, 6, 9, 17),
+    ellipsoidal=False,
+    probe=f"{CL_BASE}/H50_0055/PNOA-LIDAR-2025-CyL_H05-0055_3-7_330-4786_NPC01.laz",
+    subdir_re=r'href="(H50_\d{4})/"',
+    relative_names=True,
+)
+CL_LICENCE_URL = "https://ftp.itacyl.es/cartografia/LICENCIA-IGCYL-NC-2012.pdf"
+
 NAV_ELEVATION_PROBE = ES_LAZ_REGIONS["es_nav"].probe
 PV_ELEVATION_PROBE = ES_LAZ_REGIONS["es_pv"].probe
+CL_ELEVATION_PROBE = ES_LAZ_REGIONS["es_cl"].probe
 
 # Andalusie: veřejné sdílení REDIAM (Nextcloud), WebDAV s tokenem sdílení jako jménem a prázdným heslem.
 AN_SHARE_TOKEN = "mxHMWXyHfrCxyNK"
@@ -112,6 +150,21 @@ CT_COG_BASE = "https://datacloud.icgc.cat/datacloud"
 CT_DTM_URL = f"{CT_COG_BASE}/model-elevacions-terreny/tif_unzip/model-elevacions-terreny-lidar-catalunya-1m-2021-2023.tif"
 CT_DSM_URL = f"{CT_COG_BASE}/model-superficies/tif_unzip/model-superficies-lidar-catalunya-1m-2021-2023.tif"
 CT_ELEVATION_PROBE = CT_DTM_URL
+
+# Valencijské společenství: ICV, listy MTN50 po provinciích; seznam listů a odkazy z WFS rozdělení listů.
+VC_WFS = "https://terramapas.icv.gva.es/{recurso}_hojas"
+VC_WFS_LAYER = "distribucion_descargas"
+# (recurso MDT, recurso MDS, popis) – pořadí = priorita na hranici provincií (pozdější vyhrává, NoData se nepřepisuje).
+VC_PROVINCES: tuple[tuple[str, str, str], ...] = (
+    ("030201_2017PCAS0100", "030401_2017PCAS0100", "Castellón 2017"),
+    ("030201_2015PVAL0100", "030401_2015PVAL0100", "Valencia 2015"),
+    ("030201_2016PALI0100", "030401_2016PALI0100", "Alicante 2016"),
+)
+# HEAD jednoho listu MDT (Alicante, Biar): ověří úložiště souborů, ne jen WFS.
+VC_ELEVATION_PROBE = (
+    "https://descargas.icv.gva.es/dcd/03_mde/02_mdt/2016_PALI_0100/01_Malla/01_25830_01_Hoja_CV50_03_TIF/"
+    "030201_MDT_2016PALI0100_25830_01_Hoja_CV50_0846.tif"
+)
 
 # Ortofoto PNOA máxima actualidad (IGN, CC BY 4.0 scne.es) – šablona a maska zpevněných ploch sprintu.
 ES_PNOA_WMS = "https://www.ign.es/wms-inspire/pnoa-ma"
