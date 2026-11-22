@@ -340,15 +340,18 @@ def cog_windows(
     log=None,
     nodata: float | None = None,
     resolution: str | None = None,
+    gdal_config: dict[str, str] | None = None,
 ) -> Path | None:
     """Okno ``window`` (v ``crs``) z každého vzdáleného COG přes /vsicurl → VRT; None, když žádné okno nevyšlo.
 
     Čte se jen část dlaždice v okně (COG: swisstopo 1 km ~15 MB, BEV 50 km ~10 GB). Dlaždice, která do okna
     nezasahuje, gdal_translate odmítne – přeskočí se. ``nodata`` pro zdroje bez NoData: okno přesahující list se jinak
     doplní nulou a ta ve VRT přepíše sousední list (Estonsko DSM). ``resolution`` pro gdalbuildvrt (``highest`` při
-    listech s různým rozlišením; výchozí průměr). Při překryvu má přednost dlaždice později v ``urls``."""
+    listech s různým rozlišením; výchozí průměr). Při překryvu má přednost dlaždice později v ``urls``. ``gdal_config``
+    = další volby GDAL pro čtení (např. přihlášení k veřejnému sdílení WebDAV)."""
     xmin, ymin, xmax, ymax = window
     nodata_args = ["-a_nodata", f"{nodata:g}"] if nodata is not None else []
+    config_args = [a for k, v in (gdal_config or {}).items() for a in ("--config", k, v)]
     tiles = []
     for k, url in enumerate(urls):
         dest = out_dir / f"{prefix}_{k}.tif"
@@ -359,6 +362,7 @@ def cog_windows(
                     "--config", "GDAL_HTTP_MAX_RETRY", "3",
                     "--config", "GDAL_HTTP_RETRY_DELAY", "2",
                     "--config", "GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR",
+                    *config_args,
                     "-projwin", f"{xmin:.1f}", f"{ymax:.1f}", f"{xmax:.1f}", f"{ymin:.1f}",
                     "-projwin_srs", crs,
                     *nodata_args,
@@ -3443,6 +3447,45 @@ def gb_wls_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 PROVIDERS["gb_wls"] = gb_wls_provider
 
 
+# --------------------------------------------------------------------------- ES-AN / ES-CT: regionální COG 1 m
+
+ES_COG_BUFFER_M = 20.0
+
+
+def _es_cog_provider(key: str, label: str, crs: str, dtm_url: str, dsm_url: str, gdal_config=None):
+    def provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+        window = _buffered(bounds, crs, ES_COG_BUFFER_M)
+        # NoData podle souboru (Andalusie MDT 255, MDS −9999): ``-a_nodata`` by jen přejmenoval hodnotu, ne okraj.
+        dtm = cog_windows([dtm_url], window, crs, out_dir, f"{key}_dtm", log=log, gdal_config=gdal_config)
+        if dtm is None:
+            raise ElevationUnavailable(f"výřez je mimo pokrytí výšek {label}")
+        dsm = cog_windows([dsm_url], window, crs, out_dir, f"{key}_dsm", log=log, gdal_config=gdal_config)
+        if dsm is None:
+            log_issue(log, f"{label}: povrch (DSM) pro výřez chybí, výška porostu se nespočítá")
+        return SourceRasters(dtm, dsm)
+
+    provider.__doc__ = f"{label}: MDT a MDS 1 m – okno výřezu z regionálních COG."
+    return provider
+
+
+def _es_an_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    from app.pipeline.reference_es import AN_DSM_URL, AN_DTM_URL, AN_GDAL_CONFIG, ES_CRS
+
+    return _es_cog_provider("es_an", "Andalusie (REDIAM)", ES_CRS, AN_DTM_URL, AN_DSM_URL, AN_GDAL_CONFIG)(
+        bounds, out_dir, log=log
+    )
+
+
+def _es_ct_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    from app.pipeline.reference_es import CT_CRS, CT_DSM_URL, CT_DTM_URL
+
+    return _es_cog_provider("es_ct", "Katalánsko (ICGC)", CT_CRS, CT_DTM_URL, CT_DSM_URL)(bounds, out_dir, log=log)
+
+
+PROVIDERS["es_an"] = _es_an_provider
+PROVIDERS["es_ct"] = _es_ct_provider
+
+
 # --------------------------------------------------------------------------- DK: DHM terén + povrch (Datafordeler)
 
 # DHM/Terræn a DHM/Overflade (Klimadatastyrelsen, lidar, mřížka 0,4 m, CC BY 4.0) z WCS Datafordeleru v nativním
@@ -3975,6 +4018,8 @@ SOURCE_LABELS = {
     "gb_wls": "LiDAR DTM a DSM, Welsh Government",
     "es_nav": "mračno LiDAR 2024, Gobierno de Navarra",
     "es_pv": "mračno LiDAR 2017, Gobierno Vasco (geoEuskadi)",
+    "es_an": "MDT a MDS PNOA-LiDAR 2020–21, Junta de Andalucía (REDIAM)",
+    "es_ct": "MET a MDS LiDAR 2021–23, ICGC",
     USER_UPLOAD: "vlastní data zadavatele",
 }
 

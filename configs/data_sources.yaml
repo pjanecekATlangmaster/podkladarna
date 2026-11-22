@@ -2347,6 +2347,8 @@ sources:
   - ES
   - ES-NC
   - ES-PV
+  - ES-AN
+  - ES-CT
   kinds:
   - orthophoto
   name: Ortofoto PNOA máxima actualidad (WMS a WMTS)
@@ -2405,6 +2407,62 @@ sources:
   - Výšky elipsoidické → odečte se geoid EGM08-REDNAP (IGN, PROJ-data cdn.proj.org/es_ign_egm08-rednap.tif, CC BY 4.0).
   - Job 4 km² stáhne 6–9 listů (~0,5–0,7 GB, první běh v oblasti pomalejší); převedené rastry zůstávají v cache.
   - Starší lety 2011–12 (1 b/m²) a 2017 (SPL, 10 b/m²) se neberou.
+
+- id: es_andalucia_mde
+  countries:
+  - ES-AN
+  kinds:
+  - elevation
+  name: MDT a MDS 1 m PNOA-LiDAR Andalusie 2020–21 (dva COG na celé území)
+  provider: Junta de Andalucía (REDIAM)
+  url: https://portalrediam.cica.es/descargas/index.php/s/mxHMWXyHfrCxyNK
+  info: https://portalrediam.cica.es/descargas/index.php/s/mxHMWXyHfrCxyNK
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (es_an), app/pipeline/reference_es.py
+  provider_key: es_an
+  probe: an_elevation
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://portalrediam.cica.es/descargas/index.php/s/mxHMWXyHfrCxyNK
+    attribution: Junta de Andalucía – REDIAM; PNOA-LiDAR CC BY 4.0 scne.es
+  access: free
+  checked: 'Claude 2026-11-22: veřejné sdílení Nextcloud REDIAM, WebDAV public.php/dav/files/<token> (Basic auth token + prázdné heslo
+    + X-Requested-With), Mos_MDT_1m_COG.tif 203 GB a Mos_MDS_1m_COG.tif 284 GB, COG BigTIFF float32 dlaždice 512, EPSG:25830,
+    „ETRS89_h30_Horto“ = ortometrické výšky; metadata „MDE del PNOA-LiDAR de Andalucía, 2020-21 (1x1m)“; okno 500 × 500 m Sevilla
+    z cloudu přes gdal_translate /vsicurl (MDT 0,4–12 m, MDS do 37 m).'
+  issues:
+  - NoData MDT je 255 (MDS −9999); bere se NoData souboru. Skutečná výška přesně 255,00 m vypadne jako díra (zalije fillnodata).
+  - Bez hlavičky X-Requested-With vrací WebDAV 401. Při zrušení sdílení (nový token) přestane fungovat i sonda (404).
+  - Existují i listy 2 × 2 km (~21 MB) a model výšky porostu MDHN 1 m; nepoužité.
+
+- id: es_icgc_met
+  countries:
+  - ES-CT
+  kinds:
+  - elevation
+  name: MET a MDS 1 m LiDAR Territorial v3 Katalánska 2021–23 (dva COG na celé území)
+  provider: Institut Cartogràfic i Geològic de Catalunya (ICGC)
+  url: https://datacloud.icgc.cat/datacloud/model-elevacions-terreny/tif_unzip/
+  info: https://datacloud.icgc.cat/datacloud/model-superficies/tif_unzip/
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (es_ct), app/pipeline/reference_es.py
+  provider_key: es_ct
+  probe: ct_elevation
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://creativecommons.org/licenses/by/4.0/
+    attribution: Institut Cartogràfic i Geològic de Catalunya (ICGC)
+  access: free
+  checked: 'Claude 2026-11-22 (prohlížeč z české sítě): model-elevacions-terreny-lidar-catalunya-1m-2021-2023.tif 92 GB
+    a model-superficies-lidar-catalunya-1m-2021-2023.tif 104 GB, COG BigTIFF float32 DEFLATE dlaždice 512, Range 206; licence CC BY 4.0.
+    Z cloudu Claude datacloud.icgc.cat neodpovídá – čtení okna ověřit z ostré A.'
+  issues:
+  - EPSG:25831. Existuje i MET 50 cm (422 GB), nepoužitý.
+  - Z některých sítí datacloud.icgc.cat neodpovídá (cloud Claude); ostrá A musí ověřit.
 
 - id: be_wallonie_lidar
   countries:

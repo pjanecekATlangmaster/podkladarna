@@ -81,6 +81,8 @@ ORTHO_KEYS = {
     "NL": "nl_luchtfoto",
     "ES-NC": "es_ortho",
     "ES-PV": "es_ortho",
+    "ES-AN": "es_ortho",
+    "ES-CT": "es_ortho",
 }
 
 # Kandidát z ortofota (prahy změřené na 9 mapách ze 4 zemí).

@@ -61,7 +61,13 @@ from app.pipeline.reference_by import BY_ELEVATION_PROBE, BY_ORTHO_PROBE
 from app.pipeline.reference_gb import GB_EA_PROBE, SCT_ELEVATION_PROBE, WLS_ELEVATION_PROBE
 from app.pipeline.reference_pl import PL_ELEVATION_PROBE, PL_ORTHO_PROBE
 from app.pipeline.reference_lu import LU_ELEVATION_PROBE, LU_ORTHO_PROBE
-from app.pipeline.reference_es import ES_ORTHO_PROBE, NAV_ELEVATION_PROBE, PV_ELEVATION_PROBE
+from app.pipeline.reference_es import (
+    AN_ELEVATION_PROBE,
+    CT_ELEVATION_PROBE,
+    ES_ORTHO_PROBE,
+    NAV_ELEVATION_PROBE,
+    PV_ELEVATION_PROBE,
+)
 from app.pipeline.mtk_fi import FI_MTK_PROBE
 from app.pipeline.reference_fi import FI_CHM_PROBE, FI_DTM_PROBE, FI_HEL_WFS_PROBE, FI_ORTHO_PROBE
 from app.pipeline.reference_ch import CH_AV_PROBE, CH_STAC_ALTI, CH_WMS_PROBE
@@ -486,12 +492,32 @@ PROBES: tuple[Probe, ...] = (
         fatal=True,
         countries=("ES-PV",),
     ),
+    # Andalusie: HEAD stránky veřejného sdílení REDIAM (zrušené sdílení = 404; COG čte WebDAV s tokenem).
+    Probe(
+        "an_elevation",
+        "Výšky REDIAM (Andalusie) – MDT a MDS 1 m",
+        (AN_ELEVATION_PROBE,),
+        "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
+        method="HEAD",
+        fatal=True,
+        countries=("ES-AN",),
+    ),
+    # Katalánsko: HEAD celokatalánského COG MET (ICGC datacloud).
+    Probe(
+        "ct_elevation",
+        "Výšky ICGC (Katalánsko) – MET a MDS 1 m",
+        (CT_ELEVATION_PROBE,),
+        "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
+        method="HEAD",
+        fatal=True,
+        countries=("ES-CT",),
+    ),
     Probe(
         "es_ortho",
         "Ortofoto PNOA (IGN)",
         (ES_ORTHO_PROBE,),
         "Šablona ortofota bude chybět.",
-        countries=("ES-NC", "ES-PV"),
+        countries=("ES-NC", "ES-PV", "ES-AN", "ES-CT"),
     ),
     Probe(
         "be_grb",
