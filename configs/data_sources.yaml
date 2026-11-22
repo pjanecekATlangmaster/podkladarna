@@ -2586,6 +2586,32 @@ sources:
   - EPSG:25831. Existuje i MET 50 cm (422 GB), nepoužitý.
   - Z některých sítí datacloud.icgc.cat neodpovídá (cloud Claude); ostrá A musí ověřit.
 
+- id: nz_linz_elevation
+  countries:
+  - NZ
+  kinds:
+  - elevation
+  name: New Zealand LiDAR 1m DEM a 1m DSM (celostátní mozaiky, COG po listech Topo50)
+  provider: Toitū Te Whenua Land Information New Zealand (LINZ)
+  url: https://nz-elevation.s3.ap-southeast-2.amazonaws.com/new-zealand/new-zealand/dem_1m/2193/collection.json
+  info: https://registry.opendata.aws/nz-elevation/
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (nz_linz), app/pipeline/reference_nz.py
+  provider_key: nz_linz
+  probe: nz_elevation
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://creativecommons.org/licenses/by/4.0/
+    attribution: Toitū Te Whenua Land Information New Zealand (LINZ)
+  access: free
+  checked: 'Claude 2026-11-22 (z cloudu): STAC collection.json license CC-BY-4.0, 424 listů DEM, COG Float32 LERC
+    dlaždice 512, NoData −9999, EPSG:2193, list 24 × 36 km; obrys náletů ~87 % země; okno přes /vsicurl bez klíče.'
+  issues:
+  - Nálety 2008–2026 různé hustoty a sezóny; mozaiku skládá LINZ (novější má přednost), rok výřezu z capture-dates.geojson zatím nečteme.
+  - Ortofoto LINZ Basemaps chce API klíč, online šablona ortofota zatím není.
+
 - id: be_wallonie_lidar
   countries:
   - BE
