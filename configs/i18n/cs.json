@@ -630,6 +630,7 @@
   "web.js.sources.note_lead": "Mapa bude nejspíš bez DTM.",
   "web.js.sources.note_body": " Portál DTM (DMVS ČÚZK) {state}. Les i MTBO se nakreslí z OSM a ZABAGED (DTM se použije, jen pokud je výřez už v mezipaměti); s DTM to můžete zkusit později.",
   "web.js.data_note.lead": "Data pro tento výřez.",
+  "web.js.data_note.done_lead": "Data pro tuto mapu.",
   "web.js.data_note.tail": "Zvažte, zda vám taková mapa postačí, než spustíte generování.",
   "web.js.sources.note_planned": "má plánovanou odstávku",
   "web.js.sources.note_down": "teď neodpovídá",

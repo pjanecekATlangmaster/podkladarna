@@ -66,6 +66,20 @@ def meta_lines(meta: dict | None, lang: str) -> list[str]:
     return text_lines(country, lang, sprint=str(meta.get("preset_id") or "").startswith("sprint"))
 
 
+def job_lines(job: dict | None, lang: str = "cs") -> list[str]:
+    """Důsledky dat pro hotový job (detail jobu na webu, Petr 2026-11-22: upozornit i na konci generování).
+
+    Vlastní výšky zadavatele nejsou národní zdroj země → nic; Česko nic. Lesní důsledky jen u jobu, který
+    není čistě sprint (``preset_id`` sprint)."""
+    from app.pipeline.country_profile import job_country
+
+    job = job or {}
+    opts = job.get("options") if isinstance(job.get("options"), dict) else {}
+    if opts.get("user_sources"):
+        return []
+    return text_lines(job_country(opts), lang, sprint=str(job.get("preset_id") or "").startswith("sprint"))
+
+
 def text_lines(country: Country | None, lang: str = "cs", *, sprint: bool = False) -> list[str]:
     """Důsledky dat jako věty v jazyce (log jobu česky, README, poznámka .omap); sprint bez lesních."""
     if country is None:

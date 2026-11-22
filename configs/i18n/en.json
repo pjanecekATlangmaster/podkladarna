@@ -630,6 +630,7 @@
   "web.js.sources.note_lead": "The map will probably be drawn without DTM.",
   "web.js.sources.note_body": " The DTM portal (DMVS ČÚZK) {state}. Forest and MTBO will be drawn from OSM and ZABAGED (DTM is used only if the area is already cached); you can try again with DTM later.",
   "web.js.data_note.lead": "Data for this area.",
+  "web.js.data_note.done_lead": "Data for this map.",
   "web.js.data_note.tail": "Consider whether such a map is good enough for you before you start.",
   "web.js.sources.note_planned": "has a planned outage",
   "web.js.sources.note_down": "is not responding right now",

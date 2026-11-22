@@ -427,6 +427,7 @@ ES-PV:
   view: [42.47, -3.45, 43.46, -1.73]
   elevation: es_pv          # klasifikované mračno Gobierno Vasco 2017 (LAZ 500 m, ~6,7 b/m²) → terén a povrch 1 m; výšky ortometrické
   elevation_years: "2017"
+  data_notes: [old]         # Petr 2026-11-22: novější mračno není, jen upozornit (les jako louka u pasek po 2017)
   technical_map: none
   cz_sources: false
   # Licence: CC BY 4.0 (geoEuskadi, „Eusko Jaurlaritza / Gobierno Vasco. geoEuskadi.“); ortofoto PNOA CC BY 4.0 (IGN, scne.es).
