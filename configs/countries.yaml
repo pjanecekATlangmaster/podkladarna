@@ -2,7 +2,7 @@
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`, a jen na doméně se zemí v SITES – nikdy na české `:CZ`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
 # Zahraniční mapy dělá mezinárodní verze Omapic: citace a attribution anglicky; citace „Base map: Omapic · …, [year]“ (jako anglická licence).
-# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | no_hoyde | pt_dgt | si_arso | si_clss | gb_sct | gb_wls | es_nav | es_pv | es_an | es_ct | de_sh | fr_lidarhd | lu_act | us_3dep | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
+# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | no_hoyde | pt_dgt | si_arso | si_clss | gb_sct | gb_wls | es_nav | es_pv | es_an | es_ct | nz_linz | de_sh | fr_lidarhd | lu_act | us_3dep | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | de_alkis | fr_pdv | fr_bdtopo | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
@@ -690,4 +690,19 @@ US:
     - "Templates: USGS Imagery (NAIP) and USGS Topo, The National Map, courtesy of the U.S. Geological Survey (public domain)."
     - "New York City only: NYC Planimetric Database and Building Footprints, NYC Office of Technology and Innovation via NYC Open Data (no restrictions on use), processed."
     - "Washington DC only: Planimetrics 2023, DC GIS / Office of the Chief Technology Officer (CC BY 4.0), processed."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+NZ:
+  name: {cs: Nový Zéland, en: New Zealand}
+  status: beta              # Nový Zéland (Petr 2026-11-22); DEM a DSM 1 m LINZ bez klíče, kresba z OSM
+  crs: EPSG:2193            # NZGD2000 / New Zealand Transverse Mercator 2000 (NZTM), výšky NZVD2016
+  boundary: countries/nz.geojson  # obrys náletů LINZ „New Zealand LiDAR 1m DEM“ (capture-area, CC BY 4.0), mezery do 2 km zacelené, +300 m, simplify 150 m, kusy pod 1 km² vynechané
+  view: [-47.3, 166.4, -34.3, 178.6]
+  elevation: nz_linz        # celostátní mozaiky LINZ DEM a DSM 1 m (nz-elevation na AWS, list Topo50 = COG), nálety 2008–2026
+  elevation_years: "2008–2026"
+  technical_map: none
+  cz_sources: false
+  # Licence: CC BY 4.0, „Toitū Te Whenua Land Information New Zealand“ (STAC collection.json, ověřeno 2026-11-22).
+  citation: "Base map: Omapic · LINZ · OSM, [year]"
+  attribution:
+    - "Elevation: New Zealand LiDAR 1m DEM and 1m DSM, sourced from Toitū Te Whenua Land Information New Zealand (LINZ), CC BY 4.0, processed."
     - "OSM © OpenStreetMap contributors (ODbL)."
