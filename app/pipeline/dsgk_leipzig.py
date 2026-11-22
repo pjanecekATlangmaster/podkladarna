@@ -45,6 +45,8 @@ CACHE_MAX_AGE_DAYS = 90  # nepoužitá cache se smaže (``disk_space.aoi_cache_r
 HTTP_TIMEOUT_S = 120
 CHUNK = 1 << 20
 MAX_ZIP_BYTES = 3_000_000_000  # dnes 0,66 GB; víc je chyba serveru
+MAX_GPKG_BYTES = 8_000_000_000  # rozbalený GeoPackage dnes 2,1 GB; víc = vadný nebo podvržený ZIP (zip bomba)
+MIN_FREE_BYTES = 4_000_000_000  # volno před stažením (ZIP 0,7 GB + rozbalení 2,1 GB + rezerva), jinak jen ALKIS
 _GEOM = '"$(GPKG_GEOMETRY_ATTRIBUT)"'  # sloupec geometrie se v exportu města skutečně takhle jmenuje
 
 # (tabulka DSGK, sloupec kódu, druhý sloupec nebo None, kódy, které bereme)
@@ -210,14 +212,24 @@ def _install(folder: Path, url: str, remote: dict, *, now: float, download=_down
     tmp_gpkg = folder / "dsgk.gpkg.part"
     tmp_store = folder / (STORE_NAME + ".part")
     t0 = time.monotonic()
+    free = shutil.disk_usage(folder).free
+    if free < MIN_FREE_BYTES:
+        raise RuntimeError(f"DSGK Leipzig: málo místa na disku ({free / 1e9:.1f} GB)")
     try:
         nbytes = download(url, zip_path)
         with zipfile.ZipFile(zip_path) as zf:
             member = next((n for n in zf.namelist() if n.lower().endswith(".gpkg")), None)
             if member is None:
                 raise RuntimeError("DSGK Leipzig: v ZIPu není GeoPackage")
+            if zf.getinfo(member).file_size > MAX_GPKG_BYTES:
+                raise RuntimeError("DSGK Leipzig: GeoPackage v ZIPu je nečekaně velký")
+            written = 0
             with zf.open(member) as src, open(tmp_gpkg, "wb") as out:
-                shutil.copyfileobj(src, out, CHUNK)
+                while chunk := src.read(CHUNK):
+                    written += len(chunk)
+                    if written > MAX_GPKG_BYTES:  # hlavička ZIPu může lhát
+                        raise RuntimeError("DSGK Leipzig: GeoPackage v ZIPu je nečekaně velký")
+                    out.write(chunk)
         zip_path.unlink(missing_ok=True)
         tmp_store.unlink(missing_ok=True)
         count = build_store(tmp_gpkg, tmp_store)

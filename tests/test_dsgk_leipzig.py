@@ -100,6 +100,7 @@ def test_ensure_store_downloads_once_and_rechecks(tmp_path, monkeypatch):
     from app import settings
 
     monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path)
+    monkeypatch.setattr(dsgk_leipzig, "MIN_FREE_BYTES", 0)
     gpkg = _gpkg(tmp_path / "src.gpkg", ROWS)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
@@ -144,6 +145,26 @@ def test_ensure_store_downloads_once_and_rechecks(tmp_path, monkeypatch):
     calls["head"] = 0
     dsgk_leipzig.ensure_store(head=head, download=download, listing=listing, now=newest + 3600)
     assert calls["head"] == 0  # další pokus až za den, ne v každém jobu
+
+
+@pytest.mark.parametrize("limit, expected", [("gpkg", "nečekaně velký"), ("disk", "málo místa")])
+def test_install_refuses_huge_gpkg_and_full_disk(tmp_path, monkeypatch, limit, expected):
+    gpkg = _gpkg(tmp_path / "src.gpkg", ROWS)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.write(gpkg, "x.gpkg")
+    monkeypatch.setattr(dsgk_leipzig, "MIN_FREE_BYTES", 10**18 if limit == "disk" else 0)
+    if limit == "gpkg":
+        monkeypatch.setattr(dsgk_leipzig, "MAX_GPKG_BYTES", 10)
+
+    def download(_url, dest):
+        Path(dest).write_bytes(buf.getvalue())
+        return len(buf.getvalue())
+
+    folder = tmp_path / "cache"
+    with pytest.raises(RuntimeError, match=expected):
+        dsgk_leipzig._install(folder, "u", {}, now=0.0, download=download)
+    assert not list(folder.glob("*.part")) and not (folder / dsgk_leipzig.STORE_NAME).exists()
 
 
 def test_augment_replaces_alkis_inside_city(tmp_path):
