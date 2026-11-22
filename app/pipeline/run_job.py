@@ -1286,11 +1286,12 @@ def run_job_pipeline(
     veg_buildings: Path | None = None
     # Zeleň ze zrnitosti porostu jen mimo Česko a jen bez sprintu (``veg_texture``); Česko beze změny.
     veg_texture = bool(bbox) and not cz_sources and not job_has_sprint(preset_id, options)
-    # Zimní výšky bez listí (``green: leafoff``): zrnitost by les zazelenala; nízký porost v lese až po OSM.
+    # Zimní výšky bez listí (``green: leafoff``): zrnitost až po OSM jen ve stálezeleném porostu; nízký porost v lese bílý.
     veg_country = job_country(options)
     # Vlastní data zadavatele nejsou národní zdroj země: zeleň jako u běžného laseru (bez leafoff / understory).
     veg_green = "laser" if options.get("user_sources") else (veg_country.green if veg_country is not None else None)
     veg_leafoff = bool(bbox) and not cz_sources and veg_green == "leafoff"
+    leafoff_texture = bool(veg_texture) and veg_leafoff
     if veg_leafoff or veg_green == "plain":
         veg_texture = False  # plain: sever, zrnitost zelenala řídký les (Nuuksio 406 32 %, reálná mapa převážně bílá)
     elif veg_texture and veg_green == "understory":
@@ -1402,7 +1403,8 @@ def run_job_pipeline(
                 log_issue(log, f"Vegetace z OSM: přeskočeno ({exc})")
         elif veg_leafoff:
             try:
-                regenerate_leafoff_vegetation(work_dir, log=log)
+                # Zrnitost jen ve stálezeleném porostu ze zimního snímku (les a MTBO mimo Česko, ne sprint).
+                regenerate_leafoff_vegetation(work_dir, log=log, texture=leafoff_texture)
             except Exception as exc:
                 log(f"Vegetace: les z OSM pro zimní výšky přeskočen ({exc})")
         progress.done()

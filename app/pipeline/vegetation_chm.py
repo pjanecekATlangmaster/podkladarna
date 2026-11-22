@@ -459,11 +459,13 @@ def generate_vegetation_from_chm(
     log=None,
     texture: bool | str = False,
     white_open=None,
+    texture_mask=None,
 ) -> Path | None:
     """Klasifikuje CHM → polygony vegetation.shp (cls, code); ``texture`` = zeleň ze zrnitosti (mimo Česko, les).
 
     ``white_open`` = bool maska na mřížce CHM, kde se otevřená plocha (třída 1) kreslí jako bílý les
-    (zimní povrch bez listí, ``leafoff_forest_mask``).
+    (zimní povrch bez listí, ``leafoff_forest_mask``). ``texture_mask`` = zeleň ze zrnitosti jen v této masce
+    (stálezelený porost u zimních výšek, ``winter_evergreen``).
     """
     from app.pipeline.gdal_cli_raster import read_float32_geotiff
 
@@ -477,7 +479,14 @@ def generate_vegetation_from_chm(
 
     classified = classify_chm_array(arr, nodata, thresholds)
     if texture:
-        classified = _with_texture_green(classified, arr, nodata, gt, log=log, mode=texture)
+        import numpy as np
+
+        textured = _with_texture_green(classified, arr, nodata, gt, log=log, mode=texture)
+        if texture_mask is not None and texture_mask.shape == classified.shape:
+            textured = np.where(texture_mask, textured, classified).astype(classified.dtype)
+            if log:
+                log(f"Vegetace: zrnitost jen ve stálezeleném porostu – zeleň navíc {100.0 * (textured != classified).mean():.1f} % výřezu")
+        classified = textured
     if white_open is not None and white_open.shape == classified.shape:
         hit = (classified == 1) & white_open
         classified[hit] = 0
@@ -660,9 +669,13 @@ def regenerate_leafoff_vegetation(
     *,
     thresholds: ChmVegeThresholds = DEFAULT_THRESHOLDS,
     log=None,
+    texture: bool = False,
 ) -> Path | None:
-    """Po přípravě OSM znovu vegetation.shp z CHM s bílým lesem v lese OSM (jen porost z CHM, jinak nic)."""
+    """Po přípravě OSM znovu vegetation.shp z CHM s bílým lesem v lese OSM (jen porost z CHM, jinak nic).
+
+    ``texture`` = zeleň ze zrnitosti ve stálezeleném porostu ze zimního snímku Sentinel-2 (les a MTBO, ne sprint)."""
     from app.pipeline.gdal_cli_raster import read_float32_geotiff
+    from app.pipeline.winter_evergreen import job_evergreen_mask
 
     work_dir = Path(work_dir)
     dest = work_dir / "vegetation" / "vegetation.shp"
@@ -680,8 +693,10 @@ def regenerate_leafoff_vegetation(
         if log:
             log("Vegetace: zimní výšky – ve výřezu není les z OSM, beze změny")
         return None
+    evergreen = job_evergreen_mask(work_dir, gt, arr.shape, log=log) if texture else None
     return generate_vegetation_from_chm(
-        src, dest, thresholds=thresholds, tint_png=dest.parent / "chm_tint.png", log=log, white_open=forest
+        src, dest, thresholds=thresholds, tint_png=dest.parent / "chm_tint.png", log=log, white_open=forest,
+        texture="laser" if evergreen is not None else False, texture_mask=evergreen,
     )
 
 

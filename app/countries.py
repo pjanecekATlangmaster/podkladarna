@@ -90,7 +90,7 @@ class Country:
     technical_map_area: tuple[tuple[tuple[float, float], ...], ...] = ()
     # Zeleň v lese: ``points`` hustota bodů z mračna (Česko), ``laser`` zrnitost z laserového povrchu (hranice
     # porostů jako z mračna, ``veg_texture``), ``photo`` povrch ze snímků – jen základní zeleň z výšky porostu,
-    # ``leafoff`` zimní laserový povrch bez listí (Belgie DHMV II): bez zrnitosti, nízký porost v lese z OSM = bílý les;
+    # ``leafoff`` zimní laserový povrch bez listí (Belgie DHMV II): zrnitost jen ve stálezeleném porostu (zimní Sentinel-2), nízký porost v lese z OSM = bílý les;
     # ``understory`` horský les (Trentino): místo zrnitosti podíl nízkého patra (``veg_texture``);
     # ``plain`` jen základní zeleň z výšky porostu bez zrnitosti (sever: řídký les, reálné mapy převážně bílé).
     green: str = "laser"
