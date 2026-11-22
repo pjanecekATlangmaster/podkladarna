@@ -1295,7 +1295,9 @@ def run_job_pipeline(
     if veg_leafoff or veg_green == "plain":
         veg_texture = False  # plain: sever, zrnitost zelenala řídký les (Nuuksio 406 32 %, reálná mapa převážně bílá)
     elif veg_texture and veg_green == "understory":
-        veg_texture = "understory"  # horský les (Trentino): podíl nízkého patra místo zrnitosti
+        # horský les (Trentino), Nizozemsko (přísnější práh ``green_share``): podíl nízkého patra místo zrnitosti
+        share = veg_country.green_share if veg_country is not None else 0.0
+        veg_texture = f"understory:{share:g}" if share else "understory"
     if bbox and cz_sources:
         # RÚIAN budovy (cache; stejný dotaz později v „RÚIAN a AOPK“) – maska zástavby.
         try:

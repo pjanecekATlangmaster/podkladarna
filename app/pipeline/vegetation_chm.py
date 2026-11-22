@@ -418,8 +418,19 @@ def _simplify_vegetation_shp(
 
 
 def texture_mode(texture) -> str:
-    """``texture`` z run_job: True / „laser“ = zrnitost, „understory“ = podíl nízkého patra (``green: understory``)."""
-    return "understory" if texture == "understory" else "laser"
+    """``texture`` z run_job: True / „laser“ = zrnitost, „understory“ / „understory:<práh>“ = podíl nízkého patra
+    (``green: understory``, práh z ``green_share``)."""
+    return "understory" if isinstance(texture, str) and texture.split(":")[0] == "understory" else "laser"
+
+
+def texture_share(texture) -> float | None:
+    """Práh podílu nízkého patra z „understory:<práh>“, jinak None (výchozí ``UNDER_SHARE``)."""
+    if isinstance(texture, str) and texture.startswith("understory:"):
+        try:
+            return float(texture.split(":", 1)[1]) or None
+        except ValueError:
+            return None
+    return None
 
 
 # Značka vedle ``vegetation.shp``: porost je z rastru CHM (DSM − DTM), ne z hustoty klasifikovaných bodů.
@@ -437,7 +448,8 @@ def _with_texture_green(classified, arr, nodata, gt, *, log=None, mode="laser"):
         if nodata is not None:
             chm = np.where(chm == float(nodata), np.nan, chm)
         info: dict = {}
-        out, shares = add_texture_green(classified, chm, abs(float(gt[1])), mode=texture_mode(mode), info=info)
+        out, shares = add_texture_green(classified, chm, abs(float(gt[1])), mode=texture_mode(mode), info=info,
+                                        under_share=texture_share(mode))
     except Exception as exc:  # noqa: BLE001 – zeleň navíc nesmí shodit vegetaci
         if log:
             log(f"Vegetace: zeleň ze zrnitosti přeskočena ({exc})")
