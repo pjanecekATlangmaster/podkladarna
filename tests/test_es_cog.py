@@ -72,6 +72,7 @@ def test_provider_outside_raises(tmp_path, monkeypatch, key):
 def test_cog_windows_passes_gdal_config(tmp_path, monkeypatch):
     seen = []
     monkeypatch.setattr(er, "run_cmd", lambda cmd, log=None: seen.append(cmd))
+    monkeypatch.setattr(er, "_gdal_tool", lambda name: name)  # CI bez GDAL
     er.cog_windows(["https://x/a.tif"], (0, 0, 10, 10), "EPSG:25830", tmp_path, "t", gdal_config={"GDAL_HTTP_AUTH": "BASIC"})
     cmd = seen[0]
     i = cmd.index("GDAL_HTTP_AUTH")
