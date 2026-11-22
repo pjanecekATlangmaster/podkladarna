@@ -45,7 +45,8 @@ def test_evergreen_mask(scl, nir, expected):
         return out
 
     mask, got_day = we.evergreen_mask(GT, (100, 100), WKT_UTM31, today=date(2026, 3, 1),
-                                      search=lambda *a, **k: [_scene(day)], read_band=read_band)
+                                      search=lambda *a, **k: [_scene(day)], read_band=read_band,
+                                      bbox=(4.4, 50.9, 4.42, 50.91))
     if expected is None:
         assert mask is None and got_day is None
     else:

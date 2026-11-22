@@ -51,6 +51,7 @@ def _warp(href: str, gt, shape, srs_wkt: str, res: float, alg: str):
 
     from app.pipeline import sentinel2 as s2
 
+    gdal.UseExceptions()
     h, w = shape
     bounds = (gt[0], gt[3] + gt[5] * h, gt[0] + gt[1] * w, gt[3])
     with gdal.config_options(dict(s2.GDAL_HTTP_CONFIG)):
@@ -59,20 +60,20 @@ def _warp(href: str, gt, shape, srs_wkt: str, res: float, alg: str):
         return ds.ReadAsArray()
 
 
-def evergreen_mask(gt, shape, srs_wkt: str, *, log=None, today: date | None = None, search=None, read_band=None):
+def evergreen_mask(gt, shape, srs_wkt: str, *, log=None, today: date | None = None, search=None, read_band=None,
+                   bbox=None):
     """(bool maska na mřížce CHM, den snímku) nebo (None, None) bez jasného zimního snímku.
 
-    ``search`` / ``read_band``: náhrady pro testy (``sentinel2.search_scenes`` / ``(href, res, alg) → pole``)."""
+    ``search`` / ``read_band`` / ``bbox``: náhrady pro testy (``sentinel2.search_scenes`` / ``(href, res, alg) → pole``
+    / výřez ve WGS84); bez nich je potřeba osgeo."""
     import numpy as np
-    from osgeo import gdal
 
     from app.pipeline import sentinel2 as s2
 
-    gdal.UseExceptions()
     today = today or date.today()
     search = search or s2.search_scenes
     read_band = read_band or (lambda href, res, alg: _warp(href, gt, shape, srs_wkt, res, alg))
-    bbox = _bbox_wgs84(gt, shape, srs_wkt)
+    bbox = bbox or _bbox_wgs84(gt, shape, srs_wkt)
 
     def _clear(scene) -> bool:
         try:
