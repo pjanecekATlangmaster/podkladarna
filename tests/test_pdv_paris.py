@@ -191,7 +191,7 @@ def test_elevation_coverage_never_blocks_on_error(monkeypatch):
     "bbox, source",
     [
         ((2.350, 48.855, 2.362, 48.861), "fr_pdv"),  # Marais
-        ((4.825, 45.754, 4.840, 45.762), "none"),  # Lyon: Plan de voirie jen Paříž
+        ((4.825, 45.754, 4.840, 45.762), "fr_bdtopo"),  # Lyon: Plan de voirie jen Paříž, jinde BD TOPO
     ],
 )
 def test_pdv_only_in_paris(bbox, source):

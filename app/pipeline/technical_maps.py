@@ -75,6 +75,14 @@ FOREIGN: dict[str, TechnicalMap] = {
         content="vozovky, chodníky, smíšené plochy, schodiště, ostrůvky, zeleň",
         module="app.pipeline.pdv_paris",
     ),
+    "fr_bdtopo": TechnicalMap(
+        key="fr_bdtopo",
+        short="BD TOPO",
+        step="data BD TOPO",
+        background="Data BD TOPO (IGN)",
+        content="budovy, vozovky podle šířky silnic",
+        module="app.pipeline.bdtopo_fr",
+    ),
     "ee_etak": TechnicalMap(
         key="ee_etak",
         short="ETAK",

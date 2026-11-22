@@ -1209,5 +1209,12 @@
   "web.js.sources.retry_throttled": " Some sources were checked a moment ago; you can check them again in a minute.",
   "web.js.sources.retry_failed": "The sources cannot be checked right now, please try again shortly.",
   "web.js.sources.recent_outage": "This area failed {minutes} min ago because {label} was not responding. Before you start the job again, check the sources with “Check sources again” below.",
-  "web.js.sources.cannot_generate": " While the elevation source is not responding, the map cannot be created (the job is not started and does not count towards your limits). Please try again later."
+  "web.js.sources.cannot_generate": " While the elevation source is not responding, the map cannot be created (the job is not started and does not count towards your limits). Please try again later.",
+  "web.js.step.bdtopo": "BD TOPO data (France)",
+  "web.js.source.fr_bdtopo": "BD TOPO (France)",
+  "web.js.bdtopo.failed": "BD TOPO data could not be downloaded, the map was drawn from OSM.",
+  "web.js.bdtopo.text": "BD TOPO France ({n} objects): prepared in the background in {dur}.",
+  "web.js.bg.fr_bdtopo": "BD TOPO data (IGN)",
+  "api.source.fr_bdtopo.label": "BD TOPO (IGN) – buildings and roads outside Paris",
+  "api.source.fr_bdtopo.impact": "Buildings and roadways outside Paris will be drawn from OSM only."
 }

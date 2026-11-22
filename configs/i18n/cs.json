@@ -1208,5 +1208,12 @@
   "web.js.sources.retry_throttled": " Některé zdroje byly ověřeny před chvílí, znovu je lze zkusit za minutu.",
   "web.js.sources.retry_failed": "Zdroje teď nejde ověřit, zkuste to prosím za chvíli.",
   "web.js.sources.recent_outage": "Tento výřez před {minutes} min selhal, protože zdroj {label} neodpovídal. Než job pustíte znovu, ověřte zdroje tlačítkem „Zkusit zdroje znovu“ níže.",
-  "web.js.sources.cannot_generate": " Dokud zdroj výšek neodpovídá, mapu nejde vytvořit (job se nezaloží a do limitů se nepočítá). Zkuste to později."
+  "web.js.sources.cannot_generate": " Dokud zdroj výšek neodpovídá, mapu nejde vytvořit (job se nezaloží a do limitů se nepočítá). Zkuste to později.",
+  "web.js.step.bdtopo": "data BD TOPO (Francie)",
+  "web.js.source.fr_bdtopo": "BD TOPO (Francie)",
+  "web.js.bdtopo.failed": "Data BD TOPO se nepodařilo stáhnout, mapa se kreslila z OSM.",
+  "web.js.bdtopo.text": "BD TOPO Francie ({n} objektů): příprava na pozadí {dur}.",
+  "web.js.bg.fr_bdtopo": "Data BD TOPO (IGN)",
+  "api.source.fr_bdtopo.label": "BD TOPO (IGN) – budovy a silnice mimo Paříž",
+  "api.source.fr_bdtopo.impact": "Budovy a vozovky mimo Paříž se nakreslí jen z OSM."
 }

@@ -42,6 +42,7 @@ from app.pipeline.osm_paths import OVERPASS_URLS
 from app.pipeline.bgt_nl import BGT_API
 from app.pipeline.reference_at import AT_BASEMAP_PROBE, AT_BEV_PROBE, AT_FMZK_PROBE, AT_LB_PROBE
 from app.pipeline.reference_de import DE_BE_DGM_PROBE, DE_BE_DOP_PROBE, DE_BE_SB_PROBE
+from app.pipeline.bdtopo_fr import probe_url as bdtopo_probe_url
 from app.pipeline.reference_fr import FR_LIDAR_PROBE, FR_ORTHO_PROBE, FR_PDV_PROBE
 from app.pipeline.reference_ee import EE_ELEVATION_PROBE, EE_ETAK_PROBE, EE_ORTHO_PROBE
 from app.pipeline.zbgis_sk import DATASETS as SK_ZBGIS_DATASETS
@@ -297,6 +298,14 @@ PROBES: tuple[Probe, ...] = (
         "Plan de voirie (Ville de Paris)",
         (FR_PDV_PROBE,),
         "Vozovky, chodníky a schodiště se nakreslí jen z OSM.",
+        needs="dtm",
+        countries=("FR",),
+    ),
+    Probe(
+        "fr_bdtopo",
+        "BD TOPO (IGN) – budovy a silnice mimo Paříž",
+        (bdtopo_probe_url(),),
+        "Budovy a vozovky mimo Paříž se nakreslí jen z OSM.",
         needs="dtm",
         countries=("FR",),
     ),
