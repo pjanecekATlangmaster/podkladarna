@@ -2,7 +2,7 @@
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`, a jen na doméně se zemí v SITES – nikdy na české `:CZ`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
 # Zahraniční mapy dělá mezinárodní verze Omapic: citace a attribution anglicky; citace „Base map: Omapic · …, [year]“ (jako anglická licence).
-# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | no_hoyde | pt_dgt | si_arso | si_clss | gb_sct | gb_wls | es_nav | es_pv | de_sh | fr_lidarhd | lu_act | us_3dep | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
+# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | no_hoyde | pt_dgt | si_arso | si_clss | gb_sct | gb_wls | es_nav | es_pv | es_an | es_ct | de_sh | fr_lidarhd | lu_act | us_3dep | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
@@ -82,6 +82,21 @@ CH:
     - "Elevation: swissALTI3D and swissSURFACE3D Raster © swisstopo (Open Government Data)."
     - "Orthophoto SWISSIMAGE, national map and hillshade © swisstopo."
     - "Cadastral survey (AV, amtliche Vermessung): Quelle Kantone, geodienste.ch."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+LI:
+  name: {cs: Lichtenštejnsko, en: Liechtenstein, de: Liechtenstein}
+  status: beta              # celé Lichtenštejnsko (2026-11-22); výšky swisstopo pokrývají LI, souřadnice jako Švýcarsko
+  crs: EPSG:2056            # CH1903+ / LV95 (úřední systém i v Lichtenštejnsku)
+  boundary: countries/li.geojson  # swisstopo swissBOUNDARIES3D (OGD), +300 m, zjednodušeno 100 m
+  view: [47.05, 9.47, 47.27, 9.64]
+  elevation: ch_swisstopo   # swissALTI3D + swissSURFACE3D Raster 0,5 m (STAC swisstopo, listy LI 2017–2026)
+  technical_map: none       # AV Lichtenštejnska není v geodienste.ch; kresba z OSM
+  cz_sources: false
+  # Licence: swisstopo OGD (volné i komerční použití, uvést zdroj).
+  citation: "Base map: Omapic · © swisstopo · OSM, [year]"
+  attribution:
+    - "Elevation: swissALTI3D and swissSURFACE3D Raster © swisstopo (Open Government Data), coverage includes Liechtenstein."
+    - "Orthophoto SWISSIMAGE, national map and hillshade © swisstopo (online templates only)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 AT:
   name: {cs: Rakousko, en: Austria, de: Österreich}
@@ -434,6 +449,38 @@ ES-PV:
   citation: "Base map: Omapic · Gobierno Vasco, geoEuskadi · IGN · OSM, [year]"
   attribution:
     - "Elevation: LiDAR 2017 point cloud, Eusko Jaurlaritza / Gobierno Vasco. geoEuskadi (CC BY 4.0), processed."
+    - "Orthophoto (template): PNOA máxima actualidad, CC BY 4.0 scne.es (Instituto Geográfico Nacional)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+ES-AN:
+  name: {cs: Španělsko – Andalusie, en: Spain – Andalusia, es: España – Andalucía}
+  status: beta              # Andalusie (2026-11-22); MDT a MDS 1 m bez účtu, kresba z OSM
+  crs: EPSG:25830           # ETRS89 / UTM 30N (data REDIAM v UTM 30 rozšířeném na celé území)
+  boundary: countries/es_an.geojson  # relace OSM Andalucía 349044 (ODbL), +300 m, simplify 150 m, ostrovy pod 1 km² vynechané
+  view: [36.00, -7.52, 38.73, -1.63]
+  elevation: es_an          # REDIAM MDT a MDS 1 m PNOA-LiDAR 2020–21, okno z celoandaluských COG (WebDAV veřejného sdílení); výšky ortometrické
+  elevation_years: "2020–2021"
+  technical_map: none
+  cz_sources: false
+  # Licence: CC BY 4.0 (REDIAM, Junta de Andalucía; podklad PNOA-LiDAR CC BY 4.0 scne.es); ortofoto PNOA CC BY 4.0 (IGN, scne.es).
+  citation: "Base map: Omapic · Junta de Andalucía (REDIAM) · IGN · OSM, [year]"
+  attribution:
+    - "Elevation: MDE PNOA-LiDAR de Andalucía 2020–21 (1 m), Junta de Andalucía – REDIAM, from PNOA-LiDAR CC BY 4.0 scne.es, processed."
+    - "Orthophoto (template): PNOA máxima actualidad, CC BY 4.0 scne.es (Instituto Geográfico Nacional)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+ES-CT:
+  name: {cs: Španělsko – Katalánsko, en: Spain – Catalonia, es: España – Cataluña}
+  status: beta              # Katalánsko (2026-11-22); MET a MDS 1 m bez účtu, kresba z OSM; datacloud ICGC z cloudu Claude neodpovídá, ověřit z ostré A
+  crs: EPSG:25831           # ETRS89 / UTM 31N
+  boundary: countries/es_ct.geojson  # relace OSM Catalunya 349053 (ODbL) včetně Llívie, +300 m, simplify 150 m, ostrovy pod 1 km² vynechané
+  view: [40.52, 0.16, 42.86, 3.33]
+  elevation: es_ct          # ICGC MET a MDS 1 m z LiDAR Territorial v3 (2021–23), okno z celokatalánských COG; výšky ortometrické
+  elevation_years: "2021–2023"
+  technical_map: none
+  cz_sources: false
+  # Licence: CC BY 4.0 (ICGC); ortofoto PNOA CC BY 4.0 (IGN, scne.es).
+  citation: "Base map: Omapic · ICGC · IGN · OSM, [year]"
+  attribution:
+    - "Elevation: LiDAR Territorial v3 2021–2023 terrain and surface models (1 m) © Institut Cartogràfic i Geològic de Catalunya (ICGC), CC BY 4.0, processed."
     - "Orthophoto (template): PNOA máxima actualidad, CC BY 4.0 scne.es (Instituto Geográfico Nacional)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 FR:

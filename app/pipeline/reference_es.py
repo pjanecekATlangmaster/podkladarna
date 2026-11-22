@@ -13,6 +13,16 @@
   EPSG:25830, výšky **ortometrické** (ověřeno 2026-11-20 proti MDT 1 m: medián rozdílu bodů země 0,03 m). Třídy ASPRS:
   2 země, 3–5 vegetace, 6 budovy, 7 šum. Výpis adresářů občas vrací 503 (opakuje se).
 
+- **Andalusie** (Junta de Andalucía, REDIAM, CC BY 4.0): MDT a MDS 1 m z PNOA LiDAR 2. pokrytí (2014–15, ~1,5 bodu/m²)
+  jako dva COG na celé území (BigTIFF, float32, dlaždice 512) ve veřejném sdílení Nextcloud REDIAM. Čte se okno přes
+  WebDAV veřejného sdílení: Basic auth s tokenem sdílení a prázdným heslem + hlavička ``X-Requested-With`` (bez ní 401).
+  EPSG:25830 (UTM 30 rozšířené na celé území), výšky **ortometrické** („Horto“). NoData: MDT 255 (!), MDS −9999 – bere se
+  NoData souboru, nic se nepřepisuje.
+
+- **Katalánsko** (ICGC, CC BY 4.0): MET a MDS 1 m z LiDAR Territorial v3 (2021–23) jako dva COG na celé území
+  (BigTIFF, float32, dlaždice 512) na ``datacloud.icgc.cat``. EPSG:25831, výšky ortometrické. Z cloudu Claude
+  datacloud.icgc.cat neodpovídá (z české sítě ano, Range ověřen 2026-11-22) – ověřit z ostré A.
+
 - Ortofoto PNOA (IGN, CC BY 4.0 „scne.es“, bez klíče): WMS ``pnoa-ma`` v EPSG:25830 pro celé Španělsko.
 
 Stav služby hlídá ``app.source_status``.
@@ -79,6 +89,29 @@ ES_LAZ_REGIONS: dict[str, EsLazRegion] = {
 
 NAV_ELEVATION_PROBE = ES_LAZ_REGIONS["es_nav"].probe
 PV_ELEVATION_PROBE = ES_LAZ_REGIONS["es_pv"].probe
+
+# Andalusie: veřejné sdílení REDIAM (Nextcloud), WebDAV s tokenem sdílení jako jménem a prázdným heslem.
+AN_SHARE_TOKEN = "mxHMWXyHfrCxyNK"
+AN_SHARE_PAGE = f"https://portalrediam.cica.es/descargas/index.php/s/{AN_SHARE_TOKEN}"
+AN_COG_BASE = (
+    f"https://portalrediam.cica.es/descargas/public.php/dav/files/{AN_SHARE_TOKEN}/01_CARACTERIZACION_TERRITORIO/"
+    "07_BASES_REF_ELEV/01_ELEVACIONES/01_PROYECTOS_REGIONALES/2020_AND_PNOA_LIDAR_V226_el/InfGeografica/InfRaster"
+)
+AN_DTM_URL = f"{AN_COG_BASE}/MDT/ETRS89_h30_Horto/COG/Mos_1m/Mos_MDT_1m_COG.tif"
+AN_DSM_URL = f"{AN_COG_BASE}/MDS/ETRS89_h30_Horto/COG/Mos_1m/Mos_MDS_1m_COG.tif"
+AN_GDAL_CONFIG = {
+    "GDAL_HTTP_USERPWD": f"{AN_SHARE_TOKEN}:",
+    "GDAL_HTTP_AUTH": "BASIC",
+    "GDAL_HTTP_HEADERS": "X-Requested-With: XMLHttpRequest",
+}
+AN_ELEVATION_PROBE = AN_SHARE_PAGE  # HEAD stránky sdílení: zrušené sdílení = 404
+
+# Katalánsko: ICGC datacloud, jeden COG na model.
+CT_CRS = "EPSG:25831"
+CT_COG_BASE = "https://datacloud.icgc.cat/datacloud"
+CT_DTM_URL = f"{CT_COG_BASE}/model-elevacions-terreny/tif_unzip/model-elevacions-terreny-lidar-catalunya-1m-2021-2023.tif"
+CT_DSM_URL = f"{CT_COG_BASE}/model-superficies/tif_unzip/model-superficies-lidar-catalunya-1m-2021-2023.tif"
+CT_ELEVATION_PROBE = CT_DTM_URL
 
 # Ortofoto PNOA máxima actualidad (IGN, CC BY 4.0 scne.es) – šablona a maska zpevněných ploch sprintu.
 ES_PNOA_WMS = "https://www.ign.es/wms-inspire/pnoa-ma"
