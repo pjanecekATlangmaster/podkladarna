@@ -32,6 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
         ("DE-HB", []),
         ("LU", []),
         ("NL", []),
+        ("ES-PV", ["old"]),  # LiDAR 2017, novější není (Petr 2026-11-22)
     ],
 )
 def test_note_keys(code, keys):
@@ -42,7 +43,7 @@ def test_catalog_keys_and_params():
     cs = json.loads((ROOT / "configs/i18n/cs.json").read_text(encoding="utf-8"))
     en = json.loads((ROOT / "configs/i18n/en.json").read_text(encoding="utf-8"))
     keys = [f"api.data_note.{k}" for k in (*data_notes.NOTE_KEYS, *data_notes.FOREST_ONLY, "summary", "summary_years")]
-    keys += ["web.js.data_note.lead", "web.js.data_note.tail"]
+    keys += ["web.js.data_note.lead", "web.js.data_note.tail", "web.js.data_note.done_lead"]
     for key in keys:
         assert key in cs and key in en, key
         assert set(re.findall(r"{\w+}", cs[key])) == set(re.findall(r"{\w+}", en[key])), key
@@ -68,6 +69,20 @@ def test_meta_lines_cz_and_old_meta_empty():
     assert data_notes.meta_lines({"country": "CZ", "preset_id": "les_5m"}, "cs") == []
     assert data_notes.meta_lines({}, "en") == []
     assert data_notes.meta_lines({"country": "IT", "preset_id": "sprint_2m"}, "en")[0].startswith("Age of the data (2014)")
+
+
+@pytest.mark.parametrize(
+    "job, expected",
+    [
+        ({"options": {"country": "CZ"}, "preset_id": "forest_10000"}, 0),  # Česko nic
+        ({"options": {"country": "PL"}, "preset_id": "forest_10000"}, 1),  # snímky: zeleň jen základní
+        ({"options": {"country": "PL"}, "preset_id": "sprint_4000"}, 0),  # sprint bez lesních důsledků
+        ({"options": {"country": "BE", "user_sources": True}, "preset_id": "forest_10000"}, 0),  # vlastní výšky
+        ({"options": {"country": "BE"}, "preset_id": "forest_10000"}, 1),
+    ],
+)
+def test_job_lines_for_done_job(job, expected):
+    assert len(data_notes.job_lines(job, "en")) == expected
 
 
 def test_area_probe_carries_notes():

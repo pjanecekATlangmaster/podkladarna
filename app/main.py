@@ -1168,7 +1168,7 @@ def api_list_jobs(request: Request):
 
 
 @app.get("/api/jobs/{job_id}")
-def api_get_job(job_id: str):
+def api_get_job(job_id: str, request: Request):
     try:
         job = db.get_job(job_id)
     except KeyError:
@@ -1181,6 +1181,13 @@ def api_get_job(job_id: str):
     if stats:
         job["build_stats"] = stats
     out = _public_job(job)
+    if job.get("status") in ("done", "done_with_errors"):
+        # Stáří a druh výškových dat země v jazyce stránky (web je ukáže u hotové mapy); Česko nic.
+        from app import data_notes
+
+        notes = data_notes.job_lines(job, i18n.resolve_lang(request)[0])
+        if notes:
+            out = {**out, "data_notes": notes}
     # Pozice ve frontě i u privátního jobu (není ve veřejném seznamu, „Moje mapy“ ji čtou odtud).
     pos = worker.queue_position(job_id)
     if pos is not None:

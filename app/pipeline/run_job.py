@@ -1466,6 +1466,12 @@ def run_job_pipeline(
     progress.finish_all()
     resolve_source_issues(pending_source_issues, log, raw_log)
     issues.report()
+    if not cz_sources and not options.get("user_sources"):
+        # Petr 2026-11-22: stáří a druh dat zopakovat i na konci (web ho ukáže u hotového jobu z ``data_notes.job_lines``).
+        from app import data_notes
+
+        for line in data_notes.text_lines(job_country(options), "cs", sprint=job_has_sprint(preset_id, options)):
+            raw_log(f"Upozornění k datům: {line}")
     raw_log("")
     if issues.items:
         raw_log(f"Hotovo za {progress.elapsed()}, s chybami ({len(issues.items)}).")

@@ -1795,6 +1795,19 @@ function renderJobDetailExtras(job) {
   if (dl) dl.classList.toggle("download-main", done && !priv && Boolean(job.has_output));
   const next = document.getElementById("detail-next");
   if (next) next.classList.toggle("hidden", !(done && !priv && job.has_output));
+  // Stáří a druh výškových dat země i u hotové mapy (API `data_notes`, jen mimo Česko).
+  const dataNote = document.getElementById("detail-data-note");
+  if (dataNote) {
+    const notes = done && Array.isArray(job.data_notes) ? job.data_notes : [];
+    if (notes.length) {
+      const lead = document.createElement("strong");
+      lead.textContent = t("web.js.data_note.done_lead");
+      dataNote.replaceChildren(lead, " " + notes.join(" "));
+    } else {
+      dataNote.replaceChildren();
+    }
+    dataNote.hidden = !notes.length;
+  }
   const closeHint = document.getElementById("detail-close-hint");
   if (closeHint) closeHint.classList.toggle("hidden", !live || priv);
   const prog = document.getElementById("detail-progress");
