@@ -284,7 +284,7 @@ PROBES: tuple[Probe, ...] = (
         "Šablona ortofota bude chybět.",
         countries=("DE",),
     ),
-    # Francie (Paříž): malý výřez MNT LiDAR HD, 1 záznam Plan de voirie, malý výřez ortofota.
+    # Francie: malý výřez MNT LiDAR HD, 1 záznam Plan de voirie (Paříž), 1 budova BD TOPO (mimo Paříž), malý výřez ortofota.
     Probe(
         "fr_lidarhd",
         "LiDAR HD (IGN) – výšky terénu a povrchu",
