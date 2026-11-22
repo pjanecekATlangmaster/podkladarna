@@ -67,6 +67,8 @@ from app.pipeline.reference_nz import NZ_ELEVATION_PROBE
 from app.pipeline.reference_es import (
     AN_ELEVATION_PROBE,
     CT_ELEVATION_PROBE,
+    VC_ELEVATION_PROBE,
+    CL_ELEVATION_PROBE,
     ES_ORTHO_PROBE,
     NAV_ELEVATION_PROBE,
     PV_ELEVATION_PROBE,
@@ -546,12 +548,32 @@ PROBES: tuple[Probe, ...] = (
         fatal=True,
         countries=("NZ",),
     ),
+    # Valencie: HEAD jednoho listu MDT ICV (úložiště souborů; seznam listů z WFS je v cache 30 dní).
+    Probe(
+        "vc_elevation",
+        "Výšky ICV (Valencie) – MDT a MDS 1 m",
+        (VC_ELEVATION_PROBE,),
+        "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
+        method="HEAD",
+        fatal=True,
+        countries=("ES-VC",),
+    ),
+    # Kastilie a León: HEAD malého listu LAZ na FTP ITACyL (HTTPS).
+    Probe(
+        "cl_elevation",
+        "Mračno PNOA-LiDAR 2025 (ITACyL, Kastilie a León) – terén a povrch",
+        (CL_ELEVATION_PROBE,),
+        "Bez výšek se mapa nevytvoří (pomůže jen list, který už je v mezipaměti).",
+        method="HEAD",
+        fatal=True,
+        countries=("ES-CL",),
+    ),
     Probe(
         "es_ortho",
         "Ortofoto PNOA (IGN)",
         (ES_ORTHO_PROBE,),
         "Šablona ortofota bude chybět.",
-        countries=("ES-NC", "ES-PV", "ES-AN", "ES-CT"),
+        countries=("ES-NC", "ES-PV", "ES-AN", "ES-CT", "ES-VC", "ES-CL"),
     ),
     Probe(
         "be_grb",

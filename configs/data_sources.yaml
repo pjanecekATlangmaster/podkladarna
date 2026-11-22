@@ -2471,6 +2471,8 @@ sources:
   - ES-PV
   - ES-AN
   - ES-CT
+  - ES-VC
+  - ES-CL
   kinds:
   - orthophoto
   name: Ortofoto PNOA máxima actualidad (WMS a WMTS)
@@ -2611,6 +2613,69 @@ sources:
   issues:
   - Nálety 2008–2026 různé hustoty a sezóny; mozaiku skládá LINZ (novější má přednost), rok výřezu z capture-dates.geojson zatím nečteme.
   - Ortofoto LINZ Basemaps chce API klíč, online šablona ortofota zatím není.
+
+- id: es_icv_mde
+  countries:
+  - ES-VC
+  kinds:
+  - elevation
+  name: MDT a MDS 1 m LiDAR Valencijského společenství 2015–17 (listy MTN50 po provinciích)
+  provider: Generalitat Valenciana – Institut Cartogràfic Valencià (ICV)
+  url: https://descargas.icv.gva.es/00/geoprocesos/descarga/index.php?tipo=hoja&formato=tif&recurso=030201_2016PALI0100
+  info: https://dadesobertes.gva.es/dataset/modelo-digital-del-terreno-mdt-de-lidar-de-1-metro-de-resolucion-de-la-provincia-de-alican-20164
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (es_vc), app/pipeline/reference_es.py
+  provider_key: es_vc
+  probe: vc_elevation
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://icv.gva.es/es/condiciones-de-uso-de-la-geoinformacion-icv
+    attribution: MDT/MDS 2015–2017 CC BY 4.0 © Institut Cartogràfic Valencià, Generalitat; LiDAR PNOA CC BY 4.0 www.scne.es
+  access: free
+  checked: 'Claude 2026-11-22: podmínky ICV bod 3 = CC BY 4.0 (prohlížeč), CKAN dadesobertes.gva.es (license_id cc-by) – MDT recurso 030201_2015PVAL0100 / 2016PALI0100 /
+    2017PCAS0100, MDS 030401_…; WFS terramapas.icv.gva.es/<recurso>_hojas vrstva distribucion_descargas (srsName EPSG:25830, pole
+    link_tif; Valencia 40, Alicante 22, Castellón 27 listů); soubor descargas.icv.gva.es/dcd/03_mde/… bez účtu a captchy, Accept-Ranges
+    206, GeoTIFF float32 LZW strip po 1 řádku (IFD na konci), list 0846 29 560 × 19 450 px ~420 MB, NoData −9999; okno 1 km Biar
+    přes /vsicurl: MDT 644–760 m, MDS platný, CHM > 2 m 32 %.'
+  issues:
+  - Listy nejsou COG; řádky okna se stáhnou jedním dotazem Range do řídké místní kopie (app/pipeline/strip_tiff.py), GDAL /vsicurl by četl řádek po řádku (1 km ~85 s z cloudu). Stahují se celé řádky listu (~30 km), okno 2 km ≈ 180 MB na model (cloud ~1,2 MB/s).
+  - Mračno PNOA 2. pokrytí jen ~0,5 bodu/m² (Castellón ~1) – zeleň slabší než v Andalusii; data 2015–17.
+  - Listy na hranici provincií jsou v obou sadách, každá jen se svou provincií (zbytek NoData).
+  - Existují i MDSV (vegetace), MDSN (normalizovaný) a LAZ 2015–17; nepoužité.
+  - icv.gva.es z cloudu neodpovídá (podmínky ověřeny prohlížečem z české sítě); úložiště descargas.icv.gva.es a WFS ano.
+
+- id: es_itacyl_lidar
+  countries:
+  - ES-CL
+  kinds:
+  - elevation
+  name: Mračno PNOA-LiDAR 2025 Kastilie a Leónu (LAZ 1 km, ~15 b/m²)
+  provider: Junta de Castilla y León – Instituto Tecnológico Agrario (ITACyL)
+  url: https://ftp.itacyl.es/cartografia/02_Altimetria/023_LIDAR/2025/
+  info: https://ftp.itacyl.es/cartografia/02_Altimetria/Leeme.txt
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (es_cl, es_laz_provider), app/pipeline/reference_es.py
+  provider_key: es_cl
+  probe: cl_elevation
+  license:
+    class: restricted
+    name: IGCYL-NC (jen nekomerční užití, Decreto 27/2012)
+    url: https://ftp.itacyl.es/cartografia/LICENCIA-IGCYL-NC-2012.pdf
+    attribution: PNOA©Instituto Geográfico Nacional-Junta de Castilla y León
+  access: free
+  checked: 'Claude 2026-11-22: HTTPS výpis ftp.itacyl.es (bez účtu), 2025/ 241 podadresářů H50_xxxx, 98 718 souborů LAZ 1 km
+    (pokrývá prakticky celé CyL, H50_0448 prázdný); vzorek 330-4782: LAS 1.4 formát 8, 15,0 mil. bodů / km², 122 MB, bbox
+    330000–331000 × 4781000–4782000 (N ve jménu = horní okraj); třídy 1, 2, 3, 4, 5, 7; CRS EPSG:25830; výšky ortometrické
+    (země 419 m proti WCS MDT05 IGN 422 m).'
+  issues:
+  - Licence IGCYL-NC – jen nekomerční užití, odvozeniny šířit jen pod NC s přijetím podmínek; citace „©Junta de Castilla y León“.
+    Na webu informační poznámka (data_notes noncommercial) a licence v citaci / README; dotaz na ITACyL o svolení připraven
+    (evropa-data/zahranicni-build/es-cl/dotaz-itacyl.md).
+  - Listy na hranici MTN50 jsou oříznuté a leží v obou podadresářích → v seznamu více URL oddělených \n, části se spojí.
+  - Seznam listů = 241 výpisů podadresářů (cache 30 dní). Starší 2017–21 LAZ RGBI (2 × 2 km, 220–260 MB) a MDT 2 m nepoužité.
 
 - id: be_wallonie_lidar
   countries:
