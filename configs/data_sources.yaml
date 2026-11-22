@@ -1796,7 +1796,7 @@ sources:
   role: kresba
   status: used
   code: app/pipeline/bdot10k_pl.py
-  provider_key: pl_gugik
+  provider_key: pl_bdot10k
   probe: pl_bdot10k
   license:
     class: public
