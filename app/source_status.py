@@ -202,7 +202,7 @@ PROBES: tuple[Probe, ...] = (
         (CH_STAC_ALTI,),
         "Bez výšek swisstopo se mapa nevytvoří (terén ani výška porostu).",
         fatal=True,
-        countries=("CH",),
+        countries=("CH", "LI"),  # swissALTI3D a swissSURFACE3D pokrývají i Lichtenštejnsko
     ),
     Probe(
         "ch_av",
@@ -217,7 +217,7 @@ PROBES: tuple[Probe, ...] = (
         "SWISSIMAGE, národní mapa a AV jako šablony (swisstopo WMS)",
         (CH_WMS_PROBE,),
         "Šablony ortofota, mapy a katastru budou chybět.",
-        countries=("CH",),
+        countries=("CH", "LI"),
     ),
     # Rakousko: hlavička dlaždice BEV (COG má 10 GB), 1 objekt FMZK (Vídeň), dlaždice basemap.at a ortofota Vídně.
     Probe(

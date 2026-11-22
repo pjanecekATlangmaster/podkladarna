@@ -26,6 +26,7 @@ CURRENCY_BY_COUNTRY = {
     "CZ": "CZK",
     "GB": "GBP",
     "CH": "CHF",
+    "LI": "CHF",
     "PL": "PLN",
     "SE": "SEK",
     "NO": "NOK",

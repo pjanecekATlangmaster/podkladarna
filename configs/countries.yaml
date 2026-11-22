@@ -83,6 +83,21 @@ CH:
     - "Orthophoto SWISSIMAGE, national map and hillshade © swisstopo."
     - "Cadastral survey (AV, amtliche Vermessung): Quelle Kantone, geodienste.ch."
     - "OSM © OpenStreetMap contributors (ODbL)."
+LI:
+  name: {cs: Lichtenštejnsko, en: Liechtenstein, de: Liechtenstein}
+  status: beta              # celé Lichtenštejnsko (2026-11-22); výšky swisstopo pokrývají LI, souřadnice jako Švýcarsko
+  crs: EPSG:2056            # CH1903+ / LV95 (úřední systém i v Lichtenštejnsku)
+  boundary: countries/li.geojson  # swisstopo swissBOUNDARIES3D (OGD), +300 m, zjednodušeno 100 m
+  view: [47.05, 9.47, 47.27, 9.64]
+  elevation: ch_swisstopo   # swissALTI3D + swissSURFACE3D Raster 0,5 m (STAC swisstopo, listy LI 2017–2026)
+  technical_map: none       # AV Lichtenštejnska není v geodienste.ch; kresba z OSM
+  cz_sources: false
+  # Licence: swisstopo OGD (volné i komerční použití, uvést zdroj).
+  citation: "Base map: Omapic · © swisstopo · OSM, [year]"
+  attribution:
+    - "Elevation: swissALTI3D and swissSURFACE3D Raster © swisstopo (Open Government Data), coverage includes Liechtenstein."
+    - "Orthophoto SWISSIMAGE, national map and hillshade © swisstopo (online templates only)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
 AT:
   name: {cs: Rakousko, en: Austria, de: Österreich}
   status: beta              # celé Rakousko (Petr 2026-11-15); FMZK jen ve Vídni; souřadnice EPSG:25833

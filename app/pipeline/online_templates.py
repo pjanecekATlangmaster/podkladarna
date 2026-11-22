@@ -200,6 +200,8 @@ CH_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ..
     ("ch_relief", "swissalti3d_relief.xml", "Stínování swissALTI3D", CH_WMS, CH_RELIEF_LAYER,
      "image/png", False, 0.5),
 )
+# Lichtenštejnsko: ortofoto, národní mapa a stínování swisstopo pokrývají i LI; AV (katastr) jen Švýcarsko.
+LI_ONLINE_WMS_LAYERS = tuple(layer for layer in CH_ONLINE_WMS_LAYERS if layer[0] != "ch_av")
 # Rakousko: FMZK Vídně (Stadt Wien OGD) jako WMS; ortofoto a mapy jen WMTS 3857 (``ONLINE_TMS_LAYERS``).
 # Server převádí do jiných systémů bez posunu data MGI (~290 m vedle): WMS v nativním systému + okno výřezu jako VRT.
 AT_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
@@ -340,6 +342,7 @@ def wms_layers_for(country: str) -> tuple[tuple[str, str, str, str, str, str, bo
         "CZ": ONLINE_WMS_LAYERS,
         "NL": NL_ONLINE_WMS_LAYERS,
         "CH": CH_ONLINE_WMS_LAYERS,
+        "LI": LI_ONLINE_WMS_LAYERS,
         "AT": AT_ONLINE_WMS_LAYERS,
         "DE": DE_ONLINE_WMS_LAYERS,
         "FR": FR_ONLINE_WMS_LAYERS,
