@@ -70,6 +70,7 @@ from app.pipeline.reference_es import (
     NAV_ELEVATION_PROBE,
     PV_ELEVATION_PROBE,
 )
+from app.pipeline.espoo_fi import probe_url as espoo_probe_url
 from app.pipeline.mtk_fi import FI_MTK_PROBE
 from app.pipeline.reference_fi import FI_CHM_PROBE, FI_DTM_PROBE, FI_HEL_WFS_PROBE, FI_ORTHO_PROBE
 from app.pipeline.reference_ch import CH_AV_PROBE, CH_STAC_ALTI, CH_WMS_PROBE
@@ -575,6 +576,14 @@ PROBES: tuple[Probe, ...] = (
         "YLRE a budovy Helsinek (kartta.hel.fi)",
         (FI_HEL_WFS_PROBE,),
         "Budovy, vozovky a chodníky v Helsinkách se nakreslí jen z OSM.",
+        needs="dtm",
+        countries=("FI",),
+    ),
+    Probe(
+        "fi_espoo",
+        "InfStreet a budovy Espoo (kartat.espoo.fi)",
+        (espoo_probe_url(),),
+        "Budovy, vozovky a chodníky v Espoo se nakreslí jen z OSM.",
         needs="dtm",
         countries=("FI",),
     ),

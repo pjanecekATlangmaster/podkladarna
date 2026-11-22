@@ -120,7 +120,7 @@ FOREIGN: dict[str, TechnicalMap] = {
         short="YLRE",
         step="data YLRE",
         background="Data YLRE (Helsingin kaupunki)",
-        content="budovy, uliční prostor, vozovky, chodníky, parkoviště, schody, trávníky",
+        content="budovy, uliční prostor, vozovky, chodníky, parkoviště, schody, trávníky (Helsinky, Espoo)",
         module="app.pipeline.ylre_fi",
     ),
     "us_city": TechnicalMap(
