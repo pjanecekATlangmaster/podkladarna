@@ -372,13 +372,14 @@ PL:
   view: [49.0, 14.07, 54.84, 24.15]
   green: photo              # NMPT ze snímků: zrnitost porostu slabší (Obręb F1 0,28), zeleň jen základní
   elevation: pl_gugik       # NMT 1 m (GeoTIFF) a NMPT 1 m (ASCII, ~90 s na km²) z WCS GUGiK
-  technical_map: none
+  technical_map: pl_bdot10k # BDOT10k po okresech (ZIP do cache, okresy z ULDK): budovy, vozovky podle šířky, zpevněná náměstí
   cz_sources: false
   # Licence: dane GUGiK bezpłatnie, dowolne wykorzystanie (art. 40a ust. 2 P.g.k.); uvést zdroj a že jde o zpracovaná data.
   citation: "Base map: Omapic · GUGiK · OSM, [year]"
   attribution:
     - "Elevation: NMT and NMPT, Źródło danych: Główny Urząd Geodezji i Kartografii (GUGiK), dane przetworzone."
     - "Orthophoto and topographic map: Źródło: Główny Urząd Geodezji i Kartografii (GUGiK)."
+    - "BDOT10k (buildings, road widths, squares): Źródło danych: Główny Urząd Geodezji i Kartografii (GUGiK), dane przetworzone."
     - "OSM © OpenStreetMap contributors (ODbL)."
 GB-ENG:
   name: {cs: Spojené království – Anglie, en: United Kingdom – England}

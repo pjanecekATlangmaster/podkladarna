@@ -1219,5 +1219,12 @@
   "api.source.fi_espoo.label": "InfStreet a budovy Espoo (kartat.espoo.fi)",
   "api.source.fi_espoo.impact": "Budovy, vozovky a chodníky v Espoo se nakreslí jen z OSM.",
   "api.source.de_leipzig.label": "Stadtgrundkarte Lipsko (geodaten.leipzig.de)",
-  "api.source.de_leipzig.impact": "Vozovky, chodníky, stání, schody a ploty v Lipsku se nakreslí jen z ALKIS a OSM."
+  "api.source.de_leipzig.impact": "Vozovky, chodníky, stání, schody a ploty v Lipsku se nakreslí jen z ALKIS a OSM.",
+  "web.js.step.bdot10k": "data BDOT10k (Polsko)",
+  "web.js.source.pl_bdot10k": "BDOT10k (Polsko)",
+  "web.js.bdot10k.failed": "Data BDOT10k se nepodařilo stáhnout, mapa se kreslila z OSM.",
+  "web.js.bdot10k.text": "BDOT10k Polsko ({n} objektů): příprava na pozadí {dur}.",
+  "web.js.bg.pl_bdot10k": "Data BDOT10k (GUGiK)",
+  "api.source.pl_bdot10k.label": "BDOT10k (GUGiK)",
+  "api.source.pl_bdot10k.impact": "Budovy, vozovky a náměstí se nakreslí jen z OSM."
 }

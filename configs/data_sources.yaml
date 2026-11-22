@@ -1786,6 +1786,30 @@ sources:
   - Mračno LAZ po listech 1 : 1250 má ~155 MB (Varšava 2023, 12 b/m²), LAZ 1.2 bez COPC → nepoužito.
   - Katastr KIEG (integracja.gugik.gov.pl) je rozcestník na servery okresů, Varšava vrací reset spojení → šablona nepoužita.
 
+- id: pl_bdot10k
+  countries: [PL]
+  kinds: [technical_map, buildings]
+  name: BDOT10k – budovy (OT_BUBD_A), osy silnic se šířkou (OT_SKJZ_L), náměstí (OT_PTPL_A); GeoPackage po okresech
+  provider: GUGiK
+  url: https://opendata.geoportal.gov.pl/bdot10k/schemat2021/GPKG/
+  info: https://www.geoportal.gov.pl/aktualnosci/nowe-formaty-bdot10k-do-pobierania-w-serwisie-www-geoportal-gov-pl/
+  role: kresba
+  status: used
+  code: app/pipeline/bdot10k_pl.py
+  provider_key: pl_gugik
+  probe: pl_bdot10k
+  license:
+    class: public
+    name: bezplatné, libovolné využití (art. 40a ust. 2 P.g.k.), uvést zdroj a zpracování
+    url: https://www.gov.pl/web/gugik/ponowne-wykorzystanie-informacji-sektora-publicznego
+    attribution: 'Źródło danych: Główny Urząd Geodezji i Kartografii – GUGiK, dane przetworzone'
+  access: free
+  checked: "Claude 2026-11-22: ZIP okresu Kraków 1261 z cloudu (35 MB, Last-Modified 2026-10-03, 90 563 budov, 33 585 úseků silnic se šířkou u 87 %), ULDK GetCountyByXY s obrysem okresu (TERYT, EPSG:2180)"
+  issues:
+    - "Okresy výřezu hledá ULDK (uldk.gugik.gov.pl, GetCountyByXY s obrysem); ZIP okresu do cache/pl_bdot10k/<TERYT>, vybalí se jen tři vrstvy, novější verze se ověří HEAD po 30 dnech."
+    - "Chodníky, ploty ani parkoviště BDOT10k nemá (kreslí OSM); nezpevněné silnice (grunt naturalny, štěrk) a silnice pod zemí se z šířky nekreslí."
+    - "Podrobná BDOT500 / mapa zasadnicza je placená po okresech (pl_mapa_zasadnicza)."
+
 - id: gb_hmlr_inspire
   countries: [GB-ENG, GB-WLS]
   kinds: [cadastre]

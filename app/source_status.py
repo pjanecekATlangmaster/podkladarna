@@ -70,6 +70,7 @@ from app.pipeline.reference_es import (
     NAV_ELEVATION_PROBE,
     PV_ELEVATION_PROBE,
 )
+from app.pipeline.bdot10k_pl import probe_url as bdot10k_probe_url
 from app.pipeline.dsgk_leipzig import probe_url as leipzig_probe_url
 from app.pipeline.espoo_fi import probe_url as espoo_probe_url
 from app.pipeline.mtk_fi import FI_MTK_PROBE
@@ -342,6 +343,16 @@ PROBES: tuple[Probe, ...] = (
         (EE_ORTHO_PROBE,),
         "Šablona ortofota bude chybět.",
         countries=("EE",),
+    ),
+    # Polsko: hlavička ZIPu BDOT10k okresu Kraków (okresy výřezu hledá ULDK GUGiK).
+    Probe(
+        "pl_bdot10k",
+        "BDOT10k (GUGiK)",
+        (bdot10k_probe_url(),),
+        "Budovy, vozovky a náměstí se nakreslí jen z OSM.",
+        method="HEAD",
+        needs="dtm",
+        countries=("PL",),
     ),
     # Slovensko: hlavička celostátního ZIPu budov INSPIRE ZBGIS (výšky jsou na disku instance).
     Probe(
