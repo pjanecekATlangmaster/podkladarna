@@ -1295,8 +1295,9 @@ def run_job_pipeline(
     leafoff_texture = bool(veg_texture) and veg_leafoff
     if veg_leafoff or veg_green == "plain":
         veg_texture = False  # plain: sever, zrnitost zelenala řídký les (Nuuksio 406 32 %, reálná mapa převážně bílá)
-    elif veg_texture and veg_green == "understory":
-        # horský les (Trentino), Nizozemsko (přísnější práh ``green_share``): podíl nízkého patra místo zrnitosti
+    elif veg_texture and veg_green in ("understory", "photo"):
+        # horský les (Trentino), Nizozemsko (přísnější práh ``green_share``) a povrch ze snímků (DE photo, PL; šum
+        # pod korunami vypadal jako zrnitost, Šlesvicko 34 % / mapař 12 %, Petr 2026-11-22): podíl nízkého patra
         share = veg_country.green_share if veg_country is not None else 0.0
         veg_texture = f"understory:{share:g}" if share else "understory"
     if bbox and cz_sources:
