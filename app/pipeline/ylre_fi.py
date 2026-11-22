@@ -169,6 +169,26 @@ LOG_LABELS = {
 }
 
 
+def helsinki_intersects(bbox_wgs84) -> bool:
+    """Zasahuje výřez do Helsinek (prvek ``city: Helsinki`` v ``fi_cities.geojson``)?"""
+    from app.countries import rings_share
+    from app.pipeline.espoo_fi import AREA_FILE
+
+    data = json.loads(AREA_FILE.read_text(encoding="utf-8"))
+    rings = [
+        tuple((float(x), float(y)) for x, y in poly[0])
+        for f in data["features"]
+        if f["properties"].get("city") == "Helsinki"
+        for poly in (f["geometry"]["coordinates"] if f["geometry"]["type"] == "MultiPolygon" else [f["geometry"]["coordinates"]])
+    ]
+    return rings_share(tuple(float(v) for v in bbox_wgs84), tuple(rings)) > 0.0
+
+
+def _merge(a: dict[str, list], b: dict[str, list]) -> dict[str, list]:
+    """Spojí roztříděné objekty dvou měst (Helsinky + Espoo) po souborech DTM."""
+    return {k: list(a.get(k) or []) + list(b.get(k) or []) for k in set(a) | set(b)}
+
+
 def prepare(
     work_dir: Path,
     bbox_wgs84: tuple[float, float, float, float],
@@ -176,9 +196,12 @@ def prepare(
     log: LogFn | None = None,
     force: bool = False,  # noqa: ARG001 – stejný podpis jako příprava DTM (data se necachují mezi joby)
 ) -> Path | None:
-    """Helsinky pro výřez → soubory ``work_dir/dtm`` a uliční prostor pro sprint; None, když služba nic nevrátí."""
+    """Helsinky (YLRE) a Espoo (InfStreet) pro výřez → soubory ``work_dir/dtm`` a uliční prostor pro sprint.
+
+    Stahuje se jen město, do kterého výřez zasahuje (``fi_cities.geojson``); None, když služby nic nevrátí."""
     from pyproj import Transformer
 
+    from app.pipeline import espoo_fi
     from app.pipeline.crs_5514 import CRS_LABEL
     from app.pipeline.fetch_openzu import VECTOR_FETCH_BUFFER_M, crop_bounds_5514
 
@@ -187,27 +210,53 @@ def prepare(
     fetch_box = Transformer.from_crs(CRS_LABEL, SOURCE_CRS, always_xy=True).transform_bounds(*bounds, densify_pts=21)
     t0 = time.monotonic()
     build_stats.note_background("dtm", source="fi_hel")
-    data, nbytes = fetch_layers(fetch_box)
-    reproject_features(data, SOURCE_CRS, CRS_LABEL)
-    build_stats.note_bytes("fi_hel", nbytes, cached=False, key="ylre_fi")
-    count = sum(len(v) for v in data.values())
-    build_stats.note_background("dtm", packages=len(LAYERS), regions=["FI"], source="fi_hel", objects=count)
-    if log:
-        log(f"Helsinky YLRE: {count} objektů z {len(LAYERS)} vrstev ({nbytes / 1e6:.1f} MB, {time.monotonic() - t0:.0f} s)")
-    if not data.get(BUILDINGS) and not data.get(ROADS):
+    sorted_data: dict[str, list] = {}
+    regions, objects, total_bytes = [], 0, 0
+    if helsinki_intersects(bbox_wgs84):
+        data, nbytes = fetch_layers(fetch_box)
+        reproject_features(data, SOURCE_CRS, CRS_LABEL)
+        count = sum(len(v) for v in data.values())
+        total_bytes += nbytes
         if log:
-            log("Helsinky YLRE: ve výřezu nic (mimo Helsinky), kresba z OSM.")
+            log(f"Helsinky YLRE: {count} objektů z {len(LAYERS)} vrstev ({nbytes / 1e6:.1f} MB, {time.monotonic() - t0:.0f} s)")
+        if data.get(BUILDINGS) or data.get(ROADS):
+            sorted_data = classify(data)
+            regions.append("Helsinki")
+            objects += count
+    if espoo_fi.intersects(bbox_wgs84):
+        t1 = time.monotonic()
+        try:
+            data, nbytes = espoo_fi.fetch_layers(fetch_box)
+            reproject_features(data, espoo_fi.SOURCE_CRS, CRS_LABEL)
+            count = sum(len(v) for v in data.values())
+            total_bytes += nbytes
+            if log:
+                log(f"Espoo InfStreet: {count} objektů z {len(espoo_fi.LAYERS)} vrstev ({nbytes / 1e6:.1f} MB, {time.monotonic() - t1:.0f} s)")
+            if count:
+                sorted_data = _merge(sorted_data, espoo_fi.classify(data))
+                regions.append("Espoo")
+                objects += count
+        except Exception as exc:  # Espoo je doplněk: výpadek nesmí zahodit Helsinky
+            if not sorted_data:
+                raise
+            if log:
+                log(f"⚠ Espoo InfStreet nedostupné ({type(exc).__name__}: {exc}), Espoo se kreslí z OSM.")
+    build_stats.note_bytes("fi_hel", total_bytes, cached=False, key="ylre_fi")
+    build_stats.note_background("dtm", packages=len(LAYERS), regions=regions or ["FI"], source="fi_hel", objects=objects)
+    if not sorted_data:
+        if log:
+            log("Helsinky YLRE / Espoo: ve výřezu nic (mimo Helsinky a Espoo), kresba z OSM.")
         return None
-    sorted_data = classify(data)
-    streets = sorted_data.pop("streets")
+    streets = sorted_data.pop("streets", [])
     if write_streets(work_dir, streets) is not None and log:
-        log(f"Helsinky uliční prostor (katualue): {len(streets)} ploch – sprint ho kreslí jako ulici v celé šířce")
+        log(f"Uliční prostor ({' + '.join(regions)}): {len(streets)} ploch – sprint ho kreslí jako ulici v celé šířce")
+    sorted_data["public"] = [p for key in sorted(PUBLIC_KEYS) for p in sorted_data.get(key) or []]
     try:
         sorted_data = node_coverage(sorted_data)
     except Exception as exc:  # bez uzlování se kreslí z původních ploch
         if log:
             log(f"Helsinky YLRE: uzlování ploch přeskočeno ({type(exc).__name__}: {exc})")
     return write_dtm_files(
-        work_dir, sorted_data, bounds, log=log, source="fi_hel", label="Helsinky YLRE", labels=LOG_LABELS,
-        yard_label="soukromé pozemky (YLRE je nevede)",
+        work_dir, sorted_data, bounds, log=log, source="fi_hel", label=" + ".join(regions), labels=LOG_LABELS,
+        yard_label="soukromé pozemky (YLRE ani InfStreet je nevedou)",
     )

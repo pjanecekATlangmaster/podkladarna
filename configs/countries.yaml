@@ -572,19 +572,20 @@ FI:
   view: [59.7, 19.3, 70.1, 31.6]
   data_notes: [coarse]
   elevation: fi_mml         # korkeusmalli 2 m MML (zrcadlo Funet, listy 6 km) + DSM = DTM + latvusmalli 1 m Metsäkeskus; výšky N2000
-  technical_map: fi_hel     # Helsinky YLRE: budovy, uliční prostor (sprint v celé šířce), vozovky, chodníky, parkoviště, schody, trávníky
-  technical_map_area: countries/fi_helsinki.geojson  # YLRE vede jen město Helsinky; jinde kresba z OSM
+  technical_map: fi_hel     # Helsinky YLRE + Espoo InfStreet: budovy, uliční prostor (sprint v celé šířce), vozovky, chodníky, parkoviště, schody, trávníky
+  technical_map_area: countries/fi_cities.geojson  # YLRE Helsinky a InfStreet Espoo (2026-11-22); jinde kresba z OSM
   terrain_vectors: fi_mtk   # Maastotietokanta (zrcadlo Kapsi): bažiny, skalní stěny, otevřená skála, balvany, pole nad OSM
   green: plain              # bez zrnitosti: řídký severský les, reálná mapa Nuuksio převážně bílá (Petr 2026-11-20)
   contour_formlines: more   # pomocné 103 „víc“: hustota čar jako reálná mapa Nuuksio (5 m + pomocné), vyhlazení adaptivní (Petr 2026-11-20)
   cz_sources: false
   # Licence: CC BY 4.0 (MML, Suomen metsäkeskus, Helsingin kaupunki – uvést zdroj).
-  citation: "Base map: Omapic · MML · Metsäkeskus · Helsingin kaupunki · OSM, [year]"
+  citation: "Base map: Omapic · MML · Metsäkeskus · Helsingin kaupunki · Espoon kaupunki · OSM, [year]"
   attribution:
     - "Elevation model 2 m, orthophoto, peruskartta and kiinteistörajat: © Maanmittauslaitos (CC BY 4.0), via the Funet (CSC) and kartat.kapsi.fi mirrors."
     - "Marshes, cliffs, bare rock, boulders and fields: Maastotietokanta © Maanmittauslaitos (CC BY 4.0), via kartat.kapsi.fi, processed."
     - "Canopy height (latvusmalli): © Suomen metsäkeskus (CC BY 4.0)."
     - "YLRE, buildings, orthophoto and kantakartta (Helsinki only): © Helsingin kaupunki (CC BY 4.0)."
+    - "Street register InfStreet and buildings (Espoo only): City of Espoo, data as downloaded on [data date] (CC BY 4.0)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 LU:
   name: {cs: Lucembursko, en: Luxembourg, fr: Luxembourg, de: Luxemburg}
