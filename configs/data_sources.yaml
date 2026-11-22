@@ -2256,35 +2256,33 @@ sources:
   kinds:
   - point_cloud
   - elevation
-  name: LiDAR pevninského Portugalska (LAZ, MDT a MDS 0,5 m)
+  name: LiDAR pevninského Portugalska 2024 – MDT a MDS 0,5 m (Centro de Dados DGT, STAC)
   provider: Direção-Geral do Território (DGT)
-  url: https://cdd.dgterritorio.gov.pt/
-  info: https://www.dgterritorio.gov.pt/dados-abertos
+  url: https://cdd.dgterritorio.gov.pt/dgt-be/v1/collections
+  info: https://cdd.dgterritorio.gov.pt/dgt-fe/catalogos/colecoes?filter=LiDAR+-+Modelos+Digitais+do+Relevo
   role: výšky
-  status: candidate
+  status: used
+  code: app/pipeline/elevation_raster.py (pt_dgt), app/pipeline/reference_pt.py
+  provider_key: pt_dgt
+  probe: pt_elevation
   license:
     class: public
     name: CC BY 4.0
-    url: https://www.dgterritorio.gov.pt/dados-abertos
-    attribution: Direção-Geral do Território
+    url: https://snig.dgterritorio.gov.pt/rndg/srv/por/catalog.search#/metadata/077a8c94-8b46-4a8a-8796-0d7fc4662f0c
+    attribution: Direção-Geral do Território (CC BY 4.0)
   access: account
-  checked: 'Grok: 2026-11-16 stránka Dados abertos (CC BY 4.0, centrum dat), ficha modelů reliéfu a článek o stažení z 23.
-    6. 2026 – Claude neověřil · opencode (pt_dgt_lidar): 2026-11-16 DGT stránka („até cerca de 200 km2“ na přístup, „Posteriormente
-    … através de uma API“, 10 b/m², LAS 1.4 PDRF 8, třídy 1/2/3/4/5/6/7/9/26, MDT/MDS 50 cm), dados.gov.pt (Licença CC BY
-    4.0) – Claude neověřil'
+  checked: '2026-11-22 Claude: kolekce STAC MDT-50cm / MDS-50cm / MDT-2m / MDS-2m / LAZ (license CC-BY-4.0, EPSG:3763),
+    registrace Centro de Dados (Keycloak auth.cdd.dgterritorio.gov.pt) jen e-mailem bez Cartão de Cidadão; přihlášení
+    a POST /dgt-be/v1/search s účtem z cloudu (Lisabon 6 dlaždic na kolekci, Braga i MDS); stažení přesměruje na
+    stor-002.a.acnca.pt:9000 (z cloudu nedostupné, port 9000), obsah dlaždice z cloudu neověřen'
   issues:
-  - Nálet duben 2024 – březen 2025, středně 10 bodů/m², listy 1 km, třídy 2 terén, 3–5 vegetace, 6 stavby. MDT a MDS 0,5 m,
-    2 m a 10 m.
-  - Ke stažení je asi 90 % pevniny; severozápad se ještě zpracovává (článek 23. 6. 2026).
-  - Jeden přístup stáhne nejvýš asi 200 km². API DGT slibuje později. OGC API https://ogcapi.dgterritorio.gov.pt/ LiDAR v
-    seznamu kolekcí nemá (jen CAOP, CRUS, katastr, COS, OrtoSat).
-  - Webinář 15. 7. 2025 popisuje registraci pro stažení a katalog ve tvaru STAC; článek z roku 2026 registraci už neopakuje.
-  - opencode navrhuje přístup free – Claude neověřil.
-  - 'opencode navrhuje citaci: „Direção-Geral do Território (CC BY 4.0)“ – Claude neověřil.'
-  - 'opencode: ZATÍM BEZ API – hromadné stažení max ~200 km²/přístup přes CDD / QGIS plugin; https://ogcapi.dgterritorio.gov.pt/collections?f=json
-    LiDAR kolekci NEOBSAHUJE.'
-  - 'opencode: Pokrytí ~90 % (zóna Noroeste dosud v produkci); EPSG:3763, Datum Altimétrico de Cascais.'
-
+  - Nálet duben 2024 – březen 2025, 10 bodů/m²; MDT a MDS 0,5 m a 2 m, GeoTIFF Float32 po proužcích (ne COG), NoData −999,
+    dlaždice ~1 km (~16 MB), výšky Cascais. Azory zvlášť (ACORES-*, 1/5/10 m), Madeira jen MDT 5 m v SNIG.
+  - Portál PoInT (point.dgterritorio.gov.pt) přihlašuje jen Cartão de Cidadão / Chave Móvel Digital; na data ho není třeba.
+  - Katalog /collections a /items je veřejný (bbox se ignoruje), /search a /download jen po přihlášení; odkaz ke stažení platí
+    pro jedno stažení po hledání (podepsaná adresa úložiště 1 h). Účet jen z PT_DGT_USER / PT_DGT_PASSWORD.
+  - MDS zatím bez zóny severozápad (popis kolekce); DGT uvádí strop asi 200 km² na jeden přístup.
+  - Bez účtu nic použitelného: geo2 WCS vypnuté, SNIG jen pobřežní MDT 2011 (bez DSM), OGC API DGT LiDAR nemá.
 - id: es_icgc_lidar
   countries:
   - ES

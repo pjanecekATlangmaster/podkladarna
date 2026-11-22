@@ -2,7 +2,7 @@
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`, a jen na doméně se zemí v SITES – nikdy na české `:CZ`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
 # Zahraniční mapy dělá mezinárodní verze Omapic: citace a attribution anglicky; citace „Base map: Omapic · …, [year]“ (jako anglická licence).
-# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | no_hoyde | si_arso | gb_sct | gb_wls | es_nav | es_pv | de_sh | fr_lidarhd | lu_act | us_3dep | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
+# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | no_hoyde | pt_dgt | si_arso | gb_sct | gb_wls | es_nav | es_pv | de_sh | fr_lidarhd | lu_act | us_3dep | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
@@ -590,6 +590,21 @@ SI:
   citation: "Base map: Omapic · ARSO · OSM, [year]"
   attribution:
     - "Elevation: LiDAR point cloud (GKOT) 2011–2015, Agencija Republike Slovenije za okolje (ARSO), processed."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+PT:
+  name: {cs: Portugalsko, en: Portugal, pt: Portugal}
+  status: beta              # pevninské Portugalsko bez Azor a Madeiry (2026-11-22); nabízí se jen s účtem PT_DGT_USER / PT_DGT_PASSWORD
+  crs: EPSG:3763            # ETRS89 / Portugal TM06 (nativní systém LiDARu DGT)
+  boundary: countries/pt.geojson  # GISCO 1 : 1 M (© EuroGeographics), +550 m, zjednodušeno 250 m, jen pevnina
+  view: [36.96, -9.51, 42.16, -6.18]
+  elevation: pt_dgt         # LiDAR DGT 2024–2025 (10 bodů/m²): MDT + MDS 0,5 m z Centro de Dados (bezplatný účet e-mailem), výšky Cascais
+  elevation_years: "2024–2025"
+  technical_map: none       # obdoba DTM volně není – kresba z OSM
+  cz_sources: false
+  # Licence: CC BY 4.0, uvést „Direção-Geral do Território“ (metadata kolekcí Centro de Dados, ověřeno 2026-11-22).
+  citation: "Base map: Omapic · Direção-Geral do Território · OSM, [year]"
+  attribution:
+    - "Elevation: LiDAR 2024 digital terrain and surface models (MDT, MDS 50 cm), Direção-Geral do Território (CC BY 4.0), processed."
     - "OSM © OpenStreetMap contributors (ODbL)."
 US:
   name: {cs: Spojené státy, en: United States}
