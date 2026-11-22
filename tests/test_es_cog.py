@@ -77,3 +77,11 @@ def test_cog_windows_passes_gdal_config(tmp_path, monkeypatch):
     cmd = seen[0]
     i = cmd.index("GDAL_HTTP_AUTH")
     assert cmd[i - 1] == "--config" and cmd[i + 1] == "BASIC" and cmd.index("GDAL_HTTP_AUTH") < cmd.index("-projwin")
+
+
+def test_andalusia_green_like_portugal():
+    # Livelox La Breña 2026-11-22: výchozí zeleň 85 % lesa proti 15 % u mapaře (pobřežní borovice jako PT)
+    all_c = countries.load_countries()
+    an, pt, ct = all_c["ES-AN"], all_c["PT"], all_c["ES-CT"]
+    assert (an.green, an.green_share, an.green_low_ratio) == (pt.green, pt.green_share, pt.green_low_ratio) == ("understory", 0.25, 0.45)
+    assert ct.green != "understory" and ct.green_share == 0.0
