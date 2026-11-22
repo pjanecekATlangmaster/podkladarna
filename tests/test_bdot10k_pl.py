@@ -76,6 +76,33 @@ def test_counties_for_covers_bbox_across_border():
     assert len(calls) == 2
 
 
+def test_counties_for_finds_county_behind_foreign_strip():
+    # polský okres vlevo, cizina uprostřed, další polský okres vpravo (Těšínsko)
+    west = "0\n1261|SRID=2180;POLYGON((0 0,1000 0,1000 1000,0 1000,0 0))"
+    east = "0\n2403|SRID=2180;POLYGON((3000 0,4000 0,4000 1000,3000 1000,3000 0))"
+
+    def fetch(url):
+        x = float(urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["xy"][0].split(",")[0])
+        return west if x < 1000 else (east if x >= 3000 else "-1 brak\n")
+
+    assert sorted(bdot10k_pl.counties_for((0, 0, 4000, 1000), fetch)) == ["1261", "2403"]
+
+
+def test_counties_for_keeps_found_when_uldk_fails():
+    west = "0\n1261|SRID=2180;POLYGON((0 0,100 0,100 100,0 100,0 0))"
+    answers = iter([west])
+
+    def fetch(_url):
+        try:
+            return next(answers)
+        except StopIteration:
+            raise OSError("ULDK down") from None
+
+    logs: list[str] = []
+    assert bdot10k_pl.counties_for((10, 10, 190, 90), fetch, log=logs.append) == ["1261"]
+    assert logs and "ULDK" in logs[0]
+
+
 def test_read_county_filters(tmp_path):
     data = bdot10k_pl.read_county(_county(tmp_path), (X - 10, Y - 10, X + 400, Y + 200))
     assert [f["properties"]["id"] for f in data["buildings"]] == ["b1"]  # zničená budova pryč
@@ -135,14 +162,14 @@ def test_prepare_writes_dtm_files(tmp_path):
     bbox = (19.93, 50.05, 19.95, 50.07)  # Kraków; obálka se přepočte, testovací objekty leží u (567 000, 244 000)
     out = bdot10k_pl.prepare(
         tmp_path / "work", bbox, log=logs.append,
-        counties_fn=lambda _box: ["1261"], county_fn=lambda teryt, log=None: county,
+        counties_fn=lambda _box, log=None: ["1261"], county_fn=lambda teryt, log=None: county,
     )
     assert out is not None and out.is_file()
     assert any("BDOT10k (okresy 1261)" in line for line in logs)
 
 
 def test_prepare_outside_poland(tmp_path):
-    assert bdot10k_pl.prepare(tmp_path, (19.93, 50.05, 19.95, 50.07), counties_fn=lambda _b: []) is None
+    assert bdot10k_pl.prepare(tmp_path, (19.93, 50.05, 19.95, 50.07), counties_fn=lambda _b, log=None: []) is None
 
 
 @pytest.mark.parametrize("teryt, url", [("1261", "/12/1261_GPKG.zip"), ("0201", "/02/0201_GPKG.zip")])

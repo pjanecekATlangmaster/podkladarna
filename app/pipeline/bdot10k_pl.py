@@ -105,7 +105,9 @@ def parse_uldk(text: str):
         return teryt, None
 
 
-def counties_for(box: tuple[float, float, float, float], fetch: Callable[[str], str] = _get_text) -> list[str]:
+def counties_for(
+    box: tuple[float, float, float, float], fetch: Callable[[str], str] = _get_text, log: LogFn | None = None
+) -> list[str]:
     """TERYT okresů, které pokrývají obálku (EPSG:2180): dotaz ULDK ve středu nepokryté části, dokud nezbude nic."""
     from shapely.geometry import box as shbox
     from shapely.ops import unary_union
@@ -117,9 +119,17 @@ def counties_for(box: tuple[float, float, float, float], fetch: Callable[[str], 
         if rest.is_empty or rest.area < 1.0:
             break
         pt = rest.representative_point()
-        hit = parse_uldk(fetch(uldk_url(pt.x, pt.y)))
-        if hit is None:  # bod mimo Polsko (moře, cizina): tu část vynechat
-            rest = rest.difference(pt.buffer(max(50.0, (rest.area ** 0.5) / 20)))
+        try:
+            hit = parse_uldk(fetch(uldk_url(pt.x, pt.y)))
+        except Exception as exc:  # ULDK vypadl uprostřed: stačí okresy, které už známe
+            if not found:
+                raise
+            if log:
+                log(f"⚠ BDOT10k: ULDK neodpovídá ({type(exc).__name__}), zbytek výřezu z OSM")
+            return found
+        if hit is None:  # bod mimo Polsko (moře, cizina): vynechat čtverec kolem něj (třetina zbylé plochy na stranu)
+            half = max(100.0, (rest.area ** 0.5) / 6)
+            rest = rest.difference(shbox(pt.x - half, pt.y - half, pt.x + half, pt.y + half))
             continue
         teryt, geom = hit
         if teryt not in found:
@@ -128,6 +138,9 @@ def counties_for(box: tuple[float, float, float, float], fetch: Callable[[str], 
             break  # bez obrysu nejde pokračovat; stačí, co máme
         covered.append(geom)
         rest = rest.difference(unary_union(covered))
+    else:
+        if log and not rest.is_empty and rest.area >= 1.0:
+            log(f"BDOT10k: po {MAX_COUNTIES} dotazech ULDK zůstalo {rest.area / 1e6:.2f} km² výřezu bez okresu (kresba z OSM)")
     return found
 
 
@@ -345,7 +358,7 @@ def prepare(
     box = Transformer.from_crs(CRS_LABEL, SOURCE_CRS, always_xy=True).transform_bounds(*bounds, densify_pts=21)
     t0 = time.monotonic()
     build_stats.note_background("dtm", source="pl_bdot10k")
-    counties = counties_fn(box)
+    counties = counties_fn(box, log=log)
     if not counties:
         if log:
             log("BDOT10k: výřez mimo okresy Polska (ULDK), kresba z OSM.")
