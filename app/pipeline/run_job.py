@@ -1300,7 +1300,8 @@ def run_job_pipeline(
         # horský les (Trentino), Nizozemsko (přísnější práh ``green_share``) a povrch ze snímků (DE photo, PL; šum
         # pod korunami vypadal jako zrnitost, Šlesvicko 34 % / mapař 12 %, Petr 2026-11-22): podíl nízkého patra
         share = veg_country.green_share if veg_country is not None else 0.0
-        veg_texture = f"understory:{share:g}" if share else "understory"
+        ratio = veg_country.green_low_ratio if veg_country is not None else 0.0
+        veg_texture = f"understory:{share:g}:{ratio:g}" if ratio else (f"understory:{share:g}" if share else "understory")
     if bbox and cz_sources:
         # RÚIAN budovy (cache; stejný dotaz později v „RÚIAN a AOPK“) – maska zástavby.
         try:

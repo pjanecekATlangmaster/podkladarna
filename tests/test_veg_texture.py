@@ -20,6 +20,9 @@ def _scene(kind: str):
         # under: vzrostlý les s mlázím 2–6 m v pruzích (podíl ~0,4); tall_rough: drsná smrčina 14–26 m bez nízkého patra
         lo, hi = (4.0, 22.0) if kind == "under" else (14.0, 26.0)
         chm[70:130, 70:130] = np.where((yy % 5 < 2), lo, hi).astype(np.float32)
+    if kind == "low_pines":
+        # nízké borovice: koruny 7 m v pruzích mezi korunami 12 m (Mira) – v pásmu 1–8 m, ale nejsou podrost
+        chm[:] = np.where((np.indices((200, 200))[0] % 5 < 2), 7.0, 12.0)
     if kind == "rough_all":
         # celý výřez drsný (koruny 14–26 m bez nízkého patra): zrnitost by zazelenala celý les → pojistka understory
         chm[:] = np.where((np.indices((200, 200))[0] % 5 < 2), 14.0, 26.0)
@@ -31,22 +34,25 @@ def _scene(kind: str):
 
 
 @pytest.mark.parametrize(
-    "kind, expect, mode",
+    "kind, expect, mode, ratio",
     [
-        ("smooth", T.WHITE, "laser"),  # vzrostlý stejnorodý les zůstává bílý
-        ("rough", T.LIGHT, "laser"),  # mezerovitý porost v lese → 406
-        ("rough_green", T.MID, "laser"),  # zeleň z výšky porostu + zrnitost → 408
-        ("field_rough", 1, "laser"),  # solitéry v poli bez lesního okolí: 401 zůstává
-        ("rough_all", T.WHITE, "laser"),  # zrnitost přes LASER_FOREST_MAX lesa: pojistka, drsná koruna zůstává bílá
-        ("under", T.LIGHT, "understory"),  # Trentino: les s nízkým patrem → 406
-        ("tall_rough", T.WHITE, "understory"),  # Trentino: drsná vysoká smrčina bez nízkého patra zůstává bílá
-        ("smooth", T.WHITE, "understory"),
-        ("field_rough", 1, "understory"),
+        ("smooth", T.WHITE, "laser", None),  # vzrostlý stejnorodý les zůstává bílý
+        ("rough", T.LIGHT, "laser", None),  # mezerovitý porost v lese → 406
+        ("rough_green", T.MID, "laser", None),  # zeleň z výšky porostu + zrnitost → 408
+        ("field_rough", 1, "laser", None),  # solitéry v poli bez lesního okolí: 401 zůstává
+        ("rough_all", T.WHITE, "laser", None),  # zrnitost přes LASER_FOREST_MAX lesa: pojistka, drsná koruna zůstává bílá
+        ("under", T.LIGHT, "understory", None),  # Trentino: les s nízkým patrem → 406
+        ("tall_rough", T.WHITE, "understory", None),  # Trentino: drsná vysoká smrčina bez nízkého patra zůstává bílá
+        ("smooth", T.WHITE, "understory", None),
+        ("field_rough", 1, "understory", None),
+        ("under", T.LIGHT, "understory", 0.45),  # PT: mlází 4 m pod korunami 22 m zůstává podrostem
+        ("low_pines", T.LIGHT, "understory", None),  # bez stropu by koruny 7 m byly „nízké patro“
+        ("low_pines", T.WHITE, "understory", 0.45),  # PT: strop 0,45 × okolní koruny → bílý les
     ],
 )
-def test_texture_green(kind, expect, mode):
+def test_texture_green(kind, expect, mode, ratio):
     chm, cl = _scene(kind)
-    out, shares = T.add_texture_green(cl, chm, 1.0, mode=mode)
+    out, shares = T.add_texture_green(cl, chm, 1.0, mode=mode, low_ratio=ratio)
     centre = out[85:115, 85:115]
     assert np.mean(centre == expect) > 0.9
     assert set(shares) == {"406", "408", "410"}

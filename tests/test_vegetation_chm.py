@@ -235,11 +235,12 @@ def test_regenerate_leafoff_only_for_chm_vegetation(tmp_path: Path):
 
 
 @pytest.mark.parametrize(
-    "texture, mode, share",
-    [(True, "laser", None), ("understory", "understory", None), ("understory:0.25", "understory", 0.25),
-     ("understory:x", "understory", None)],
+    "texture, mode, share, ratio",
+    [(True, "laser", None, None), ("understory", "understory", None, None), ("understory:0.25", "understory", 0.25, None),
+     ("understory:x", "understory", None, None), ("understory:0.25:0.45", "understory", 0.25, 0.45),
+     ("understory:0:0.45", "understory", None, 0.45)],
 )
-def test_texture_mode_and_share(texture, mode, share):
-    from app.pipeline.vegetation_chm import texture_mode, texture_share
+def test_texture_mode_and_share(texture, mode, share, ratio):
+    from app.pipeline.vegetation_chm import texture_low_ratio, texture_mode, texture_share
 
-    assert texture_mode(texture) == mode and texture_share(texture) == share
+    assert texture_mode(texture) == mode and texture_share(texture) == share and texture_low_ratio(texture) == ratio

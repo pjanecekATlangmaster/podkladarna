@@ -95,6 +95,7 @@ class Country:
     # ``plain`` jen základní zeleň z výšky porostu bez zrnitosti (sever: řídký les, reálné mapy převážně bílé).
     green: str = "laser"
     green_share: float = 0.0  # přísnější práh podílu nízkého patra pro ``understory`` (0 = ``veg_texture.UNDER_SHARE``)
+    green_low_ratio: float = 0.0  # ``understory``: nízké patro jen pod tímto podílem okolních korun (0 = pevně 1–8 m)
     # Stáří a vlastnosti výškových dat pro upozornění před buildem (``app.data_notes``): roky snímkování
     # (text, např. „2013–2015“) a klíče důsledků ``old`` | ``coarse`` (``photo`` plyne z ``green``).
     elevation_years: str = ""
@@ -199,6 +200,7 @@ def load_countries() -> dict[str, Country]:
             ),
             green=str(spec.get("green") or ("points" if code == DEFAULT_COUNTRY else "laser")),
             green_share=float(spec.get("green_share") or 0.0),
+            green_low_ratio=float(spec.get("green_low_ratio") or 0.0),
             elevation_years=str(spec.get("elevation_years") or ""),
             data_notes=tuple(str(k) for k in (spec.get("data_notes") or [])),
             terrain_vectors=str(spec.get("terrain_vectors") or ""),
