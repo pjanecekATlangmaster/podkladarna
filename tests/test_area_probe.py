@@ -81,16 +81,19 @@ def test_elevation_pending_and_unverified(fr, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "bbox, share, needle",
+    "bbox, outside, key, share, needle",
     [
-        (MARAIS, 1.0, None),  # Paříž: Plan de voirie celý výřez
-        (LYON, 0.0, "není technická mapa"),  # mimo Paříž jen OSM
+        (MARAIS, "fr_bdtopo", "fr_pdv", 1.0, None),  # Paříž: Plan de voirie celý výřez
+        (LYON, "fr_bdtopo", "fr_bdtopo", 1.0, None),  # mimo Paříž BD TOPO
+        (LYON, "", "fr_pdv", 0.0, "není technická mapa"),  # země bez náhradního zdroje: mimo území jen OSM
     ],
 )
-def test_technical_map_area(fr, monkeypatch, bbox, share, needle):
+def test_technical_map_area(fr, monkeypatch, bbox, outside, key, share, needle):
+    import dataclasses
+
     monkeypatch.setitem(elevation_raster.COVERAGE, "fr_lidarhd", lambda _b: 1.0)
-    result = area_probe.probe(fr, bbox)
-    assert result["technical_map"]["share"] == share
+    result = area_probe.probe(dataclasses.replace(fr, technical_map_outside=outside), bbox)
+    assert result["technical_map"]["share"] == share and result["technical_map"]["key"] == key
     texts = _texts(result)
     assert (any(needle in t for t in texts)) if needle else not texts
 
@@ -134,14 +137,14 @@ def test_api_sheets_and_job_store_probe(client, monkeypatch):
     monkeypatch.setattr(elevation_raster, "_COVERAGE_CACHE", {})
     bbox = ",".join(str(v) for v in LYON)
     body = client.get("/api/sheets", params={"bbox": bbox}).json()
-    assert body["probe"]["verdict"] == "warn" and body["probe"]["technical_map"]["share"] == 0.0
-    assert any("OSM" in w for w in body["probe"]["warnings"])
+    probe = body["probe"]  # Lyon: mimo Paříž BD TOPO, celý výřez s technickou mapou
+    assert probe["verdict"] == "ok" and probe["technical_map"] == {**probe["technical_map"], "key": "fr_bdtopo", "share": 1.0}
     monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
     monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
     r = client.post("/api/jobs", data={"preset_id": "sprint_2m", "output_mode": "png", "name": "lyon", "bbox": bbox})
     assert r.status_code == 200
     stored = r.json()["options"]["area_probe"]
-    assert stored["verdict"] == "warn" and stored["technical_map"]["share"] == 0.0
+    assert stored["verdict"] == "ok" and stored["technical_map"]["share"] == 1.0
 
 
 # (země, podíl výřezu v zemi, verdikt) – celoplošné národní výšky končí na hranici: přesah za ni varuje;

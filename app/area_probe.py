@@ -74,7 +74,7 @@ def technical_map_share(country: countries.Country, bbox) -> float:
         return 0.0
     box = tuple(float(v) for v in bbox)
     share = 1.0
-    if country.technical_map_area:
+    if country.technical_map_area and not country.technical_map_outside:
         share = countries.rings_share(box, country.technical_map_area)
     if country.technical_map_gaps:
         share = max(0.0, share - countries.rings_share(box, country.technical_map_gaps))
@@ -107,6 +107,8 @@ def probe(
             ("elev", src, _box_key(box)), lambda: elevation_raster.elevation_coverage(src, box)
         )
     tech_key = country.technical_map if country.has_technical_map else ""
+    if tech_key and country.technical_map_outside and not country.technical_map_covers(box):
+        tech_key = country.technical_map_outside  # FR mimo Paříž: BD TOPO
     if include_dtm and tech_key == "cz_dtm" and country.code == "CZ":
         futures["dtm"] = dtm_coverage_future(box)
     if futures:

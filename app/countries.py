@@ -88,6 +88,8 @@ class Country:
     technical_map_gaps: tuple[tuple[tuple[float, float], ...], ...] = ()
     # Naopak jediné území s technickou mapou (FR: Plan de voirie jen v Paříži); prázdné = celá země mimo ``gaps``.
     technical_map_area: tuple[tuple[tuple[float, float], ...], ...] = ()
+    # Technická mapa pro výřez mimo ``technical_map_area`` (FR: BD TOPO mimo Paříž); prázdné = mimo území jen OSM.
+    technical_map_outside: str = ""
     # Zeleň v lese: ``points`` hustota bodů z mračna (Česko), ``laser`` zrnitost z laserového povrchu (hranice
     # porostů jako z mračna, ``veg_texture``), ``photo`` povrch ze snímků – zeleň z podílu nízkého patra (jako ``understory``),
     # ``leafoff`` zimní laserový povrch bez listí (Belgie DHMV II): zrnitost jen ve stálezeleném porostu (zimní Sentinel-2), nízký porost v lese z OSM = bílý les;
@@ -198,6 +200,7 @@ def load_countries() -> dict[str, Country]:
             technical_map_area=(
                 _rings_from_geojson(CONFIG_DIR / spec["technical_map_area"]) if spec.get("technical_map_area") else ()
             ),
+            technical_map_outside=str(spec.get("technical_map_outside") or ""),
             green=str(spec.get("green") or ("points" if code == DEFAULT_COUNTRY else "laser")),
             green_share=float(spec.get("green_share") or 0.0),
             green_low_ratio=float(spec.get("green_low_ratio") or 0.0),
@@ -442,7 +445,10 @@ def coverage_payload(site: Any = None, lang: str = "cs") -> dict[str, Any]:
                 # Zvýraznění v mapě výběru: kde je výška + technická mapa (obdoba DTM), kde jen výška + OSM.
                 "technical_map": c.has_technical_map,
                 "technical_map_gaps": _rings_geojson(c.technical_map_gaps) if c.technical_map_gaps else None,
-                "technical_map_area": _rings_geojson(c.technical_map_area) if c.technical_map_area else None,
+                # Země s ``technical_map_outside`` má technickou mapu všude, GUI pak území nevyznačuje.
+                "technical_map_area": (
+                    _rings_geojson(c.technical_map_area) if c.technical_map_area and not c.technical_map_outside else None
+                ),
                 # Mapa v GUI šrafuje země, kde zeleň vychází jen základní (povrch ze snímků).
                 "green": c.green,
             }

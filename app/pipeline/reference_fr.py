@@ -1,4 +1,4 @@
-"""Služby pro Francii (zahraniční build, zatím jen Paříž): výšky LiDAR HD, Plan de voirie, ortofoto, plán, katastr.
+"""Služby pro Francii (zahraniční build; technická mapa Paříž Plan de voirie, jinde BD TOPO v bdtopo_fr): výšky LiDAR HD, Plan de voirie, ortofoto, plán, katastr.
 
 IGN (Géoplateforme, data.geopf.fr) bez klíče, Licence Ouverte Etalab 2.0; Plan de voirie Ville de Paris (ODbL).
 Citace v ``configs/countries.yaml``, stav služeb hlídá ``app.source_status``.

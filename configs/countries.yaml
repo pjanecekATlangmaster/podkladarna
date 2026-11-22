@@ -3,10 +3,11 @@
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
 # Zahraniční mapy dělá mezinárodní verze Omapic: citace a attribution anglicky; citace „Base map: Omapic · …, [year]“ (jako anglická licence).
 # elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | no_hoyde | pt_dgt | si_arso | si_clss | gb_sct | gb_wls | es_nav | es_pv | es_an | es_ct | de_sh | fr_lidarhd | lu_act | us_3dep | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
-# technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | de_alkis | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
+# technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | de_alkis | fr_pdv | fr_bdtopo | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
 # technical_map_area: naopak polygon jediného území s technickou mapou (FR = Paříž); výřez mimo něj ji nestahuje.
+# technical_map_outside: technická mapa pro výřez mimo technical_map_area (FR: fr_bdtopo = BD TOPO IGN mimo Paříž).
 # boundary: zjednodušený polygon hranice (WGS84, lehce rozšířený, aby výřez u hranice neodpadl na toleranci).
 # green: zeleň v lese (points = hustota bodů z mračna, CZ výchozí | laser = zrnitost z laserového povrchu, jinde výchozí | photo = povrch ze snímků, zeleň z podílu nízkého patra (šum snímků není zrnitost); mapa v GUI šrafuje | leafoff = zimní laser bez listí, zrnitost jen ve stálezeleném porostu ze zimního snímku Sentinel-2, v lese z OSM bílý les | understory = horský les, zeleň z podílu nízkého patra místo zrnitosti (green_share = přísnější práh, NL; green_low_ratio = nízké patro jen pod tímto podílem okolních korun, PT) | plain = jen základní zeleň z výšky porostu bez zrnitosti, sever).
 # contour_smooth: výchozí vyhlazení vrstevnic, když job nechá volbu „podle země“ (1 adaptivní – výchozí, 0 méně vyhlazení).
@@ -493,19 +494,21 @@ ES-CT:
     - "OSM © OpenStreetMap contributors (ODbL)."
 FR:
   name: {cs: Francie, en: France, fr: France}
-  status: beta              # celá Francie (Petr 2026-11-15); obdoba DTM jen Paříž, jinde OSM + LiDAR HD; souřadnice Lambert-93
+  status: beta              # celá Francie (Petr 2026-11-15); obdoba DTM Paříž (Plan de voirie), jinde BD TOPO (budovy, vozovky) + LiDAR HD; souřadnice Lambert-93
   crs: EPSG:2154            # RGF93 v1 / Lambert-93
   boundary: countries/fr.geojson
   view: [41.3, -5.2, 51.1, 9.6]
   elevation: fr_lidarhd     # IGN LiDAR HD MNT + MNS 0,5 m z WMS-R, výšky NGF-IGN69; vychází postupně (díry, např. Lille) → kontrola pokrytí
   technical_map: fr_pdv     # Plan de voirie Ville de Paris (ODbL), jen výřezy v Paříži; jinde plochy chodníků otevřeně nejsou
-  technical_map_area: countries/fr_paris.geojson  # kde technická mapa je (obec Paříž); mimo ni job kreslí z OSM a GUI to odliší
+  technical_map_area: countries/fr_paris.geojson  # kde je Plan de voirie (obec Paříž)
+  technical_map_outside: fr_bdtopo  # mimo Paříž BD TOPO IGN z WFS Géoplateforme: budovy, vozovky podle šířky silnic (2026-11-22)
   cz_sources: false
   # Licence: Etalab 2.0 (IGN, uvést zdroj a datum poslední aktualizace = datum stažení ze služby, [data date]), ODbL (Plan de voirie, uvést zdroj a sdílet úpravy dat pod ODbL).
   citation: "Base map: Omapic · IGN LiDAR HD · Ville de Paris · OSM, [year]"
   attribution:
     - "Elevation: LiDAR HD MNT and MNS, © IGN, data as downloaded on [data date] (Licence Ouverte Etalab 2.0), processed."
     - "Plan de voirie (Paris only): © Ville de Paris – opendata.paris.fr (ODbL)."
+    - "BD TOPO (buildings, roadways outside Paris): © IGN – Géoplateforme, data as downloaded on [data date] (Licence Ouverte Etalab 2.0)."
     - "Orthophoto, Plan IGN and Parcellaire Express: © IGN – Géoplateforme, data as downloaded on [data date] (Licence Ouverte Etalab 2.0)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 EE:

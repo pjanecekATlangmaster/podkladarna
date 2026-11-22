@@ -1109,6 +1109,31 @@ sources:
   - 'opencode: CGU zakazuje extrakci podstatné části domény a vyžaduje uvést zdroj; „ne peuvent pas faire l''objet de travaux
     topographiques“, lokalizované PVP jen e-mailem pvp.dvd@paris.fr.'
 
+- id: fr_bdtopo
+  countries: [FR]
+  kinds: [technical_map, buildings]
+  name: BD TOPO V3 – budovy (batiment) a úseky silnic se šířkou vozovky (troncon_de_route), WFS Géoplateforme
+  provider: IGN – Géoplateforme
+  url: https://data.geopf.fr/wfs/ows
+  info: https://geoservices.ign.fr/bdtopo
+  role: kresba
+  status: used
+  code: app/pipeline/bdtopo_fr.py
+  provider_key: fr_bdtopo
+  probe: fr_bdtopo
+  license:
+    class: public
+    name: Licence Ouverte Etalab 2.0
+    url: https://www.etalab.gouv.fr/licence-ouverte-open-licence/
+    attribution: © IGN – Géoplateforme, BD TOPO (Licence Ouverte Etalab 2.0)
+  access: free
+  checked: "Claude 2026-11-22: GetCapabilities (CountDefault 5000) a GetFeature GeoJSON bboxem z cloudu, Lyon a Fontainebleau; stránkování se SORTBY=cleabs bez duplicit"
+  issues:
+    - "Jen mimo Paříž (technical_map_outside země FR); v Paříži Plan de voirie."
+    - "Chodníky BD TOPO nevede; vozovka = osa rozšířená o půl `largeur_de_chaussee` (jako ZBGIS). Polní cesty, pěšiny a schody kreslí OSM."
+    - "Parkoviště (`equipement_de_transport`) se neberou: podzemní a patrové garáže v Lyonu nejsou odlišené (`nature_detaillee` většinou prázdné)."
+    - "Lyon PCRS (`pub_pcrs.*`) zkoumán 2026-11-22: jen čáry obrubníků a fasád, polygonizace pokryla 10 % výřezu – nezapojeno."
+
 - id: fr_geopf
   countries: [FR]
   kinds: [orthophoto, map, cadastre]
