@@ -1,4 +1,4 @@
-"""Španělské regiony z mračna LiDAR (Navarra 2024 – levý horní roh, km; Baskicko 2017 – levý dolní roh, hm): seznam listů z výpisu adresářů, převod LAZ a profily zemí."""
+"""Španělské regiony z mračna LiDAR (Navarra 2024 – levý horní roh, km; Baskicko 2017 – levý dolní roh, hm; Kastilie a León 2025 – podadresáře MTN50, relativní jména): seznam listů z výpisu adresářů, převod LAZ a profily zemí."""
 
 import numpy as np
 import pytest
@@ -155,3 +155,54 @@ def test_basque_profile_and_probes():
     assert keys["pv_elevation"].countries == ("ES-PV",) and keys["pv_elevation"].fatal
     assert "ES-PV" in keys["es_ortho"].countries
     assert [w[0] for w in online_templates.wms_layers_for("ES-PV")] == ["es_ortho"]
+
+
+def test_castilla_index_relative_names_and_split_tiles(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "CACHE_DIR", tmp_path)
+    root = reference_es.ES_LAZ_REGIONS["es_cl"].listing
+    f = "PNOA-LIDAR-2025-CyL_H05-{s}_{p}_{e}-{n}_NPC01.laz"
+    a, b = f.format(s="0055", p="3-7", e=330, n=4786), f.format(s="0056", p="1-7", e=330, n=4786)
+    c = f.format(s="0055", p="3-8", e=330, n=4782)
+    pages = {
+        root: '<a href="H50_0055/">H50_0055/</a><a href="H50_0056/">H50_0056/</a><a href="/cartografia/">up</a>',
+        root + "H50_0055/": f'<a href="{a}">{a}</a><a href="{c}">{c}</a><a href="?C=N;O=D">x</a>',
+        root + "H50_0056/": f'<a href="{b}">{b}</a>',
+    }
+    index = er.es_index("es_cl", fetch=pages.__getitem__)
+    assert index[(330, 4782)] == root + "H50_0055/" + c
+    assert index[(330, 4786)].split("\n") == [root + "H50_0055/" + a, root + "H50_0056/" + b]  # list ve dvou listech MTN50
+    assert er.es_index("es_cl", fetch=lambda u: pytest.fail("bez cache")) == index
+    # 330-4782 = x 330–331 km, y 4781–4782 km (N je horní okraj, ověřeno na skutečném listu)
+    assert er.es_tiles("es_cl", (330100.0, 4781100.0, 330900.0, 4781900.0), index) == [(330, 4782)]
+
+
+def test_castilla_tile_merges_parts(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(er, "_es_fetch_laz", lambda url, dest, what: dest.write_bytes(url.encode()) or 100)
+    nd = er.NODATA
+
+    def grids(path, e, n, **kw):
+        if path.read_bytes() == b"u1":  # západní část listu
+            return np.array([[500.0, nd]], dtype="float32"), np.array([[510.0, nd]], dtype="float32")
+        return np.array([[502.0, 600.0]], dtype="float32"), np.array([[505.0, 620.0]], dtype="float32")
+
+    monkeypatch.setattr(er, "si_laz_grids", grids)
+    written = {}
+    monkeypatch.setattr(er, "_write_tif", lambda path, grid, left, top, crs: (written.__setitem__(path.name.split(".")[1], grid), path.write_bytes(b"t")))
+    er._es_tile("es_cl", 330, 4782, "u1\nu2")
+    assert written["dtm"].tolist() == [[501.0, 600.0]] and written["dsm"].tolist() == [[510.0, 620.0]]
+
+
+def test_castilla_profile_probe_and_licence_note():
+    from app import data_notes
+
+    cl = countries.load_countries()["ES-CL"]
+    assert cl.elevation == "es_cl" and cl.crs == "EPSG:25830" and not cl.cz_sources and cl.status == "beta"
+    assert "Junta de Castilla y León" in cl.citation and not reference_es.ES_LAZ_REGIONS["es_cl"].ellipsoidal
+    assert countries.bbox_share((-2.48, 41.75, -2.44, 41.78), cl) == pytest.approx(1.0)  # Soria
+    assert "es_cl" in er.PROVIDERS
+    keys = {p.key: p for p in source_status.PROBES}
+    assert keys["cl_elevation"].countries == ("ES-CL",) and keys["cl_elevation"].fatal
+    assert "ES-CL" in keys["es_ortho"].countries
+    assert data_notes.note_keys(cl) == ["noncommercial"]
+    assert "IGCYL-NC" in data_notes.text_lines(cl, "cs")[0] and "IGCYL-NC" in data_notes.text_lines(cl, "en")[0]

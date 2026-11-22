@@ -361,6 +361,8 @@ def wms_layers_for(country: str) -> tuple[tuple[str, str, str, str, str, str, bo
         "ES-PV": ES_ONLINE_WMS_LAYERS,
         "ES-AN": ES_ONLINE_WMS_LAYERS,
         "ES-CT": ES_ONLINE_WMS_LAYERS,
+        "ES-VC": ES_ONLINE_WMS_LAYERS,
+        "ES-CL": ES_ONLINE_WMS_LAYERS,
         "NO": NO_ONLINE_WMS_LAYERS,
         "US": US_ONLINE_WMS_LAYERS,
         **{st.code: st.wms for st in DE_WCS_STATES.values()},
