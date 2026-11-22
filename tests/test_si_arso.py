@@ -1,4 +1,4 @@
-"""Slovinsko: mračno LiDAR ARSO po listech 1 km – listy okna, blok z HEAD s cache, převod na terén a povrch, profil."""
+"""Slovinsko: CLSS 2023–2025 (index z WFS, části listu, záloha ARSO) a mračno ARSO po listech 1 km, profil."""
 
 import json
 
@@ -52,9 +52,76 @@ def test_laz_grids_ground_mean_and_surface_max(tmp_path):
 
 def test_slovenia_profile_and_probe():
     si = countries.load_countries()["SI"]
-    assert si.elevation == "si_arso" and si.crs == "EPSG:3794" and not si.cz_sources and si.technical_map == "none"
-    assert countries.elevation_ready(si) and "ARSO" in si.citation and si.data_notes == ("old",)
-    assert si.green == "leafoff"  # zimní mračno: bez zrnitosti, nízký porost v lese OSM bílý
-    probe = next(p for p in source_status.PROBES if p.key == "si_elevation")
-    assert probe.countries == ("SI",) and probe.fatal and probe.method == "HEAD"
-    assert probe.urls == (reference_si.SI_ELEVATION_PROBE,)
+    assert si.elevation == "si_clss" and si.crs == "EPSG:3794" and not si.cz_sources and si.technical_map == "none"
+    assert countries.elevation_ready(si) and "GURS" in si.citation and si.elevation_years == "2023–2025"
+    assert si.data_notes == ()  # data 2023–2025 nejsou stará
+    assert si.green == "leafoff"  # snímkování jaro / podzim: bez zrnitosti, nízký porost v lese OSM bílý
+    probes = {p.key: p for p in source_status.PROBES if "SI" in p.countries}
+    assert probes["si_elevation"].urls == (reference_si.SI_CLSS_PROBE,)
+    assert probes["si_arso_elevation"].urls == (reference_si.SI_ELEVATION_PROBE,)
+    assert not any(p.fatal for p in probes.values())  # jeden zdroj zálohuje druhý, job se kvůli výpadku neodmítá
+
+
+def test_clss_index_from_wfs_and_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "CACHE_DIR", tmp_path)
+    window = (472100.0, 87100.0, 473900.0, 87900.0)  # listy 472_87 a 473_87
+    part = {"ti_name": "473_87", "orig_ime": "05-ljubljana", "path_dmr": "clss/raw/05-ljubljana/zls/dmr/DMR_473_87.laz",
+            "path_dmp": "clss/raw/05-ljubljana/zls/dmp/DMP_473_87.laz", "datum_za_1": "06.05.2023"}
+    aneks = dict(part, orig_ime="13-ljubljana-aneks", path_dmr="clss/raw/13-ljubljana-aneks/zls/dmr/DMR_473_87.laz",
+                 path_dmp="clss/raw/13-ljubljana-aneks/zls/dmp/DMP_473_87.laz")
+    asked = []
+
+    def fetch(url):
+        asked.append(url)
+        return {"features": [{"properties": part}, {"properties": aneks}, {"properties": dict(part, ti_name="999_9")}]}
+
+    index = elevation_raster.si_clss_index(window, fetch=fetch)
+    assert index["472_87"] == []  # mimo CLSS
+    assert [p["dmr"] for p in index["473_87"]] == [part["path_dmr"], aneks["path_dmr"]]  # list ve dvou blocích
+    assert "bbox=472100%2C87100%2C473900%2C87900%2CEPSG%3A3794" in asked[0]
+    assert elevation_raster.si_clss_index(window, fetch=lambda u: pytest.fail("z cache")) == index
+
+
+def test_clss_file_url_rejects_foreign_paths():
+    assert reference_si.clss_file_url("clss/raw/09-celje/zls/dmr/DMR_484_104.laz") == (
+        "https://assets.flycom.si/clss/raw/09-celje/zls/dmr/DMR_484_104.laz")
+    for bad in ("../etc/passwd", "https://evil/x.laz", "clss/raw/../../x"):
+        with pytest.raises(ValueError):
+            reference_si.clss_file_url(bad)
+
+
+def test_clss_merge_parts_mean_terrain_max_surface():
+    nd = elevation_raster.NODATA
+    a = np.array([[300.0, nd], [nd, nd]], dtype="float32")
+    b = np.array([[302.0, 310.0], [nd, nd]], dtype="float32")
+    dtm = elevation_raster.si_clss_merge([a, b], how="mean")
+    dsm = elevation_raster.si_clss_merge([a, b], how="max")
+    assert dtm[0, 0] == pytest.approx(301.0) and dtm[0, 1] == pytest.approx(310.0) and dtm[1, 1] == nd
+    assert dsm[0, 0] == pytest.approx(302.0) and dsm[1, 0] == nd
+
+
+def test_clss_outage_falls_back_to_arso(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "CACHE_DIR", tmp_path)
+
+    def down(window, **kw):
+        raise OSError("connection refused")
+
+    sentinel = object()
+    monkeypatch.setattr(elevation_raster, "si_clss_index", down)
+    monkeypatch.setattr(elevation_raster, "si_arso_provider", lambda bounds, out_dir, log=None: sentinel)
+    lines = []
+    got = elevation_raster.si_clss_provider((14.5, 46.05, 14.51, 46.06), tmp_path, log=lines.append)
+    assert got is sentinel and "ARSO" in lines[0]
+
+
+def test_clss_empty_index_not_cached_and_falls_back(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "CACHE_DIR", tmp_path)
+    window = (472100.0, 87100.0, 472900.0, 87900.0)
+    assert elevation_raster.si_clss_index(window, fetch=lambda u: {"features": []}) == {"472_87": []}
+    assert not (tmp_path / "si_clss" / elevation_raster.SI_CLSS_INDEX_FILE).exists()  # prázdná odpověď se necachuje
+    sentinel = object()
+    monkeypatch.setattr(elevation_raster, "si_clss_index", lambda window, **kw: {})
+    monkeypatch.setattr(elevation_raster, "si_arso_provider", lambda bounds, out_dir, log=None: sentinel)
+    lines = []
+    assert elevation_raster.si_clss_provider((14.5, 46.05, 14.51, 46.06), tmp_path, log=lines.append) is sentinel
+    assert "ARSO" in lines[0]

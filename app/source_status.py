@@ -52,7 +52,7 @@ from app.pipeline.geodanmark_dk import GEODK_PROBE
 from app.pipeline.reference_dk import DK_ELEVATION_PROBE, with_key as dk_with_key
 from app.pipeline.reference_no import NO_ELEVATION_PROBE
 from app.pipeline.reference_pt import PT_ELEVATION_PROBE
-from app.pipeline.reference_si import SI_ELEVATION_PROBE
+from app.pipeline.reference_si import SI_CLSS_PROBE, SI_ELEVATION_PROBE
 from app.pipeline.reference_us import US_ELEVATION_PROBE, US_INDEX_PROBE
 from app.pipeline.reference_be import BE_ELEVATION_PROBE, BE_GRB_PROBE, BE_ORTHO_PROBE, BE_URBIS_PROBE
 from app.pipeline.reference_de_nw import DE_NW_DOP_PROBE, DE_NW_ELEVATION_PROBE
@@ -394,14 +394,22 @@ PROBES: tuple[Probe, ...] = (
         fatal=True,
         countries=("PT",),
     ),
-    # Slovinsko: HEAD listu mračna ARSO u Ljubljany (bez klíče, ~50 MB se nestahuje).
+    # Slovinsko: HEAD DMR listu CLSS v Ljubljani (~4 MB se nestahuje) a záložního mračna ARSO. Ani jedna není
+    # fatální: při výpadku CLSS počítá job z ARSO a naopak, odmítnutí jobu by bylo zbytečné.
     Probe(
         "si_elevation",
-        "Mračno LiDAR (ARSO) – terén a povrch",
-        (SI_ELEVATION_PROBE,),
-        "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
+        "Výšky LiDAR CLSS (GURS) – terén a povrch",
+        (SI_CLSS_PROBE,),
+        "Výšky se spočítají ze staršího mračna ARSO 2011–2015.",
         method="HEAD",
-        fatal=True,
+        countries=("SI",),
+    ),
+    Probe(
+        "si_arso_elevation",
+        "Mračno LiDAR ARSO (záloha výšek)",
+        (SI_ELEVATION_PROBE,),
+        "Záloha výšek pro Slovinsko není k dispozici; s CLSS se mapa vytvoří.",
+        method="HEAD",
         countries=("SI",),
     ),
     # USA: index projektů WESM (výběr mračna QL 0 – QL 2) a ept.json jednoho projektu v bucketu 3DEP (~3 kB).
