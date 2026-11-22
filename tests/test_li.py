@@ -29,7 +29,8 @@ def test_li_profile_and_probes():
         ((9.590, 47.230, 9.600, 47.240), "AT"),  # Feldkirch
     ],
 )
-def test_li_boundary(bbox, code):
-    all_c = countries.load_countries()
-    best = max(("LI", "CH", "AT"), key=lambda c: countries.bbox_share(bbox, all_c[c]))
-    assert best == code
+def test_li_boundary(bbox, code, monkeypatch):
+    # Skutečný výběr aplikace (pořadí v countries.yaml rozhoduje při shodě), všechny beta země na doméně se vším.
+    monkeypatch.setenv("COUNTRIES_BETA", "*")
+    site = type("Site", (), {"countries": ("*",)})()
+    assert countries.check_bbox(bbox, site)[0].code == code

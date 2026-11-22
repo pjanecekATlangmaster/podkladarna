@@ -32,10 +32,11 @@ def test_profile_and_probe(code, key, crs, probe):
         ((-1.65, 42.80, -1.63, 42.82), "ES-NC"),  # Pamplona
     ],
 )
-def test_boundary(bbox, code):
-    all_c = countries.load_countries()
-    best = max(("ES-AN", "ES-CT", "ES-NC", "FR"), key=lambda c: countries.bbox_share(bbox, all_c[c]))
-    assert best == code
+def test_boundary(bbox, code, monkeypatch):
+    # Skutečný výběr aplikace (pořadí v countries.yaml rozhoduje při shodě), všechny beta země na doméně se vším.
+    monkeypatch.setenv("COUNTRIES_BETA", "*")
+    site = type("Site", (), {"countries": ("*",)})()
+    assert countries.check_bbox(bbox, site)[0].code == code
 
 
 @pytest.mark.parametrize(
