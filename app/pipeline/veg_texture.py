@@ -93,27 +93,30 @@ def texture_mask(chm, cell_m: float):
     return (std > STD_M) & (mean > MEAN_M), forest
 
 
-def understory_mask(chm, cell_m: float):
-    """Režim ``understory``: aspoň ``UNDER_SHARE`` okna má nízké patro ``UNDER_LOW_M``–``UNDER_HIGH_M``, v lesním okolí."""
+def understory_mask(chm, cell_m: float, under_share: float | None = None):
+    """Režim ``understory``: aspoň ``UNDER_SHARE`` (země může mít přísnější ``green_share``) okna má nízké patro
+    ``UNDER_LOW_M``–``UNDER_HIGH_M``, v lesním okolí."""
     from scipy import ndimage as ndi
 
     c = np.nan_to_num(np.asarray(chm, dtype=np.float32))
     low = ((c >= UNDER_LOW_M) & (c < UNDER_HIGH_M)).astype(np.float32)
     share = ndi.uniform_filter(low, _odd(UNDER_WINDOW_M / cell_m))
     forest = ndi.uniform_filter((c > MEAN_M).astype(np.float32), _odd(FOREST_WINDOW_M / cell_m)) >= FOREST_SHARE
-    return (share >= UNDER_SHARE) & forest
+    return (share >= (under_share or UNDER_SHARE)) & forest
 
 
 def _shares(out):
     return {code: float(np.count_nonzero(out == v)) / out.size * 100 for code, v in (("406", LIGHT), ("408", MID), ("410", DENSE))}
 
 
-def add_texture_green(classified, chm, cell_m: float, mode: str = "laser", info: dict | None = None):
+def add_texture_green(classified, chm, cell_m: float, mode: str = "laser", info: dict | None = None,
+                      under_share: float | None = None):
     """Třídy porostu (0 bílá, 1 401, 2–4 zeleň, 5 403) doplněné o zeleň ze zrnitosti; vrací (rastr, podíly %).
 
     ``mode`` = ``laser`` (výchozí) nebo ``understory`` (podíl nízkého patra, horský les v Trentinu). Když v režimu
     ``laser`` zasáhne pojistka (``LASER_FOREST_MAX``), vrátí výsledek ``understory`` a do ``info`` zapíše
-    ``fallback`` = podíl zeleně ze zrnitosti v lesním okolí.
+    ``fallback`` = podíl zeleně ze zrnitosti v lesním okolí. ``under_share`` = práh podílu nízkého patra místo
+    ``UNDER_SHARE`` (``countries.yaml`` ``green_share``, Nizozemsko).
     """
     from app.pipeline.vegetation_density import DEFAULT_PARAMS, young_stand_to_green
 
@@ -124,7 +127,7 @@ def add_texture_green(classified, chm, cell_m: float, mode: str = "laser", info:
     if mode == "understory":
         green = np.isin(cl, (LIGHT, MID, DENSE))
         g = _clean(
-            green | (understory_mask(chm, cell_m) & (cl == WHITE)),
+            green | (understory_mask(chm, cell_m, under_share) & (cl == WHITE)),
             max(1, int(round(MIN_AREA_M2 / px_m2))),
             _odd(SMOOTH_M / cell_m),
             int(round(CLOSE_M / cell_m)),
@@ -157,5 +160,5 @@ def add_texture_green(classified, chm, cell_m: float, mode: str = "laser", info:
         if share > LASER_FOREST_MAX:
             if info is not None:
                 info["fallback"] = share
-            return add_texture_green(classified, chm, cell_m, mode="understory")
+            return add_texture_green(classified, chm, cell_m, mode="understory", under_share=under_share)
     return out, _shares(out)

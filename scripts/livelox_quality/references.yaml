@@ -94,6 +94,24 @@ references:
     size_km: 1.4
     terrain: smíšený les, Korutany
     data: BEV ALS DTM + DSM 1 m, kresba OSM
+  - id: be-hogevijvers-les
+    country: BE
+    class_id: 872178
+    event: Forest cup Hoge Vijvers 2024 (Flandry, u hranic s NL)
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: borový les na písku a vřesoviště, Kempen
+    data: DHMV II zimní výšky (leafoff), GRB
+  - id: be-soignes-les
+    country: BE
+    class_id: 695237
+    event: Brussels Orienteering Challenge 2023 #3 Forêt de Soignes
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: bukový les, Brusel / Flandry
+    data: DHMV II zimní výšky (leafoff), GRB, UrbIS
   - id: be-bosbergen-les
     country: BE
     class_id: 884424
@@ -295,14 +313,23 @@ references:
     size_km: 1.4
     terrain: horský les, Trentino
     data: LiDAR PAT 2014 0,5 m (understory), kresba OSM
-  - id: nl-hogevijvers-les
+  - id: nl-veluwe-les
     country: NL
-    class_id: 872178
-    event: Forest cup Hoge Vijvers 2024
+    class_id: 1071951
+    event: Tweedaagse Noord-West Veluwe 2025 dag 2
     kind: les
     map_scale: 10000
     size_km: 1.4
-    terrain: les na písku a vřesoviště
+    terrain: les na písku a vřesoviště, Veluwe
+    data: AHN 0,5 m, BGT
+  - id: nl-boshoverheide-les
+    country: NL
+    class_id: 701604
+    event: Sylvester Day 4 Boshoverheide 2023
+    kind: les
+    map_scale: 10000
+    size_km: 1.4
+    terrain: borový les a vřesoviště, Limburg
     data: AHN 0,5 m, BGT
   - id: no-trondheim-les
     country: "NO"

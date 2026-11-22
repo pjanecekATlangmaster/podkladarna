@@ -232,3 +232,14 @@ def test_regenerate_leafoff_only_for_chm_vegetation(tmp_path: Path):
     with patch("app.pipeline.vegetation_chm.generate_vegetation_from_chm") as gen:
         assert regenerate_leafoff_vegetation(tmp_path) is None
     gen.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "texture, mode, share",
+    [(True, "laser", None), ("understory", "understory", None), ("understory:0.25", "understory", 0.25),
+     ("understory:x", "understory", None)],
+)
+def test_texture_mode_and_share(texture, mode, share):
+    from app.pipeline.vegetation_chm import texture_mode, texture_share
+
+    assert texture_mode(texture) == mode and texture_share(texture) == share
