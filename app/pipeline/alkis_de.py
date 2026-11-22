@@ -180,7 +180,7 @@ def _get(url: str) -> bytes:
     raise last
 
 
-def _fetch_layer(state: State, layer: str, bounds, fetch) -> tuple[list[dict], int]:
+def _fetch_layer(state: State, layer: str, bounds, fetch, log: LogFn | None = None) -> tuple[list[dict], int]:
     feats: list[dict] = []
     nbytes = 0
     for page in range(MAX_PAGES):
@@ -190,6 +190,9 @@ def _fetch_layer(state: State, layer: str, bounds, fetch) -> tuple[list[dict], i
         feats.extend(batch)
         if members < PAGE_SIZE:
             break
+    else:
+        if log:
+            log(f"ALKIS {layer}: dosažen limit {MAX_PAGES} stránek po {PAGE_SIZE}, zbytek výřezu jen z OSM")
     return feats, nbytes
 
 
@@ -200,11 +203,12 @@ def fetch_layers(
     *,
     workers: int = WORKERS,
     fetch: Callable[[str], bytes] = _get,
+    log: LogFn | None = None,
 ) -> tuple[dict[str, list[dict]], int]:
     """``{vrstva: [objekt, …]}`` pro obálku výřezu v nativních souřadnicích země (stránkování po ``PAGE_SIZE``)."""
     layers = tuple(layers)
     with ThreadPoolExecutor(max_workers=max(1, workers), thread_name_prefix="alkis-de") as ex:
-        results = list(ex.map(lambda layer: _fetch_layer(state, layer, bounds, fetch), layers))
+        results = list(ex.map(lambda layer: _fetch_layer(state, layer, bounds, fetch, log), layers))
     return {layer: feats for layer, (feats, _n) in zip(layers, results)}, sum(n for _f, n in results)
 
 
@@ -308,7 +312,7 @@ def prepare(
     fetch_box = Transformer.from_crs(CRS_LABEL, src, always_xy=True).transform_bounds(*bounds, densify_pts=21)
     t0 = time.monotonic()
     build_stats.note_background("dtm", source="de_alkis")
-    data, nbytes = fetch_layers(state, fetch_box)
+    data, nbytes = fetch_layers(state, fetch_box, log=log)
     reproject_features(data, src, CRS_LABEL)
     build_stats.note_bytes("de_alkis", nbytes, cached=False, key="alkis_de")
     count = sum(len(v) for v in data.values())
