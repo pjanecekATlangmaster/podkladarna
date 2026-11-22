@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.pipeline.clean_map import clean_object_parts, full_variant_name, strip_full_tag
+from app.pipeline.clean_map import clean_object_parts, clean_variant_name, pick_full_map, strip_variant_tag
 from app.pipeline.oom_import import OomObjectPart
 
 
@@ -57,5 +57,8 @@ def test_green_and_dem_dropped_data_kept():
 
 
 def test_file_names():
-    assert full_variant_name("Mapa-les.omap") == "Mapa-les_full.omap"
-    assert strip_full_tag("Mapa-mtbo_full") == "Mapa-mtbo"
+    assert clean_variant_name("Mapa-les.omap") == "Mapa-les_novege.omap"
+    assert strip_variant_tag("Mapa-mtbo_novege") == "Mapa-mtbo"
+    assert strip_variant_tag("Mapa-mtbo_full") == "Mapa-mtbo"  # starší joby
+    assert pick_full_map(["M-les.omap", "M-les_novege.omap"]) == ["M-les.omap"]
+    assert pick_full_map(["M-les.omap", "M-les_full.omap"]) == ["M-les_full.omap"]

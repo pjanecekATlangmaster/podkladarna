@@ -288,8 +288,8 @@ UZITECNE_README_EN = """Useful vectors – vegetation, earth banks, rocks
 ===============================================
 For viewing and manual import in OOM / QGIS (coordinate system of the job).
 
-in_full_map/   … what stayed in the map after filtering (forest / MTBO: the full map *_full.omap;
-               the clean map leaves out green and DEM features even from here)
+in_full_map/   … what stayed in the map after filtering (forest / MTBO: the full map *-forest.omap;
+               the *_novege map leaves out green and DEM features even from here)
 filtered_out/  … candidates dropped by the filters (attribute duvod = filter reason)
 
 Layers
@@ -577,10 +577,10 @@ def oom_readme_en(
         "---------------------------\n"
         "1. Unzip the whole ZIP into one folder. Open the chosen *-sprint.omap / *-forest.omap / *-mtbo.omap\n"
         "   (by scale; les = forest; paths from OSM) – or the *.ocd of the same name in OCAD.\n"
-        "   Forest and MTBO come in two versions: *-forest.omap / *-mtbo.omap (and .ocd) is the clean version\n"
-        "   with certain data only – no vegetation derived from elevation, no meadows or clearings under 0.3 ha\n"
-        "   and no cliffs, rocks, boulders or knolls from the DEM (map data and contours stay);\n"
-        "   *_full.omap / *_full.ocd is the full drawing. Left-out objects are in the full version and in the\n"
+        "   Forest and MTBO come in two versions: *-forest.omap / *-mtbo.omap (and .ocd) is the full drawing;\n"
+        "   *_novege.omap / *_novege.ocd is the version without vegetation, with certain data only – no vegetation\n"
+        "   derived from elevation, no meadows or clearings under 0.3 ha and no cliffs, rocks, boulders or knolls\n"
+        "   from the DEM (map data and contours stay). Left-out objects are in the full version and in the\n"
         "   reference data (DXF, SHP, PNG).\n"
         "   Default view: vectors only (contours, vegetation, OSM buildings, cliffs, …).\n"
         "   Purple rectangle = your area; outside it there is only an overlap of the map content.\n"

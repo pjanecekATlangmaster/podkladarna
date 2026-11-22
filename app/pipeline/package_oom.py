@@ -252,9 +252,9 @@ def _write_ocad_symbol_sets(
     for omap_path in omap_paths:
         if not omap_path.is_file():
             continue
-        from app.pipeline.clean_map import strip_full_tag
+        from app.pipeline.clean_map import strip_variant_tag
 
-        stem = strip_full_tag(omap_path.stem.removesuffix(CERTAIN_TAG))
+        stem = strip_variant_tag(omap_path.stem.removesuffix(CERTAIN_TAG))
         tag = stem.rsplit("-", 1)[-1].lower()
         tag = {v: k for k, v in DISCIPLINE_FILE_TAGS_EN.items()}.get(tag, tag)
         path = ocad_symbol_set_path(tag, scale)
@@ -812,10 +812,10 @@ def _oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
         "-----------------------\n"
         "1. Rozbalte celý ZIP do jedné složky. Otevřete vybraný *-sprint.omap / *-les.omap / *-mtbo.omap\n"
         "   (podle měřítka; cesty z OSM) – nebo stejnojmenný *.ocd v OCAD.\n"
-        "   Les a MTBO jsou ve dvou verzích: *-les.omap / *-mtbo.omap (a .ocd) je čistá verze jen s jistými\n"
-        "   daty – bez zeleně z výšek, bez luk a pasek pod 0,3 ha a bez srázů, skal, balvanů a kupek z DEM\n"
-        "   (data OSM, ZABAGED a DTM a vrstevnice zůstávají); *_full.omap / *_full.ocd je plná kresba.\n"
-        "   Vynechané objekty najdete v plné verzi a v podkladech (DXF, SHP, PNG).\n"
+        "   Les a MTBO jsou ve dvou verzích: *-les.omap / *-mtbo.omap (a .ocd) je plná kresba;\n"
+        "   *_novege.omap / *_novege.ocd je verze bez vegetace jen s jistými daty – bez zeleně z výšek,\n"
+        "   bez luk a pasek pod 0,3 ha a bez srázů, skal, balvanů a kupek z DEM (data OSM, ZABAGED a DTM\n"
+        "   a vrstevnice zůstávají). Vynechané objekty najdete v plné verzi a v podkladech (DXF, SHP, PNG).\n"
         "   Výchozí pohled: jen vektory (vrstevnice, zeleň, ZABAGED, OSM budovy, srázy, …).\n"
         "   Fialový obdélník = váš výřez; vně je jen přesah polohopisu.\n"
         f"   Vrstevnice ({_c('101')}/{_c('102')}): Chaikin → DP simplify (~0,08 mm) → Bézier; zamčené (is_protected)\n"

@@ -407,8 +407,10 @@ def _pick_omap_name(names: list[str]) -> str | None:
     if not omaps:
         return None
     sprint = [n for n in omaps if "sprint" in Path(n).name.lower()]
-    # Les a MTBO: ukázka z plné kresby (``*_full.omap``), ne z čisté verze.
-    full = [n for n in omaps if Path(n).stem.endswith("_full")]
+    # Les a MTBO: ukázka z plné kresby, ne z verze bez vegetace (``*_novege``; starší ZIPy plná ``*_full``).
+    from app.pipeline.clean_map import pick_full_map
+
+    full = pick_full_map(omaps)
     return (sprint or full or omaps)[0]
 
 

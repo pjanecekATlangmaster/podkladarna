@@ -68,7 +68,7 @@ from app.pipeline.oom_preview import (
     output_georef_enabled,
     write_job_oom_preview,
 )
-from app.pipeline.clean_map import CLEAN_MAPS, full_variant_name
+from app.pipeline.clean_map import CLEAN_MAPS, clean_variant_name
 from app.pipeline.package_oom import (
     OUTPUT_ZIP_NAME,
     BUILD_CERTAIN_MAPS,
@@ -1733,9 +1733,9 @@ def _package_output(
                         disc_tag, path_tag, map_name=job_name or "",
                         certain_only=certain, lang=zip_lang(options),
                     )
-                    # Les a MTBO: hlavní jméno nese čistá verze, plná mapa má příponu ``_full`` (clean_map).
+                    # Les a MTBO: hlavní jméno nese plná mapa, čistá verze má příponu ``_novege`` (clean_map).
                     clean_dest = (
-                        output_dir / variant_name
+                        output_dir / clean_variant_name(variant_name)
                         if CLEAN_MAPS and not certain and disc_tag != "sprint"
                         else None
                     )
@@ -1747,9 +1747,7 @@ def _package_output(
                                 f"OOM: {variant_name} ({disc_preset_id}, 1:{scale}, {path_src}"
                                 + (", jen čistá data)" if certain else ")")
                             ),
-                            dest=output_dir / (
-                                full_variant_name(variant_name) if clean_dest else variant_name
-                            ),
+                            dest=output_dir / variant_name,
                             kwargs=dict(
                                 map_name=(job_name or disc_preset_id)
                                 + (CERTAIN_MAP_NAME_SUFFIX if certain else ""),
