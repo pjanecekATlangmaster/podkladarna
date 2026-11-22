@@ -3,7 +3,7 @@
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
 # Zahraniční mapy dělá mezinárodní verze Omapic: citace a attribution anglicky; citace „Base map: Omapic · …, [year]“ (jako anglická licence).
 # elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | no_hoyde | pt_dgt | si_arso | si_clss | gb_sct | gb_wls | es_nav | es_pv | es_an | es_ct | de_sh | fr_lidarhd | lu_act | us_3dep | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
-# technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
+# technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | de_alkis | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
 # technical_map_area: naopak polygon jediného území s technickou mapou (FR = Paříž); výřez mimo něj ji nestahuje.
@@ -138,13 +138,14 @@ DE-NW:
   boundary: countries/de_nw.geojson  # DVG2 Land, Geobasis NRW, +300 m
   view: [50.32, 5.86, 52.53, 9.47]
   elevation: de_nrw         # DGM1 + menší z výšek zimního DOM1 (ALS) a letního nDOM50 (snímky), WCS po 2 km
-  technical_map: none       # ALKIS je, ale kresba zatím z OSM
+  technical_map: de_alkis   # ALKIS vereinfacht z WFS země: budovy, uliční prostor (sprint 501 v celé šířce), náměstí, parkoviště
   cz_sources: false
   # Licence: Datenlizenz Deutschland – Zero 2.0 (WCS DGM, DOM, nDOM i WMS DOP, ABK, ALKIS; ověřeno 2026-11-16 v GetCapabilities).
   citation: "Base map: Omapic · Geobasis NRW · OSM, [year]"
   attribution:
     - "Elevation: DGM1 and nDOM50, Geobasis NRW (Datenlizenz Deutschland – Zero 2.0)."
     - "Orthophoto DOP, Amtliche Basiskarte (ABK) and ALKIS: Geobasis NRW (Datenlizenz Deutschland – Zero 2.0)."
+    - "ALKIS (buildings, street space, squares, car parks): Geobasis NRW (Datenlizenz Deutschland – Zero 2.0)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 DE-BY:
   name: {cs: Německo – Bavorsko, en: Germany – Bavaria, de: Deutschland – Bayern}
@@ -164,12 +165,12 @@ DE-BY:
     - "OSM © OpenStreetMap contributors (ODbL)."
 DE-ST:
   name: {cs: Německo – Sasko-Anhaltsko, en: Germany – Saxony-Anhalt, de: Deutschland – Sachsen-Anhalt}
-  status: beta              # celá spolková země (2026-11-18); kresba z OSM
+  status: beta              # celá spolková země (2026-11-18); kresba z OSM + ALKIS (2026-11-22)
   crs: EPSG:25832           # ETRS89 / UTM 32N (nativní systém LVermGeo ST)
   boundary: countries/de_st.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
   view: [50.94, 10.56, 53.04, 13.19]
   elevation: de_st          # DGM1 + DOM1 (ALS) 1 m z WCS LVermGeo po 2 km (app/pipeline/reference_de_states.py)
-  technical_map: none       # ALKIS je, kresba zatím z OSM
+  technical_map: de_alkis   # ALKIS vereinfacht z WFS země: budovy, uliční prostor (sprint 501 v celé šířce), náměstí, parkoviště
   cz_sources: false
   # Licence: Datenlizenz Deutschland – Namensnennung 2.0, poskytovatel „© GeoBasis-DE / LVermGeo ST“ (Nutzungsbedingungen
   # LVermGeo v5.0 z 1. 3. 2024, bod 2; WCS DGM1 / DOM1 a WMS DOP, DTK „OpenData“, ověřeno 2026-11-18).
@@ -177,61 +178,65 @@ DE-ST:
   attribution:
     - "Elevation: DGM1 and DOM1, © GeoBasis-DE / LVermGeo ST (Datenlizenz Deutschland – Namensnennung – Version 2.0), processed."
     - "Orthophoto DOP20 and topographic map DTK25: © GeoBasis-DE / LVermGeo ST (Datenlizenz Deutschland – Namensnennung – Version 2.0)."
+    - "ALKIS (buildings, street space, squares, car parks): © GeoBasis-DE / LVermGeo ST (Datenlizenz Deutschland – Namensnennung – Version 2.0), processed."
     - "OSM © OpenStreetMap contributors (ODbL)."
 DE-MV:
   name: {cs: Německo – Meklenbursko-Přední Pomořansko, en: Germany – Mecklenburg-Western Pomerania, de: Deutschland – Mecklenburg-Vorpommern}
-  status: beta              # celá spolková země (2026-11-18); kresba z OSM
+  status: beta              # celá spolková země (2026-11-18); kresba z OSM + ALKIS (2026-11-22)
   crs: EPSG:25833           # ETRS89 / UTM 33N (nativní systém LAiV M-V)
   boundary: countries/de_mv.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
   view: [53.11, 10.59, 54.69, 14.42]
   elevation: de_mv          # DGM1 + DOM1 1 m z WCS LAiV po 2 km (app/pipeline/reference_de_states.py)
-  technical_map: none       # ALKIS je, kresba zatím z OSM
+  technical_map: de_alkis   # ALKIS vereinfacht z WFS země: budovy, uliční prostor (sprint 501 v celé šířce), náměstí, parkoviště
   cz_sources: false
   # Licence: CC BY 4.0 (metadata GeoMIS), Quellenvermerk „© GeoBasis-DE/M-V <rok>“ (AccessConstraints WCS i WMS, ověřeno 2026-11-18).
   citation: "Base map: Omapic · © GeoBasis-DE/M-V · OSM, [year]"
   attribution:
     - "Elevation: DGM1 and DOM1, © GeoBasis-DE/M-V [data year] (CC BY 4.0), processed."
     - "Orthophoto DOP and topographic map DTK10: © GeoBasis-DE/M-V [data year] (CC BY 4.0)."
+    - "ALKIS (buildings, street space, squares, car parks): © GeoBasis-DE/M-V [data year], processed."
     - "OSM © OpenStreetMap contributors (ODbL)."
 DE-NI:
   name: {cs: Německo – Dolní Sasko, en: Germany – Lower Saxony, de: Deutschland – Niedersachsen}
-  status: beta              # celá spolková země bez Brém (2026-11-18); kresba z OSM
+  status: beta              # celá spolková země bez Brém (2026-11-18); kresba z OSM + ALKIS (2026-11-22)
   crs: EPSG:25832           # ETRS89 / UTM 32N (nativní systém LGLN)
   boundary: countries/de_ni.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
   view: [51.29, 6.63, 53.89, 11.6]
   elevation: de_ni          # DGM1 + DOM1 (ALS od 2019) 1 m z WCS LGLN po 2 km (app/pipeline/reference_de_states.py)
-  technical_map: none       # ALKIS je, kresba zatím z OSM
+  technical_map: de_alkis   # ALKIS vereinfacht z WFS země: budovy, uliční prostor (sprint 501 v celé šířce), náměstí, parkoviště
   cz_sources: false
   # Licence: CC BY 4.0, Quellenvermerk „LGLN (<rok>)“ (AccessConstraints WCS a WMS LGLN, ověřeno 2026-11-18).
   citation: "Base map: Omapic · LGLN · OSM, [year]"
   attribution:
     - "Elevation: DGM1 and DOM1, LGLN ([data year]) Creative Commons Namensnennung – 4.0 International (CC BY 4.0), processed."
     - "Orthophoto DOP20 and topographic map DTK25: LGLN ([data year]) Creative Commons Namensnennung – 4.0 International (CC BY 4.0)."
+    - "ALKIS (buildings, street space, squares, car parks): LGLN ([data year]) Creative Commons Namensnennung – 4.0 International (CC BY 4.0), processed."
     - "OSM © OpenStreetMap contributors (ODbL)."
 DE-BB:
   name: {cs: Německo – Braniborsko, en: Germany – Brandenburg, de: Deutschland – Brandenburg}
-  status: beta              # celá spolková země (2026-11-18); Berlín uvnitř zůstává DE (je v seznamu dřív); kresba z OSM
+  status: beta              # celá spolková země (2026-11-18); Berlín uvnitř zůstává DE (je v seznamu dřív); kresba z OSM + ALKIS (2026-11-22)
   crs: EPSG:25833           # ETRS89 / UTM 33N (nativní systém LGB)
   boundary: countries/de_bb.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
   view: [51.36, 11.26, 53.56, 14.77]
   green: photo              # bDOM ze snímků: zrnitost porostu slabší, zeleň jen základní
   elevation: de_bb          # DGM1 + bDOM1 1 m z WCS LGB po 2 km (app/pipeline/reference_de_states.py)
-  technical_map: none       # ALKIS je, kresba zatím z OSM
+  technical_map: de_alkis   # ALKIS vereinfacht z WFS země: budovy, uliční prostor (sprint 501 v celé šířce), náměstí, parkoviště
   cz_sources: false
   # Licence: Datenlizenz Deutschland – Namensnennung 2.0, „© GeoBasis-DE/LGB, dl-de/by-2-0 (Daten geändert)“ (AccessConstraints WCS a WMS, ověřeno 2026-11-18).
   citation: "Base map: Omapic · © GeoBasis-DE/LGB · OSM, [year]"
   attribution:
     - "Elevation: DGM1 and bDOM1, © GeoBasis-DE/LGB, dl-de/by-2-0 (Daten geändert)."
     - "Orthophoto DOP20: © GeoBasis-DE/LGB, dl-de/by-2-0."
+    - "ALKIS (buildings, street space, squares, car parks): © GeoBasis-DE/LGB, dl-de/by-2-0 (Daten geändert)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 DE-RP:
   name: {cs: Německo – Porýní-Falc, en: Germany – Rhineland-Palatinate, de: Deutschland – Rheinland-Pfalz}
-  status: beta              # celá spolková země (2026-11-18); kresba z OSM
+  status: beta              # celá spolková země (2026-11-18); kresba z OSM + ALKIS (2026-11-22)
   crs: EPSG:25832           # ETRS89 / UTM 32N (nativní systém LVermGeo RP)
   boundary: countries/de_rp.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
   view: [48.96, 6.11, 50.94, 8.51]
   elevation: de_rp          # DGM1 + DOM1 (ALS) GeoTIFF po 1 km podle indexu Metalink (app/pipeline/reference_de_states.py)
-  technical_map: none       # ALKIS je, kresba zatím z OSM
+  technical_map: de_alkis   # ALKIS vereinfacht z WFS země: budovy, uliční prostor (sprint 501 v celé šířce), náměstí, parkoviště
   cz_sources: false
   # Licence: Datenlizenz Deutschland – Namensnennung 2.0, „©GeoBasis-DE / LVermGeoRP (Jahr des Datenbezugs), dl-de/by-2-0,
   # http://www.lvermgeo.rlp.de [Daten bearbeitet]“ (Fees WMS rp_dop20, odkaz geoshop.rlp.de/dl-de_by-2-0 z geobasis-rlp.de/data, ověřeno 2026-11-18).
@@ -239,6 +244,7 @@ DE-RP:
   attribution:
     - "Elevation: DGM1 and DOM1, ©GeoBasis-DE / LVermGeoRP ([data year]), dl-de/by-2-0, http://www.lvermgeo.rlp.de [Daten bearbeitet]."
     - "Orthophoto DOP20 and topographic map DTK25: ©GeoBasis-DE / LVermGeoRP ([data year]), dl-de/by-2-0, http://www.lvermgeo.rlp.de."
+    - "ALKIS (buildings, street space, squares, car parks): ©GeoBasis-DE / LVermGeoRP ([data year]), dl-de/by-2-0, http://www.lvermgeo.rlp.de [Daten bearbeitet]."
     - "OSM © OpenStreetMap contributors (ODbL)."
 DE-BW:
   name: {cs: Německo – Bádensko-Württembersko, en: Germany – Baden-Württemberg, de: Deutschland – Baden-Württemberg}
@@ -259,12 +265,12 @@ DE-BW:
     - "OSM © OpenStreetMap contributors (ODbL)."
 DE-SN:
   name: {cs: Německo – Sasko, en: Germany – Saxony, de: Deutschland – Sachsen}
-  status: beta              # celá spolková země (2026-11-19); kresba z OSM
+  status: beta              # celá spolková země (2026-11-19); kresba z OSM + ALKIS (2026-11-22)
   crs: EPSG:25833           # ETRS89 / UTM 33N (nativní systém GeoSN)
   boundary: countries/de_sn.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
   view: [50.17, 11.87, 51.69, 15.05]
   elevation: de_sn          # DGM1 + DOM1 (ALS) ze ZIPů GeoSN po 2 km, cache na serveru (app/pipeline/reference_de_states.py)
-  technical_map: none       # ALKIS je, kresba zatím z OSM
+  technical_map: de_alkis   # ALKIS vereinfacht z WFS země: budovy, uliční prostor (sprint 501 v celé šířce), náměstí, parkoviště
   cz_sources: false
   # Licence: Datenlizenz Deutschland – Namensnennung 2.0, Quellenvermerk „GeoSN“, vzor „Quelle: GeoSN, dl-de/by-2-0“
   # (Allgemeine Nutzungsbedingungen GeoSN, ověřeno 2026-11-19).
@@ -272,15 +278,16 @@ DE-SN:
   attribution:
     - "Elevation: DGM1 and DOM1, Quelle: GeoSN, dl-de/by-2-0 (Daten geändert)."
     - "Orthophoto DOP20: Quelle: GeoSN, dl-de/by-2-0."
+    - "ALKIS (buildings, street space, squares, car parks): Quelle: GeoSN, dl-de/by-2-0 (Daten geändert)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 DE-HE:
   name: {cs: Německo – Hesensko, en: Germany – Hesse, de: Deutschland – Hessen}
-  status: beta              # celá spolková země (2026-11-19); kresba z OSM
+  status: beta              # celá spolková země (2026-11-19); kresba z OSM + ALKIS (2026-11-22)
   crs: EPSG:25832           # ETRS89 / UTM 32N (nativní systém HVBG)
   boundary: countries/de_he.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
   view: [49.39, 7.77, 51.66, 10.24]
   elevation: de_he          # DGM1 + DOM1 (ALS) z INSPIRE WCS HVBG (app/pipeline/reference_de_states.py)
-  technical_map: none       # ALKIS je, kresba zatím z OSM
+  technical_map: de_alkis   # ALKIS vereinfacht z WFS země: budovy, uliční prostor (sprint 501 v celé šířce), náměstí, parkoviště
   cz_sources: false
   # Licence: Datenlizenz Deutschland – Zero 2.0 (WCS DGM1/DOM1), WMS „ohne Einschränkung oder Bedingung“; při uvedení
   # zdroje upozornit na změny (§ 18 HVGG). Ověřeno 2026-11-19.
@@ -288,6 +295,7 @@ DE-HE:
   attribution:
     - "Elevation: DGM1 and DOM1, Geobasisdaten © Hessische Verwaltung für Bodenmanagement und Geoinformation (HVBG), dl-de/zero-2-0 (Daten geändert)."
     - "Orthophoto DOP20 and DTK25: © HVBG."
+    - "ALKIS (buildings, street space, squares, car parks): Geobasisdaten © HVBG, dl-de/zero-2-0 (Daten geändert)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 DE-SL:
   name: {cs: Německo – Sársko, en: Germany – Saarland, de: Deutschland – Saarland}

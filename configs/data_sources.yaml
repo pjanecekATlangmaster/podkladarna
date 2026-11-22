@@ -921,6 +921,30 @@ sources:
     Grün Berlin); poznámku o nejednotnosti u DGM1 smazat.'
   - 'opencode: bDOM 2026 = Zero 2.0, ale „bez listí“ je interní empirická poznámka, na stránce poskytovatele neověřeno.'
 
+- id: de_alkis
+  countries: [DE-NW, DE-NI, DE-SN, DE-BB, DE-HE, DE-ST, DE-RP, DE-MV]
+  kinds: [technical_map, buildings]
+  name: ALKIS vereinfacht – skutečné využití (Nutzung) a budovy (GebaeudeBauwerk), WFS zemí
+  provider: zeměměřické úřady zemí (Geobasis NRW, LGLN, GeoSN, LGB, HVBG, LVermGeo ST, LVermGeo RP, LAiV M-V)
+  url: https://www.wfs.nrw.de/geobasis/wfs_nw_alkis_vereinfacht
+  info: https://www.adv-online.de/AdV-Produkte/Standards-und-Produktblaetter/Produktspezifikationen/
+  role: kresba
+  status: used
+  code: app/pipeline/alkis_de.py
+  provider_key: de_alkis
+  probe: [de_alkis_nw, de_alkis_ni, de_alkis_sn, de_alkis_bb, de_alkis_he, de_alkis_st, de_alkis_rp, de_alkis_mv]
+  license:
+    class: public
+    name: dl-de/zero-2.0 (NRW, HE), CC BY 4.0 (NI, TH, MV), dl-de/by-2.0 (SN, BB, ST, RP); budovy a parcely HVD (EU 2023/138)
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: "podle země, viz attribution v countries.yaml (např. „© GeoBasis-DE/LGB, dl-de/by-2-0“)"
+  access: free
+  checked: "Claude 2026-11-22: GetCapabilities a GetFeature bboxem z cloudu ve všech 9 zemích (i TH), podmínky z ows:Fees / AccessConstraints"
+  issues:
+    - "Jen GML (bez GeoJSON); schéma AdV jednotné, Durynsko píše hodnoty bez přehlásek („Strassenverkehr“) – normalizuje `alkis_de._norm`."
+    - "Chodníky, obrubníky ani ploty ALKIS nemá; `Straßenverkehr` je uliční prostor od plotu k plotu (sprint ho kreslí v celé šířce)."
+    - "BW (jen NAS/SHP po katastrálních územích), BY, HB, SH, SL, HH: WFS ALKIS vereinfacht zatím nenapojený; TH čeká na výšky."
+
 - id: de_sb
   countries:
   - DE

@@ -56,6 +56,7 @@ from app.pipeline.reference_si import SI_CLSS_PROBE, SI_ELEVATION_PROBE
 from app.pipeline.reference_us import US_ELEVATION_PROBE, US_INDEX_PROBE
 from app.pipeline.reference_be import BE_ELEVATION_PROBE, BE_GRB_PROBE, BE_ORTHO_PROBE, BE_URBIS_PROBE
 from app.pipeline.reference_de_nw import DE_NW_DOP_PROBE, DE_NW_ELEVATION_PROBE
+from app.pipeline.alkis_de import STATES as DE_ALKIS_STATES, probe_url as alkis_probe_url
 from app.pipeline.reference_de_states import DE_WCS_STATES, elevation_probe, elevation_probe_method, ortho_probe
 from app.pipeline.reference_by import BY_ELEVATION_PROBE, BY_ORTHO_PROBE
 from app.pipeline.reference_gb import GB_EA_PROBE, SCT_ELEVATION_PROBE, WLS_ELEVATION_PROBE
@@ -682,6 +683,19 @@ PROBES: tuple[Probe, ...] = (
                 countries=(st.code,),
             ),)),
         )
+    ),
+    # Německé země s technickou mapou ALKIS vereinfacht (``alkis_de``): jedna budova v malém okně.
+    *(
+        Probe(
+            f"de_alkis_{st.code.split('-')[1].lower()}",
+            f"ALKIS ({st.label})",
+            (alkis_probe_url(st),),
+            "Budovy, uliční prostor, náměstí a parkoviště se nakreslí jen z OSM.",
+            needs="dtm",
+            countries=(st.code,),
+        )
+        for st in DE_ALKIS_STATES.values()
+        if st.active
     ),
 )
 

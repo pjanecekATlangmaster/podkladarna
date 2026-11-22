@@ -59,6 +59,14 @@ FOREIGN: dict[str, TechnicalMap] = {
         content="budovy, vozovky, chodníky, náměstí, parkování, schody, cyklostezky",
         module="app.pipeline.sb_berlin",
     ),
+    "de_alkis": TechnicalMap(
+        key="de_alkis",
+        short="ALKIS",
+        step="data ALKIS",
+        background="Data ALKIS (katastr země)",
+        content="budovy, uliční prostor, náměstí a pěší zóny, parkoviště",
+        module="app.pipeline.alkis_de",
+    ),
     "fr_pdv": TechnicalMap(
         key="fr_pdv",
         short="PDV",
