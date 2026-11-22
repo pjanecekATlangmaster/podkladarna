@@ -2,7 +2,7 @@
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`, a jen na doméně se zemí v SITES – nikdy na české `:CZ`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
 # Zahraniční mapy dělá mezinárodní verze Omapic: citace a attribution anglicky; citace „Base map: Omapic · …, [year]“ (jako anglická licence).
-# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | no_hoyde | pt_dgt | si_arso | gb_sct | gb_wls | es_nav | es_pv | de_sh | fr_lidarhd | lu_act | us_3dep | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
+# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | no_hoyde | pt_dgt | si_arso | si_clss | gb_sct | gb_wls | es_nav | es_pv | de_sh | fr_lidarhd | lu_act | us_3dep | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
@@ -575,21 +575,21 @@ DK:
     - "OSM © OpenStreetMap contributors (ODbL)."
 SI:
   name: {cs: Slovinsko, en: Slovenia, sl: Slovenija}
-  status: beta              # celé Slovinsko (2026-11-20); mračno LiDAR ARSO bez klíče, kresba z OSM
-  crs: EPSG:3794            # Slovenia 1996 / D96/TM (nativní systém mračna ARSO)
+  status: beta              # celé Slovinsko (2026-11-20); od 4.16.0 výšky CLSS 2023–2025 (GURS), záloha mračno ARSO, kresba z OSM
+  crs: EPSG:3794            # Slovenia 1996 / D96/TM (CLSS je v D96-17/TM, souřadnice shodné na cm)
   boundary: countries/si.geojson  # GISCO 1 : 1 M (© EuroGeographics), +550 m, zjednodušeno 250 m
   view: [45.42, 13.37, 46.88, 16.6]
-  elevation: si_arso        # klasifikované mračno GKOT ARSO (listy 1 km, ~12 bodů/m²) → terén a povrch 1 m, výšky SVS2000
-  elevation_years: "2011–2015"
-  data_notes: [old]
-  green: leafoff            # GKOT z velké části bez listí: zrnitost dala 406 na 53 % a nízký CHM v lese louku (EYOC26 Lokve 2026-11-20), les z OSM bílý
+  elevation: si_clss        # CLSS 2023–2025 GURS: DMR + DMP LAZ mřížka 0,5 m (listy 1 km, ≥ 10–20 bodů/m²) → terén a povrch 1 m, výšky SVS2010; výpadek → si_arso
+  elevation_years: "2023–2025"
+  green: leafoff            # snímkování CLSS hlavně jaro / podzim (Celje 10/2023 a 3–4/2024, Ljubljana 4–5/2023); ARSO GKOT taky bez listí (EYOC26 Lokve 2026-11-20)
   technical_map: none       # obdoba DTM volně není (GURS kataster stavb jen přes portál) – kresba z OSM
   cz_sources: false
-  # Licence: právní upozornění ARSO – opakované užití veřejných informací i komerčně s uvedením zdroje (ověřeno 2026-11-20);
-  # u dat LiDAR samotných licence uvedená není (viz configs/data_sources.yaml si_arso).
-  citation: "Base map: Omapic · ARSO · OSM, [year]"
+  # Licence: data GURS CC BY 4.0 i komerčně, citace „Geodetska uprava Republike Slovenije, druh dat a datum stavu“
+  # (e-prostor.gov.si Pogoji uporabe, ověřeno 2026-11-22); záloha ARSO viz configs/data_sources.yaml si_arso.
+  citation: "Base map: Omapic · GURS · OSM, [year]"
   attribution:
-    - "Elevation: LiDAR point cloud (GKOT) 2011–2015, Agencija Republike Slovenije za okolje (ARSO), processed."
+    - "Elevation: DMR and DMP from Cyclic Laser Scanning of Slovenia (CLSS) 2023–2025, Geodetska uprava Republike Slovenije (CC BY 4.0), processed."
+    - "Backup elevation (only if CLSS is unavailable): LiDAR point cloud (GKOT) 2011–2015, Agencija Republike Slovenije za okolje (ARSO)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 PT:
   name: {cs: Portugalsko, en: Portugal, pt: Portugal}

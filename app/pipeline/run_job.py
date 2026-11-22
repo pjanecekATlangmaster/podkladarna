@@ -248,6 +248,7 @@ ELEVATION_LABELS = {"user_upload": "vlastních dat zadavatele", "nl_ahn": "AHN (
     "no_hoyde": "Høydemodell DTM a DOM Kartverket (1 m)",
     "pt_dgt": "LiDAR MDT a MDS DGT (0,5 m, 2024–2025)",
     "si_arso": "klasifikovaného mračna LiDAR ARSO (2011–2015)",
+    "si_clss": "LiDAR DMR a DMP GURS CLSS (0,5 m, 2023–2025)",
     "us_3dep": "mračna LiDAR USGS 3DEP (QL 0 – QL 2)",
     "fi_mml": "Korkeusmalli MML (2 m) a výška porostu Metsäkeskus (1 m)",
     "lu_act": "LiDAR 2024 MNT a MNS ACT Luxembourg (0,5 m)",

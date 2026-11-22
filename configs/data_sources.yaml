@@ -1968,7 +1968,7 @@ sources:
   kinds:
   - point_cloud
   - elevation
-  name: Klasifikované mračno LiDAR GKOT 2011–2015 (listy 1 km LAZ)
+  name: Klasifikované mračno LiDAR GKOT 2011–2015 (listy 1 km LAZ) – od 4.16.0 záloha za CLSS
   provider: Agencija Republike Slovenije za okolje (ARSO)
   url: https://gis.arso.gov.si/lidar/gkot/laz/
   info: https://kazalci.arso.gov.si/en/content/legal-note
@@ -1976,7 +1976,7 @@ sources:
   status: used
   code: app/pipeline/elevation_raster.py (si_arso), app/pipeline/reference_si.py
   provider_key: si_arso
-  probe: si_elevation
+  probe: si_arso_elevation
   license:
     class: public
     name: opakované užití veřejných informací ARSO i komerčně s uvedením zdroje (právní upozornění ARSO)
@@ -2134,35 +2134,33 @@ sources:
   countries:
   - SI
   kinds:
-  - point_cloud
   - elevation
-  - orthophoto
-  name: CLSS (mračno, DMR, DMP, ortofoto)
-  provider: Geodetska uprava Republike Slovenije (GURS)
-  url: https://clss.si/
+  name: CLSS 2023–2025 – DMR a DMP (LAZ mřížka 0,5 m, listy 1 km), index listů z WFS prohlížeče
+  provider: Geodetska uprava Republike Slovenije (GURS), hosting Flycom (assets.flycom.si)
+  url: https://lift.clss.si/geoserver/fmp_clss/wfs
   info: https://www.e-prostor.gov.si/dostopi/javni-dostop/
   role: výšky
-  status: candidate
+  status: used
+  code: app/pipeline/elevation_raster.py (si_clss), app/pipeline/reference_si.py
+  provider_key: si_clss
+  probe: si_elevation
   license:
     class: public
-    name: CC BY 4.0
+    name: CC BY 4.0 (podatki GURS, i komerčně)
     url: https://creativecommons.org/licenses/by/4.0/deed.sl
     attribution: Geodetska uprava Republike Slovenije, vrsta podatka in čas
   access: free
-  checked: 'Grok: 2026-11-16 e-prostor Javni dostop a PDF obecných podmínek; clss.si vrátilo prázdnou stránku – Claude neověřil
-    · opencode (si_clss): 2026-11-16 „Pogoji uporabe“ na e-prostor.gov.si (CC 4.0, komerčně, citace), https://www.gov.si/novice/2026-06-03-lidarski-podatki-za-celotno-slovenijo-dostopni-v-pregledovalniku-3d-podatkov
-    – Claude neověřil'
+  checked: '2026-11-22 Claude: WFS fmp_clss:tileindex_clss_zdruzeno bez klíče (23 038 záznamů, 16 bloků, 1 709 listů ve dvou
+    blocích), DMR_473_88.laz a DMP_473_88.laz staženy (4,0 a 4,5 MB, mřížka 0,5 m, 4 mil. bodů, třída 0), technická zpráva
+    bloku Celje (≥ 10/20 bodů/m², RMSEH 6–11 cm, D96-17/TM, SVS2010); licence e-prostor.gov.si „Pogoji uporabe“ (CC BY 4.0)'
   issues:
-  - 'OPRAVA: obecná data GURS včetně dálkového průzkumu jsou CC BY 4.0, i komerčně. Licence už není unknown. Citace musí mít
-    druh dat a datum stavu.'
-  - clss.si se 2026-11-16 nepodařilo přečíst (prázdný obsah). Limit 10 listů a „bez API“ z registru se proto nepotvrdil ani
-    nevyvrátil.
-  - 'opencode navrhuje citaci: „„Geodetska uprava Republike Slovenije, <vrsta podatka in čas / datum stanja zbirke>““ – Claude
-    neověřil.'
-  - 'opencode: `class: unknown / licence neuvedena` → CC BY 4.0 doložena na e-Prostor (clss.si ji opravdu neuvádí).'
-  - 'opencode: od 3. 6. 2026 pokrývá CELÉ Slovinsko; DMR je 0,5 m (nikoli 1 m), GKOT 10 b/m², třídy 3/4/5 vegetace.'
-  - 'opencode: BEZ API: max. 10 listů najednou, větší objem e-mailem gic.gu@gov.si; větší ortofoto vyžaduje NNP + SI-PASS.
-    Konkrétní WCS CoverageId pro DMR/DMP neověřeno.'
+  - Návod prohlížeče uvádí limit 20 stažení denně a 10 listů naráz. Podle bývalého zaměstnance GURS (autor tipu z webu
+    2026-11-22) se na nás nevztahuje, Petr rozhodl stahovat bez omezení. Písemné potvrzení GURS (gic.gu@gov.si) zatím
+    není.
+  - Index i soubory nejsou dokumentované API, jen zdroje veřejného prohlížeče – změna adres = výpadek, job pak počítá
+    ze zálohy ARSO.
+  - 'Celé SI: DMR ~94 GB, DMP ~120 GB, GKOT 8,5 TB, POF 1,7 TB (součet velikostí z indexu).'
+  - Ortofoto POF 0,16 m (~78 MB na list) zatím nenapojené.
 
 - id: lv_lgia
   countries:

@@ -2588,6 +2588,187 @@ def si_arso_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 PROVIDERS["si_arso"] = si_arso_provider
 
 
+# --------------------------------------------------------------------------- SI: CLSS 2023–2025 (GURS), DMR a DMP po listech 1 km
+
+# DMR a DMP jsou LAZ v mřížce 0,5 m (body bez třídy, ``reference_si``); list se jednou převede na terén (průměr bodů
+# DMR v buňce 1 m) a povrch (nejvyšší bod DMP v buňce) a drží v cache jako GeoTIFF, LAZ se po převodu maže. List na
+# hranici bloků bývá ve dvou blocích, každý s částí plochy: terén = průměr, povrch = maximum přes všechny části.
+# Index listů okna z WFS se ukládá do cache (``index.json``, list → seznam částí), znovu se ptá jen na neznámé listy.
+# Když CLSS selže (síť, server), výřez se spočítá z mračna ARSO (``si_arso_provider``) a log to řekne.
+SI_CLSS_MAX_LAZ_BYTES = 60_000_000  # DMR / DMP mají 3–7 MB; víc je chyba služby
+SI_CLSS_INDEX_FILE = "index.json"
+SI_CLSS_RETRIES = 3  # opakování stažení po přechodné chybě (5, 10 s)
+_SI_CLSS_INDEX_LOCK = threading.Lock()
+
+
+def si_clss_cache_dir() -> Path:
+    """Cache listů CLSS (``<E>_<N>/dtm.tif``, ``dsm.tif``) a index; úklid ``download_cache.prune_lidar_cache``."""
+    return settings.CACHE_DIR / "si_clss"
+
+
+def _si_clss_fetch_json(url: str) -> dict:
+    import urllib.request
+
+    from app.pipeline.fetch_openzu import USER_AGENT
+
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def si_clss_index(window: tuple[float, float, float, float], *, fetch=_si_clss_fetch_json) -> dict[str, list[dict]]:
+    """Části listů okna: ``{"E_N": [{"dmr": cesta, "dmp": cesta, "date": "dd.mm.rrrr"}, …]}``; [] = list mimo CLSS.
+
+    Známé listy z cache, na zbytek jeden dotaz WFS omezený na okno. Výpadek WFS = výjimka (ne „mimo pokrytí“)."""
+    from app.pipeline.reference_si import clss_index_url
+
+    tiles = [f"{e}_{n}" for e, n in si_tiles(window)]
+    path = si_clss_cache_dir() / SI_CLSS_INDEX_FILE
+    with _SI_CLSS_INDEX_LOCK:
+        try:
+            index = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            index = {}
+    if all(t in index for t in tiles):
+        return {t: index[t] for t in tiles}
+    data = fetch(clss_index_url(window))
+    found: dict[str, list[dict]] = {t: [] for t in tiles}
+    for feat in data.get("features") or []:
+        props = feat.get("properties") or {}
+        name = str(props.get("ti_name") or "")
+        if name not in found or not props.get("path_dmr") or not props.get("path_dmp"):
+            continue
+        part = {"dmr": props["path_dmr"], "dmp": props["path_dmp"], "date": props.get("datum_za_1") or ""}
+        if part not in found[name]:
+            found[name].append(part)
+    with _SI_CLSS_INDEX_LOCK:
+        try:
+            index = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            index = {}
+        index.update(found)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}")
+        tmp.write_text(json.dumps(index, sort_keys=True), encoding="utf-8")
+        tmp.replace(path)
+    return found
+
+
+def _si_clss_download(url: str, dest: Path) -> int:
+    """Stáhne soubor CLSS do ``dest`` (opakuje přechodné chyby); vrací velikost v bajtech."""
+    import time
+    import urllib.error
+    import urllib.request
+
+    from app.pipeline.fetch_openzu import USER_AGENT
+
+    for attempt in range(SI_CLSS_RETRIES):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=300) as resp, dest.open("wb") as fh:
+                size = 0
+                while chunk := resp.read(1 << 20):
+                    size += len(chunk)
+                    if size > SI_CLSS_MAX_LAZ_BYTES:
+                        raise RuntimeError(f"Slovinsko CLSS: {url.rsplit('/', 1)[-1]} větší než "
+                                           f"{SI_CLSS_MAX_LAZ_BYTES // 1_000_000} MB")
+                    fh.write(chunk)
+            return size
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500 and exc.code != 429 or attempt == SI_CLSS_RETRIES - 1:
+                raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            if attempt == SI_CLSS_RETRIES - 1:
+                raise
+        time.sleep(5 * (attempt + 1))
+    raise RuntimeError("nedosažitelné")
+
+
+def si_clss_merge(parts: list[np.ndarray], *, how: str) -> np.ndarray:
+    """Sloučí mřížky částí listu: ``mean`` (terén) nebo ``max`` (povrch) přes platné buňky; jinde NODATA."""
+    stack = np.stack([np.where(p == NODATA, np.nan, p.astype("float64")) for p in parts])
+    valid = np.isfinite(stack).any(axis=0)
+    with np.errstate(all="ignore"):
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            merged = np.nanmean(stack, axis=0) if how == "mean" else np.nanmax(stack, axis=0)
+    return np.where(valid, merged, NODATA).astype("float32")
+
+
+def _si_clss_tile(east_km: int, north_km: int, parts: list[dict], *, log=None) -> Path | None:
+    """Složka listu s ``dtm.tif`` a ``dsm.tif`` z cache, jinak stáhne DMR a DMP všech částí a převede."""
+    import tempfile
+
+    from app.download_cache import touch_last_used
+    from app.pipeline.reference_si import SI_CRS, clss_file_url
+
+    if not parts:
+        return None
+    folder = si_clss_cache_dir() / f"{east_km}_{north_km}"
+    if (folder / ".complete").is_file():
+        touch_last_used(folder)
+        return folder
+    folder.mkdir(parents=True, exist_ok=True)
+    dtms: list[np.ndarray] = []
+    dsms: list[np.ndarray] = []
+    total = 0
+    for part in parts:
+        for kind in ("dmr", "dmp"):
+            fd, lname = tempfile.mkstemp(prefix=f".{kind}-", suffix=".laz", dir=folder)
+            os.close(fd)
+            lpath = Path(lname)
+            try:
+                total += _si_clss_download(clss_file_url(part[kind]), lpath)
+                # body DMR / DMP nemají třídu (0): DMR → průměr v buňce, DMP → maximum v buňce
+                dtm, dsm = si_laz_grids(lpath, east_km, north_km, ground=(0,), surface=(0,))
+            finally:
+                lpath.unlink(missing_ok=True)
+            (dtms if kind == "dmr" else dsms).append(dtm if kind == "dmr" else dsm)
+    top = (north_km + SI_TILE_KM) * 1000.0
+    for name, grid in (("dtm", si_clss_merge(dtms, how="mean")), ("dsm", si_clss_merge(dsms, how="max"))):
+        tmp = folder / f".{name}.{os.getpid()}.{threading.get_ident()}.tif"
+        _write_tif(tmp, grid, east_km * 1000.0, top, SI_CRS)
+        tmp.replace(folder / f"{name}.tif")
+    (folder / ".complete").touch()
+    touch_last_used(folder)
+    if log:
+        dates = ", ".join(sorted({p.get("date") or "?" for p in parts}))
+        log(f"  Slovinsko CLSS {east_km}_{north_km} ({dates}): {total / 1e6:.0f} MB převedeno do cache")
+    return folder
+
+
+def si_clss_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """Slovinsko: terén a povrch 1 m z CLSS 2023–2025 (DMR + DMP GURS, listy 1 km, cache); záloha mračno ARSO."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.pipeline.reference_si import SI_CRS
+
+    window = _buffered(bounds, SI_CRS, SI_BUFFER_M)
+    try:
+        index = si_clss_index(window)
+        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="si-clss") as ex:
+            folders = [f for f in ex.map(
+                lambda t: _si_clss_tile(t[0], t[1], index.get(f"{t[0]}_{t[1]}") or [], log=log), si_tiles(window)) if f]
+    except Exception as exc:  # noqa: BLE001 – výpadek CLSS nesmí shodit job, záloha ARSO
+        if log:
+            log(f"⚠ Slovinsko: CLSS (GURS) nedostupné ({type(exc).__name__}: {exc}), výšky ze staršího mračna ARSO 2011–2015")
+        return si_arso_provider(bounds, out_dir, log=log)
+    if not folders:
+        raise ElevationUnavailable("výřez je mimo pokrytí CLSS (Slovinsko)")
+    out: dict[str, Path] = {}
+    for kind in ("dtm", "dsm"):
+        vrt = out_dir / f"si_clss_{kind}.vrt"
+        run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", SI_CRS, str(vrt), *(str(f / f"{kind}.tif") for f in folders)],
+                log=log)
+        out[kind] = vrt
+    return SourceRasters(out["dtm"], out["dsm"])
+
+
+PROVIDERS["si_clss"] = si_clss_provider
+
+
 # --------------------------------------------------------------------------- ES: mračno LiDAR regionů (Navarra, Baskicko)
 
 # Stejně jako Slovinsko: list LAZ se jednou převede na terén (průměr bodů země v buňce 1 m) a povrch (nejvyšší bod
@@ -3782,6 +3963,7 @@ SOURCE_LABELS = {
     "no_hoyde": "Høydemodell DTM a DOM, Kartverket",
     "pt_dgt": "LiDAR MDT a MDS, Direção-Geral do Território",
     "si_arso": "mračno LiDAR, ARSO",
+    "si_clss": "LiDAR DMR a DMP 2023–2025, GURS (CLSS)",
     "us_3dep": "mračno LiDAR 3DEP, USGS",
     "gb_sct": "LiDAR DTM a DSM, Scottish Government",
     "gb_wls": "LiDAR DTM a DSM, Welsh Government",
