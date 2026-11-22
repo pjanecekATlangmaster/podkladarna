@@ -225,16 +225,22 @@ def prepare(
             objects += count
     if espoo_fi.intersects(bbox_wgs84):
         t1 = time.monotonic()
-        data, nbytes = espoo_fi.fetch_layers(fetch_box)
-        reproject_features(data, espoo_fi.SOURCE_CRS, CRS_LABEL)
-        count = sum(len(v) for v in data.values())
-        total_bytes += nbytes
-        if log:
-            log(f"Espoo InfStreet: {count} objektů z {len(espoo_fi.LAYERS)} vrstev ({nbytes / 1e6:.1f} MB, {time.monotonic() - t1:.0f} s)")
-        if count:
-            sorted_data = _merge(sorted_data, espoo_fi.classify(data))
-            regions.append("Espoo")
-            objects += count
+        try:
+            data, nbytes = espoo_fi.fetch_layers(fetch_box)
+            reproject_features(data, espoo_fi.SOURCE_CRS, CRS_LABEL)
+            count = sum(len(v) for v in data.values())
+            total_bytes += nbytes
+            if log:
+                log(f"Espoo InfStreet: {count} objektů z {len(espoo_fi.LAYERS)} vrstev ({nbytes / 1e6:.1f} MB, {time.monotonic() - t1:.0f} s)")
+            if count:
+                sorted_data = _merge(sorted_data, espoo_fi.classify(data))
+                regions.append("Espoo")
+                objects += count
+        except Exception as exc:  # Espoo je doplněk: výpadek nesmí zahodit Helsinky
+            if not sorted_data:
+                raise
+            if log:
+                log(f"⚠ Espoo InfStreet nedostupné ({type(exc).__name__}: {exc}), Espoo se kreslí z OSM.")
     build_stats.note_bytes("fi_hel", total_bytes, cached=False, key="ylre_fi")
     build_stats.note_background("dtm", packages=len(LAYERS), regions=regions or ["FI"], source="fi_hel", objects=objects)
     if not sorted_data:

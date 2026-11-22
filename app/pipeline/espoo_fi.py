@@ -25,7 +25,7 @@ ESPOO_WFS = "https://kartat.espoo.fi/teklaogcweb/wfs.ashx"
 SOURCE_CRS = "EPSG:3879"
 HTTP_TIMEOUT_S = 180
 HTTP_RETRIES = 3
-MAX_RESPONSE_BYTES = 300_000_000  # 3 × 3 km ulic ≈ 31 MB
+MAX_RESPONSE_BYTES = 100_000_000  # 3 × 3 km ulic ≈ 31 MB; GML se staví celé v paměti (ElementTree)
 STREETS = "GIS:InfStreet"
 BUILDINGS = "GIS:Rakennukset"
 LAYERS = (STREETS, BUILDINGS)
@@ -131,6 +131,11 @@ def _points(el) -> list[tuple[float, float]]:
 def arc_points(p0, p1, p2) -> list[tuple[float, float]]:
     """Oblouk kružnice přes tři body jako lomená čára (po ``ARC_STEP_RAD``); přímka, když jsou body v řadě."""
     (ax, ay), (bx, by), (cx, cy) = p0, p1, p2
+    if p0 == p2 and p0 != p1:  # celá kružnice: p1 je protilehlý bod průměru
+        ux, uy = (ax + bx) / 2, (ay + by) / 2
+        r, a0 = math.hypot(ax - ux, ay - uy), math.atan2(ay - uy, ax - ux)
+        n = int(2 * math.pi / ARC_STEP_RAD)
+        return [(ux + r * math.cos(a0 + 2 * math.pi * i / n), uy + r * math.sin(a0 + 2 * math.pi * i / n)) for i in range(n)] + [p0]
     d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
     if abs(d) < 1e-9:
         return [p0, p1, p2]
@@ -180,17 +185,11 @@ def _polygons(geom_el) -> list[list[list[tuple[float, float]]]]:
     for el in geom_el.iter():
         if el.tag.removeprefix(GML) not in ("Polygon", "PolygonPatch"):
             continue
-        rings = []
-        for part in ("exterior", "interior"):
-            for holder in el.findall(f"{GML}{part}"):
-                for ring_el in holder:
-                    ring = _ring(ring_el)
-                    if ring:
-                        rings.append(ring)
-                    elif part == "exterior":
-                        rings = []
-        if rings:
-            polys.append(rings)
+        exterior = [r for holder in el.findall(f"{GML}exterior") for r in map(_ring, holder) if r]
+        if not exterior:
+            continue  # bez vnějšího obrysu nic (díra by se jinak stala samostatnou plochou)
+        holes = [r for holder in el.findall(f"{GML}interior") for r in map(_ring, holder) if r]
+        polys.append(exterior[:1] + holes)
     return polys
 
 

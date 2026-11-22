@@ -82,3 +82,12 @@ def test_wfs_url_bbox_without_crs():
 )
 def test_city_dispatch(bbox, espoo, helsinki):
     assert espoo_fi.intersects(bbox) == espoo and ylre_fi.helsinki_intersects(bbox) == helsinki
+
+
+def test_full_circle_arc_and_hole_without_exterior():
+    circle = Polygon(espoo_fi.arc_points((10, 0), (-10, 0), (10, 0)))
+    assert circle.area == pytest.approx(math.pi * 100, rel=0.02)
+    raw = GML.replace(b"<gml:exterior><gml:LinearRing>", b"<gml:interior><gml:LinearRing>").replace(
+        b"</gml:LinearRing></gml:exterior>", b"</gml:LinearRing></gml:interior>"
+    )
+    assert len(espoo_fi.parse_features(raw)) == 1  # díra bez obrysu neudělá plochu
