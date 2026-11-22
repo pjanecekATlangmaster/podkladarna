@@ -56,6 +56,7 @@ def test_portugal_offered_only_with_account(monkeypatch, env, ready):
     pt = countries.load_countries()["PT"]
     assert pt.elevation == "pt_dgt" and pt.crs == "EPSG:3763" and not pt.cz_sources and pt.technical_map == "none"
     assert "Direção-Geral do Território" in pt.citation
+    assert (pt.green, pt.green_share, pt.green_low_ratio) == ("understory", 0.25, 0.45)
     assert countries.elevation_ready(pt) is ready
 
 

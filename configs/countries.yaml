@@ -8,7 +8,7 @@
 # technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
 # technical_map_area: naopak polygon jediného území s technickou mapou (FR = Paříž); výřez mimo něj ji nestahuje.
 # boundary: zjednodušený polygon hranice (WGS84, lehce rozšířený, aby výřez u hranice neodpadl na toleranci).
-# green: zeleň v lese (points = hustota bodů z mračna, CZ výchozí | laser = zrnitost z laserového povrchu, jinde výchozí | photo = povrch ze snímků, zeleň z podílu nízkého patra (šum snímků není zrnitost); mapa v GUI šrafuje | leafoff = zimní laser bez listí, zrnitost jen ve stálezeleném porostu ze zimního snímku Sentinel-2, v lese z OSM bílý les | understory = horský les, zeleň z podílu nízkého patra místo zrnitosti (green_share = přísnější práh, NL) | plain = jen základní zeleň z výšky porostu bez zrnitosti, sever).
+# green: zeleň v lese (points = hustota bodů z mračna, CZ výchozí | laser = zrnitost z laserového povrchu, jinde výchozí | photo = povrch ze snímků, zeleň z podílu nízkého patra (šum snímků není zrnitost); mapa v GUI šrafuje | leafoff = zimní laser bez listí, zrnitost jen ve stálezeleném porostu ze zimního snímku Sentinel-2, v lese z OSM bílý les | understory = horský les, zeleň z podílu nízkého patra místo zrnitosti (green_share = přísnější práh, NL; green_low_ratio = nízké patro jen pod tímto podílem okolních korun, PT) | plain = jen základní zeleň z výšky porostu bez zrnitosti, sever).
 # contour_smooth: výchozí vyhlazení vrstevnic, když job nechá volbu „podle země“ (1 adaptivní – výchozí, 0 méně vyhlazení).
 # contour_formlines: výchozí pomocné vrstevnice 103 při volbě „podle země“ (off – výchozí | sparse | more | all; sever more).
 # terrain_vectors: terénní prvky z národní topografické databáze nad OSM (fi_mtk = Maastotietokanta).
@@ -601,6 +601,7 @@ PT:
   elevation_years: "2024–2025"
   green: understory         # zrnitost zelenala pobřežní borovice (Livelox 2026-11-22: Mira 66 % zeleně v lese proti 14 % u mapaře, Sátão 61 / 43 %)
   green_share: 0.25         # přísnější práh podílu nízkého patra jako NL (borovice, Petr 2026-11-22)
+  green_low_ratio: 0.45     # nízké patro jen pod 0,45 × nejvyšší koruny v okně 15 m: koruny nízkých borovic nejsou podrost (Mira 54 → 31 % / mapař 14 %, F1 0,28 → 0,40; Sátão F1 0,625 beze změny, 49 → 44 / 43 %)
   technical_map: none       # obdoba DTM volně není – kresba z OSM
   cz_sources: false
   # Licence: CC BY 4.0, uvést „Direção-Geral do Território“ (metadata kolekcí Centro de Dados, ověřeno 2026-11-22).

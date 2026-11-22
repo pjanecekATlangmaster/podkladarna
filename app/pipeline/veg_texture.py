@@ -47,6 +47,7 @@ BOTH_MIN_AREA_M2 = 200.0
 UNDER_WINDOW_M = 25.0  # režim ``understory``: okno podílu nízkého patra
 UNDER_LOW_M, UNDER_HIGH_M = 1.0, 8.0
 UNDER_SHARE = 0.15
+UNDER_TOP_WINDOW_M = 15.0  # ``green_low_ratio``: nízké patro jen pod tímto podílem nejvyšší koruny v okně (PT borovice)
 LASER_FOREST_MAX = 0.55  # pojistka: víc zeleně ze zrnitosti v lesním okolí → režim understory
 LASER_MIN_FOREST = 0.20  # pojistka jen při dost velkém lese ve výřezu (malý vzorek rozhodnutí nenese)
 
@@ -93,13 +94,19 @@ def texture_mask(chm, cell_m: float):
     return (std > STD_M) & (mean > MEAN_M), forest
 
 
-def understory_mask(chm, cell_m: float, under_share: float | None = None):
+def understory_mask(chm, cell_m: float, under_share: float | None = None, low_ratio: float | None = None):
     """Režim ``understory``: aspoň ``UNDER_SHARE`` (země může mít přísnější ``green_share``) okna má nízké patro
-    ``UNDER_LOW_M``–``UNDER_HIGH_M``, v lesním okolí."""
+    ``UNDER_LOW_M``–``UNDER_HIGH_M``, v lesním okolí. ``low_ratio`` (``countries.yaml`` ``green_low_ratio``, PT):
+    nízké patro jen pod ``low_ratio`` × nejvyšší výšky porostu v okně ``UNDER_TOP_WINDOW_M`` – koruny nízkých
+    borovic 6–8 m nejsou podrost (Mira, Livelox 2026-11-22)."""
     from scipy import ndimage as ndi
 
     c = np.nan_to_num(np.asarray(chm, dtype=np.float32))
-    low = ((c >= UNDER_LOW_M) & (c < UNDER_HIGH_M)).astype(np.float32)
+    high = np.float32(UNDER_HIGH_M)
+    if low_ratio:
+        top = ndi.maximum_filter(c, size=_odd(UNDER_TOP_WINDOW_M / cell_m))
+        high = np.minimum(high, np.float32(low_ratio) * top)
+    low = ((c >= UNDER_LOW_M) & (c < high)).astype(np.float32)
     share = ndi.uniform_filter(low, _odd(UNDER_WINDOW_M / cell_m))
     forest = ndi.uniform_filter((c > MEAN_M).astype(np.float32), _odd(FOREST_WINDOW_M / cell_m)) >= FOREST_SHARE
     return (share >= (under_share or UNDER_SHARE)) & forest
@@ -110,13 +117,14 @@ def _shares(out):
 
 
 def add_texture_green(classified, chm, cell_m: float, mode: str = "laser", info: dict | None = None,
-                      under_share: float | None = None):
+                      under_share: float | None = None, low_ratio: float | None = None):
     """Třídy porostu (0 bílá, 1 401, 2–4 zeleň, 5 403) doplněné o zeleň ze zrnitosti; vrací (rastr, podíly %).
 
     ``mode`` = ``laser`` (výchozí) nebo ``understory`` (podíl nízkého patra, horský les v Trentinu). Když v režimu
     ``laser`` zasáhne pojistka (``LASER_FOREST_MAX``), vrátí výsledek ``understory`` a do ``info`` zapíše
     ``fallback`` = podíl zeleně ze zrnitosti v lesním okolí. ``under_share`` = práh podílu nízkého patra místo
-    ``UNDER_SHARE`` (``countries.yaml`` ``green_share``, Nizozemsko).
+    ``UNDER_SHARE`` (``countries.yaml`` ``green_share``, Nizozemsko), ``low_ratio`` strop nízkého patra vůči
+    okolním korunám (``green_low_ratio``, Portugalsko).
     """
     from app.pipeline.vegetation_density import DEFAULT_PARAMS, young_stand_to_green
 
@@ -127,7 +135,7 @@ def add_texture_green(classified, chm, cell_m: float, mode: str = "laser", info:
     if mode == "understory":
         green = np.isin(cl, (LIGHT, MID, DENSE))
         g = _clean(
-            green | (understory_mask(chm, cell_m, under_share) & (cl == WHITE)),
+            green | (understory_mask(chm, cell_m, under_share, low_ratio) & (cl == WHITE)),
             max(1, int(round(MIN_AREA_M2 / px_m2))),
             _odd(SMOOTH_M / cell_m),
             int(round(CLOSE_M / cell_m)),
@@ -160,5 +168,6 @@ def add_texture_green(classified, chm, cell_m: float, mode: str = "laser", info:
         if share > LASER_FOREST_MAX:
             if info is not None:
                 info["fallback"] = share
-            return add_texture_green(classified, chm, cell_m, mode="understory", under_share=under_share)
+            return add_texture_green(classified, chm, cell_m, mode="understory", under_share=under_share,
+                                     low_ratio=low_ratio)
     return out, _shares(out)
