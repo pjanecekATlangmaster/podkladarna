@@ -70,6 +70,7 @@ from app.pipeline.reference_es import (
     NAV_ELEVATION_PROBE,
     PV_ELEVATION_PROBE,
 )
+from app.pipeline.dsgk_leipzig import probe_url as leipzig_probe_url
 from app.pipeline.espoo_fi import probe_url as espoo_probe_url
 from app.pipeline.mtk_fi import FI_MTK_PROBE
 from app.pipeline.reference_fi import FI_CHM_PROBE, FI_DTM_PROBE, FI_HEL_WFS_PROBE, FI_ORTHO_PROBE
@@ -714,6 +715,14 @@ PROBES: tuple[Probe, ...] = (
         )
         for st in DE_ALKIS_STATES.values()
         if st.active
+    ),
+    Probe(
+        "de_leipzig",
+        "Stadtgrundkarte Lipsko (geodaten.leipzig.de)",
+        (leipzig_probe_url(),),
+        "Vozovky, chodníky, stání, schody a ploty v Lipsku se nakreslí jen z ALKIS a OSM.",
+        needs="dtm",
+        countries=("DE-SN",),
     ),
 )
 

@@ -1218,5 +1218,7 @@
   "api.source.fr_bdtopo.label": "BD TOPO (IGN) – buildings and roads outside Paris",
   "api.source.fr_bdtopo.impact": "Buildings and roadways outside Paris will be drawn from OSM only.",
   "api.source.fi_espoo.label": "InfStreet and Espoo buildings (kartat.espoo.fi)",
-  "api.source.fi_espoo.impact": "Buildings, roadways and sidewalks in Espoo will be drawn from OSM only."
+  "api.source.fi_espoo.impact": "Buildings, roadways and sidewalks in Espoo will be drawn from OSM only.",
+  "api.source.de_leipzig.label": "Leipzig Stadtgrundkarte (geodaten.leipzig.de)",
+  "api.source.de_leipzig.impact": "Carriageways, footways, parking spaces, stairs and fences in Leipzig will be drawn from ALKIS and OSM only."
 }

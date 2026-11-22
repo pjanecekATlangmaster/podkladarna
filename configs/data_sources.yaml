@@ -945,6 +945,31 @@ sources:
     - "Chodníky, obrubníky ani ploty ALKIS nemá; `Straßenverkehr` je uliční prostor od plotu k plotu (sprint ho kreslí v celé šířce)."
     - "BW (jen NAS/SHP po katastrálních územích), BY, HB, SH, SL, HH: WFS ALKIS vereinfacht zatím nenapojený; TH čeká na výšky."
 
+- id: de_leipzig
+  countries: [DE-SN]
+  kinds: [technical_map]
+  name: Digitale Stadtgrundkarte Leipzig (DSGK 1:1 000), GeoPackage celého města
+  provider: Stadt Leipzig, Amt für Geoinformation und Bodenordnung
+  url: https://geodaten.leipzig.de/open_data/organisationseinheit/Amt_fuer_Geoinformation_und_Bodenordnung/Stadtgrundkarte/GeoPackage/
+  info: https://opendata.leipzig.de/dataset/digitale-stadtgrundkarte-leipzig-dsgk-5
+  role: kresba
+  status: used
+  code: app/pipeline/dsgk_leipzig.py, app/pipeline/alkis_de.py
+  provider_key: de_alkis
+  probe: de_leipzig
+  license:
+    class: public
+    name: dl-de/by-2.0
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: "Stadt Leipzig, Amt für Geoinformation und Bodenordnung, dl-de/by-2-0"
+  access: free
+  checked: "Claude 2026-11-22: CKAN opendata.leipzig.de (všechny zdroje dl-by-de/2.0), stažení ZIPu z cloudu 656 MB za 48 s, Last-Modified 2026-11-04"
+  issues:
+    - "Jen město Lipsko (obrys configs/countries/de_leipzig.geojson z obálky dat DSGK). WFS zatím není (plánované), ArcGIS REST geo.leipzig.de z cloudu neodpovídá."
+    - "ZIP celého města se stáhne do cache/de_leipzig (rozbalený GeoPackage 2,1 GB jen dočasně), uloží se jen potřebné vrstvy (~80 MB); novější verze se ověří HEAD po 30 dnech, jméno ZIPu se bere z výpisu složky."
+    - "Sloupec geometrie se v exportu jmenuje doslova „$(GPKG_GEOMETRY_ATTRIBUT)“; geometrie 2,5D (Z se zahodí)."
+    - "Bere se: vozovky GK_Strasse a Fahrbahn, chodníky a stezky se zpevněním, stání, parkoviště, náměstí, schody, ploty (Zaun). Budovy a uliční prostor pro sprint dál z ALKIS; zdi a zábradlí zatím ne."
+
 - id: de_sb
   countries:
   - DE
