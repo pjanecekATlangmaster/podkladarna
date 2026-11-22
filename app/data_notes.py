@@ -16,7 +16,7 @@ from app import i18n
 from app.countries import DEFAULT_COUNTRY, Country
 
 # Klíče důsledků z countries.yaml (``data_notes``); ``photo`` se přidá samo u ``green: photo``.
-NOTE_KEYS = ("old", "coarse")
+NOTE_KEYS = ("old", "coarse", "noncommercial")  # noncommercial = licence výšek jen pro nekomerční užití (ES-CL)
 # Důsledky jen pro les a MTBO (zeleň v lese z ``veg_texture``); sprint je nemá.
 FOREST_ONLY = frozenset({"photo"})
 

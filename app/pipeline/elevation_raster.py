@@ -2840,8 +2840,18 @@ def es_index(key: str, *, fetch=None, max_age_days: float = ES_INDEX_MAX_AGE_DAY
                 bodies = list(ex.map(get, pages))
         else:
             bodies = [get(region.listing)]
-        tiles = {(int(m.group(1)), int(m.group(2))): region.listing + m.group(0)
-                 for body in bodies for m in re.finditer(region.name_re, body)}
+        if region.relative_names:
+            parts: dict[tuple[int, int], list[str]] = {}
+            for page, body in zip(pages, bodies):
+                for m in re.finditer(region.name_re, body):
+                    url = page + m.group(0)
+                    found = parts.setdefault((int(m.group(1)), int(m.group(2))), [])
+                    if url not in found:
+                        found.append(url)
+            tiles = {k: "\n".join(v) for k, v in parts.items()}  # více částí jednoho listu = URL oddělené \n
+        else:
+            tiles = {(int(m.group(1)), int(m.group(2))): region.listing + m.group(0)
+                     for body in bodies for m in re.finditer(region.name_re, body)}
         if not tiles:
             raise RuntimeError(f"{region.label}: výpis listů je prázdný")
     except Exception as exc:  # výpadek výpisu: prošlý seznam z cache je lepší než nic
@@ -2922,9 +2932,18 @@ def _es_tile(key: str, e: int, n: int, url: str, *, log=None) -> Path:
     left = e * float(region.unit_m)
     top = n * float(region.unit_m) + (0 if region.top_corner else side)
     try:
-        size = _es_fetch_laz(url, lpath, f"{region.label} {e}-{n}")
-        dtm, dsm = si_laz_grids(lpath, e, n, side_m=side, left=left, bottom=top - side,
-                                ground=region.ground, surface=region.surface)
+        size = 0
+        dtm = dsm = None
+        for part in url.split("\n"):  # list rozdělený hranicí MTN50 do více souborů (Kastilie a León)
+            size += _es_fetch_laz(part, lpath, f"{region.label} {e}-{n}")
+            d1, s1 = si_laz_grids(lpath, e, n, side_m=side, left=left, bottom=top - side,
+                                  ground=region.ground, surface=region.surface)
+            if dtm is None:
+                dtm, dsm = d1, s1
+            else:
+                both = (dtm != NODATA) & (d1 != NODATA)
+                dtm = np.where(dtm == NODATA, d1, np.where(both, (dtm + d1) / 2, dtm)).astype("float32")
+                dsm = np.maximum(dsm, s1)  # NODATA je záporné, maximum ho přepíše platnou výškou
         for name, grid in (("dtm", dtm), ("dsm", dsm)):
             tmp = folder / f".{name}.{os.getpid()}.{threading.get_ident()}.tif"
             _write_tif(tmp, grid, left, top, ES_CRS)
@@ -2989,6 +3008,7 @@ def es_laz_provider(key: str) -> Callable[..., SourceRasters]:
 
 PROVIDERS["es_nav"] = es_laz_provider("es_nav")
 PROVIDERS["es_pv"] = es_laz_provider("es_pv")
+PROVIDERS["es_cl"] = es_laz_provider("es_cl")
 
 
 # --------------------------------------------------------------------------- US: USGS 3DEP (mračno EPT na AWS)
@@ -4140,6 +4160,7 @@ SOURCE_LABELS = {
     "es_an": "MDT a MDS PNOA-LiDAR 2020–21, Junta de Andalucía (REDIAM)",
     "es_ct": "MET a MDS LiDAR 2021–23, ICGC",
     "es_vc": "MDT a MDS LiDAR 2015–17, Institut Cartogràfic Valencià",
+    "es_cl": "mračno PNOA-LiDAR 2025, Junta de Castilla y León (ITACyL)",
     USER_UPLOAD: "vlastní data zadavatele",
 }
 

@@ -2,7 +2,7 @@
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`, a jen na doméně se zemí v SITES – nikdy na české `:CZ`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
 # Zahraniční mapy dělá mezinárodní verze Omapic: citace a attribution anglicky; citace „Base map: Omapic · …, [year]“ (jako anglická licence).
-# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | no_hoyde | pt_dgt | si_arso | si_clss | gb_sct | gb_wls | es_nav | es_pv | es_an | es_ct | es_vc | de_sh | fr_lidarhd | lu_act | us_3dep | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
+# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | no_hoyde | pt_dgt | si_arso | si_clss | gb_sct | gb_wls | es_nav | es_pv | es_an | es_ct | es_vc | es_cl | de_sh | fr_lidarhd | lu_act | us_3dep | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | de_alkis | fr_pdv | fr_bdtopo | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
@@ -514,6 +514,25 @@ ES-VC:
   citation: "Base map: Omapic · Institut Cartogràfic Valencià · IGN · OSM, [year]"
   attribution:
     - "Elevation: MDT and MDS 1 m 2015–2017 CC BY 4.0 © Institut Cartogràfic Valencià, Generalitat; from LiDAR PNOA 2015–2017 CC BY 4.0 www.scne.es; processed."
+    - "Orthophoto (template): PNOA máxima actualidad, CC BY 4.0 scne.es (Instituto Geográfico Nacional)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+ES-CL:
+  name: {cs: Španělsko – Kastilie a León, en: Spain – Castile and León, es: España – Castilla y León}
+  status: beta              # Kastilie a León (2026-11-22, Petr „zapojit co jde“, projekt nekomerční; 5 Días de España 2027 Soria/Burgos); mračno bez účtu, kresba z OSM
+  crs: EPSG:25830           # ETRS89 / UTM 30N (data ITACyL v huso 30 pro celé území)
+  boundary: countries/es_cl.geojson  # relace OSM Castilla y León 349041 (ODbL) včetně Treviña, +300 m, simplify 150 m, ostrovy pod 1 km² vynechané
+  view: [40.08, -7.08, 43.24, -1.77]
+  elevation: es_cl          # ITACyL PNOA-LiDAR 2025 LAZ 1 km (~15 b/m²) → terén a povrch 1 m (cache es_cl); výšky ortometrické
+  elevation_years: "2025"
+  data_notes: [noncommercial]  # licence IGCYL-NC: jen nekomerční užití, podmínky předat dál (informační poznámka, Petr: projekt je nekomerční)
+  technical_map: none
+  cz_sources: false
+  # Licence: IGCYL-NC (https://ftp.itacyl.es/cartografia/LICENCIA-IGCYL-NC-2012.pdf, Decreto 27/2012) – nekomerční užití,
+  # odvozeniny se smí šířit jen pod NC; citace „©Junta de Castilla y León“, u PNOA „PNOA©Instituto Geográfico Nacional-Junta
+  # de Castilla y León“. Ortofoto PNOA CC BY 4.0 (IGN, scne.es). Dotaz na ITACyL o svolení: evropa-data/zahranicni-build/es-cl/.
+  citation: "Base map: Omapic · ©Junta de Castilla y León · IGN · OSM, [year]"
+  attribution:
+    - "Elevation: PNOA-LiDAR 2025 point cloud, PNOA©Instituto Geográfico Nacional-Junta de Castilla y León (ITACyL), processed. Licence IGCYL-NC: non-commercial use only; any further distribution only for non-commercial use under the same terms (https://ftp.itacyl.es/cartografia/LICENCIA-IGCYL-NC-2012.pdf)."
     - "Orthophoto (template): PNOA máxima actualidad, CC BY 4.0 scne.es (Instituto Geográfico Nacional)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 FR:

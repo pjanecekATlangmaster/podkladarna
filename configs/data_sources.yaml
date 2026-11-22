@@ -2448,6 +2448,7 @@ sources:
   - ES-AN
   - ES-CT
   - ES-VC
+  - ES-CL
   kinds:
   - orthophoto
   name: Ortofoto PNOA máxima actualidad (WMS a WMTS)
@@ -2594,6 +2595,37 @@ sources:
   - Listy na hranici provincií jsou v obou sadách, každá jen se svou provincií (zbytek NoData).
   - Existují i MDSV (vegetace), MDSN (normalizovaný) a LAZ 2015–17; nepoužité.
   - icv.gva.es z cloudu neodpovídá (podmínky ověřeny prohlížečem z české sítě); úložiště descargas.icv.gva.es a WFS ano.
+
+- id: es_itacyl_lidar
+  countries:
+  - ES-CL
+  kinds:
+  - elevation
+  name: Mračno PNOA-LiDAR 2025 Kastilie a Leónu (LAZ 1 km, ~15 b/m²)
+  provider: Junta de Castilla y León – Instituto Tecnológico Agrario (ITACyL)
+  url: https://ftp.itacyl.es/cartografia/02_Altimetria/023_LIDAR/2025/
+  info: https://ftp.itacyl.es/cartografia/02_Altimetria/Leeme.txt
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (es_cl, es_laz_provider), app/pipeline/reference_es.py
+  provider_key: es_cl
+  probe: cl_elevation
+  license:
+    class: restricted
+    name: IGCYL-NC (jen nekomerční užití, Decreto 27/2012)
+    url: https://ftp.itacyl.es/cartografia/LICENCIA-IGCYL-NC-2012.pdf
+    attribution: PNOA©Instituto Geográfico Nacional-Junta de Castilla y León
+  access: free
+  checked: 'Claude 2026-11-22: HTTPS výpis ftp.itacyl.es (bez účtu), 2025/ 241 podadresářů H50_xxxx, 98 718 souborů LAZ 1 km
+    (pokrývá prakticky celé CyL, H50_0448 prázdný); vzorek 330-4782: LAS 1.4 formát 8, 15,0 mil. bodů / km², 122 MB, bbox
+    330000–331000 × 4781000–4782000 (N ve jménu = horní okraj); třídy 1, 2, 3, 4, 5, 7; CRS EPSG:25830; výšky ortometrické
+    (země 419 m proti WCS MDT05 IGN 422 m).'
+  issues:
+  - Licence IGCYL-NC – jen nekomerční užití, odvozeniny šířit jen pod NC s přijetím podmínek; citace „©Junta de Castilla y León“.
+    Na webu informační poznámka (data_notes noncommercial) a licence v citaci / README; dotaz na ITACyL o svolení připraven
+    (evropa-data/zahranicni-build/es-cl/dotaz-itacyl.md).
+  - Listy na hranici MTN50 jsou oříznuté a leží v obou podadresářích → v seznamu více URL oddělených \n, části se spojí.
+  - Seznam listů = 241 výpisů podadresářů (cache 30 dní). Starší 2017–21 LAZ RGBI (2 × 2 km, 220–260 MB) a MDT 2 m nepoužité.
 
 - id: be_wallonie_lidar
   countries:

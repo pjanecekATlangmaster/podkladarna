@@ -84,6 +84,7 @@ ORTHO_KEYS = {
     "ES-AN": "es_ortho",
     "ES-CT": "es_ortho",
     "ES-VC": "es_ortho",
+    "ES-CL": "es_ortho",
 }
 
 # Kandidát z ortofota (prahy změřené na 9 mapách ze 4 zemí).

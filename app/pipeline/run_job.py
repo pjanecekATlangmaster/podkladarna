@@ -229,6 +229,7 @@ ELEVATION_LABELS = {"user_upload": "vlastních dat zadavatele", "nl_ahn": "AHN (
     "es_an": "MDT a MDS PNOA-LiDAR 2020–21 Andalusie (REDIAM, 1 m)",
     "es_ct": "MET a MDS LiDAR 2021–23 Katalánska (ICGC, 1 m)",
     "es_vc": "MDT a MDS LiDAR 2015–17 Valencijského společenství (ICV, 1 m)",
+    "es_cl": "mračna PNOA-LiDAR 2025 Kastilie a Leónu (ITACyL, ~15 bodů/m², terén a povrch 1 m)",
     "de_by": "DGM1 a DOM20 LDBV Bayern (1 m, povrch z letních snímků)",
     "de_st": "DGM1 a DOM1 LVermGeo Sachsen-Anhalt (1 m, ALS)",
     "de_mv": "DGM1 a DOM1 LAiV Mecklenburg-Vorpommern (1 m)",
