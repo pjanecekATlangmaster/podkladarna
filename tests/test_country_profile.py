@@ -118,6 +118,7 @@ def test_sk_beta_only_with_local_data(tmp_path, monkeypatch, with_data):
         ({"country": "DE-ST"}, False, "de_st"),
         ({"country": "DK"}, False, "dk_dhm"),
         ({"country": "NO"}, False, "no_hoyde"),
+        ({"country": "PT"}, False, "pt_dgt"),
         ({"country": "DE-MV"}, False, "de_mv"),
         ({"country": "DE-NI"}, False, "de_ni"),
         ({"country": "DE-BB"}, False, "de_bb"),

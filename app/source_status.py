@@ -51,6 +51,7 @@ from app.pipeline.city_us import NYC_PROBE as US_NYC_PROBE
 from app.pipeline.geodanmark_dk import GEODK_PROBE
 from app.pipeline.reference_dk import DK_ELEVATION_PROBE, with_key as dk_with_key
 from app.pipeline.reference_no import NO_ELEVATION_PROBE
+from app.pipeline.reference_pt import PT_ELEVATION_PROBE
 from app.pipeline.reference_si import SI_ELEVATION_PROBE
 from app.pipeline.reference_us import US_ELEVATION_PROBE, US_INDEX_PROBE
 from app.pipeline.reference_be import BE_ELEVATION_PROBE, BE_GRB_PROBE, BE_ORTHO_PROBE, BE_URBIS_PROBE
@@ -383,6 +384,15 @@ PROBES: tuple[Probe, ...] = (
         "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
         fatal=True,
         countries=("NO",),
+    ),
+    # Portugalsko: veřejný popis kolekce MDT v Centro de Dados (hledání a stažení chce účet, ``reference_pt``).
+    Probe(
+        "pt_elevation",
+        "Výšky LiDAR DGT (Centro de Dados) – terén a povrch",
+        (PT_ELEVATION_PROBE,),
+        "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
+        fatal=True,
+        countries=("PT",),
     ),
     # Slovinsko: HEAD listu mračna ARSO u Ljubljany (bez klíče, ~50 MB se nestahuje).
     Probe(

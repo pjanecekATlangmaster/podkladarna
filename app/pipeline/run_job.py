@@ -246,6 +246,7 @@ ELEVATION_LABELS = {"user_upload": "vlastních dat zadavatele", "nl_ahn": "AHN (
     "be_dhmv": "DHMV II DTM a DSM Digitaal Vlaanderen (1 m, 2013–2015)",
     "dk_dhm": "DHM terén a povrch Klimadatastyrelsen (Datafordeler, 1 m)",
     "no_hoyde": "Høydemodell DTM a DOM Kartverket (1 m)",
+    "pt_dgt": "LiDAR MDT a MDS DGT (0,5 m, 2024–2025)",
     "si_arso": "klasifikovaného mračna LiDAR ARSO (2011–2015)",
     "us_3dep": "mračna LiDAR USGS 3DEP (QL 0 – QL 2)",
     "fi_mml": "Korkeusmalli MML (2 m) a výška porostu Metsäkeskus (1 m)",

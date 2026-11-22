@@ -3329,6 +3329,139 @@ def dk_dhm_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 PROVIDERS["dk_dhm"] = dk_dhm_provider
 
 
+# --------------------------------------------------------------------------- PT: LiDAR DGT 2024 (Centro de Dados)
+
+# MDT a MDS 0,5 m (DGT, nálet 2024–2025, 10 b/m², CC BY 4.0) jako GeoTIFF dlaždice ~1 km v EPSG:3763 (``reference_pt``).
+# Hledání a stažení jen s bezplatným účtem Centro de Dados (``PT_DGT_USER`` / ``PT_DGT_PASSWORD``). Odkaz ke stažení
+# platí pro jedno stažení po hledání, proto se hledá v každém jobu; dlaždice se převede na dlaždicovaný DEFLATE a drží
+# v cache (``CACHE_DIR/pt_dgt/<číslo-lot-rok>/<dtm|dsm>_v<verze>.tif``, novější verze DGT se stáhne znovu).
+PT_BUFFER_M = 20.0
+PT_MAX_TILE_BYTES = 60_000_000  # dlaždice má ~16 MB (2 000 × 2 000 Float32 bez komprese); víc je chyba služby
+PT_MAX_TILES = 400  # MTBO ~100 km² + okraj; víc je chyba hledání
+PT_WORKERS = 2
+PT_RETRIES = 2
+
+
+def pt_tile_dir(key: str) -> Path:
+    """Složka dlaždice v cache (terén i povrch); úklid cache (``download_cache.prune_lidar_cache``) ji maže celou."""
+    return settings.CACHE_DIR / "pt_dgt" / key
+
+
+def _pt_tile_file(kind: str, item: dict) -> Path | None:
+    from app.pipeline.reference_pt import tile_key
+
+    key = tile_key(str(item.get("id", "")))
+    if key is None:
+        return None
+    version = re.sub(r"[^0-9A-Za-z]", "", str((item.get("properties") or {}).get("version") or "0"))[:8] or "0"
+    return pt_tile_dir(key) / f"{kind}_v{version}.tif"
+
+
+def _pt_fetch_tile(session, kind: str, item: dict, dest: Path, *, log=None) -> Path:
+    """Stáhne dlaždici (kontrola hlavičky TIFF a stropu velikosti) a uloží ji jako dlaždicovaný GeoTIFF do cache."""
+    import tempfile
+    import time
+    import urllib.error
+
+    from app.download_cache import touch_last_used
+    from app.pipeline.reference_pt import PT_CRS
+
+    href = ((item.get("assets") or {}).get("data") or {}).get("href", "")
+    folder = dest.parent
+    folder.mkdir(parents=True, exist_ok=True)
+    fd, raw_name = tempfile.mkstemp(prefix=f".{kind}-", suffix=".raw.tif", dir=folder)
+    os.close(fd)
+    raw = Path(raw_name)
+    tmp: Path | None = None
+    try:
+        for attempt in range(PT_RETRIES + 1):
+            try:
+                with session.open_download(href) as resp, raw.open("wb") as fh:
+                    size = 0
+                    head = b""
+                    while chunk := resp.read(1 << 20):
+                        if not head:
+                            head = chunk[:4]
+                            if head not in (b"II*\x00", b"MM\x00*", b"II+\x00", b"MM\x00+"):
+                                raise RuntimeError(f"Portugalsko {item.get('id')}: stažení nevrátilo GeoTIFF")
+                        size += len(chunk)
+                        if size > PT_MAX_TILE_BYTES:
+                            raise RuntimeError(f"Portugalsko {item.get('id')}: dlaždice přes {PT_MAX_TILE_BYTES // 1_000_000} MB")
+                        fh.write(chunk)
+                break
+            except urllib.error.HTTPError as exc:
+                if attempt >= PT_RETRIES or not (exc.code == 429 or exc.code >= 500):
+                    raise RuntimeError(f"Portugalsko {item.get('id')}: HTTP {exc.code}") from None
+            except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+                if attempt >= PT_RETRIES:
+                    raise RuntimeError(f"Portugalsko {item.get('id')}: {type(exc).__name__}") from None
+            time.sleep(3.0 * (attempt + 1))
+        fd, tname = tempfile.mkstemp(prefix=f".{kind}-", suffix=".tif", dir=folder)
+        os.close(fd)
+        tmp = Path(tname)
+        run_cmd(
+            [_gdal_tool("gdal_translate"), "-q", "-a_srs", PT_CRS, "-ot", "Float32", "-co", "COMPRESS=DEFLATE",
+             "-co", "PREDICTOR=3", "-co", "TILED=YES", str(raw), str(tmp)],
+        )  # bez logu příkazu: MTBO má stovky dlaždic
+        if not tmp.is_file() or tmp.stat().st_size == 0:
+            raise RuntimeError(f"Portugalsko {item.get('id')}: převod dlaždice selhal")
+        tmp.replace(dest)
+        tmp = None
+    finally:
+        raw.unlink(missing_ok=True)
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
+    touch_last_used(folder)
+    return dest
+
+
+def pt_dgt_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """Portugalsko: MDT a MDS 0,5 m DGT z Centro de Dados (přihlášení, hledání STAC, dlaždice ~1 km v cache)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.download_cache import touch_last_used
+    from app.pipeline.fetch_openzu import USER_AGENT
+    from app.pipeline.reference_pt import PT_COLLECTIONS, PT_CRS, CddSession, PtAuthError
+
+    window = _buffered(bounds, PT_CRS, PT_BUFFER_M)
+    bbox_wgs84 = _bounds_in(window, PT_CRS, "EPSG:4326")
+    session = CddSession(USER_AGENT)
+    try:
+        session.login()
+    except PtAuthError as exc:
+        raise ElevationUnavailable(f"Centro de Dados DGT: {exc}") from None
+    wanted: dict[str, list[tuple[dict, Path]]] = {}
+    for kind, collection in PT_COLLECTIONS.items():
+        items = sorted(session.search(collection, bbox_wgs84), key=lambda it: str(it.get("id", "")))
+        if len(items) > PT_MAX_TILES:
+            raise RuntimeError(f"Portugalsko: hledání vrátilo {len(items)} dlaždic {collection} (strop {PT_MAX_TILES})")
+        wanted[kind] = [(it, f) for it in items if (f := _pt_tile_file(kind, it)) is not None]
+    jobs = [(kind, it, f) for kind, pairs in wanted.items() for it, f in pairs if not f.is_file()]
+    if log:
+        total = sum(map(len, wanted.values()))
+        log(f"  Portugalsko: {total} dlaždic MDT/MDS (z mezipaměti {total - len(jobs)})")
+    with ThreadPoolExecutor(max_workers=PT_WORKERS, thread_name_prefix="pt-dgt") as ex:
+        list(ex.map(lambda j: _pt_fetch_tile(session, j[0], j[1], j[2], log=log), jobs))
+    out: dict[str, Path | None] = {}
+    for kind, pairs in wanted.items():
+        files = [f for _it, f in pairs if f.is_file()]
+        for f in files:
+            touch_last_used(f.parent)
+        out[kind] = None
+        if files:
+            vrt = out_dir / f"pt_dgt_{kind}.vrt"
+            run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", PT_CRS, str(vrt), *map(str, files)], log=log)
+            out[kind] = vrt if vrt.is_file() else None
+    if out["dtm"] is None:
+        raise ElevationUnavailable("výřez je mimo pokrytí LiDARu DGT (pevninské Portugalsko)")
+    if out["dsm"] is None:
+        log_issue(log, "Portugalsko: povrch MDS pro výřez zatím chybí (severozápad), výška porostu se nespočítá")
+    return SourceRasters(out["dtm"], out["dsm"])
+
+
+PROVIDERS["pt_dgt"] = pt_dgt_provider
+
+
 # --------------------------------------------------------------------------- FI: MML DTM 2 m + CHM Metsäkeskus 1 m
 
 # Terén: Korkeusmalli 2 m (Maanmittauslaitos, CC BY 4.0) ze zrcadla Funet (bez klíče; přímo u MML je potřeba API
@@ -3647,6 +3780,7 @@ SOURCE_LABELS = {
     "de_sh": "DGM1 a bDOM20, LVermGeo Schleswig-Holstein",
     "dk_dhm": "DHM terén a povrch, Klimadatastyrelsen",
     "no_hoyde": "Høydemodell DTM a DOM, Kartverket",
+    "pt_dgt": "LiDAR MDT a MDS, Direção-Geral do Território",
     "si_arso": "mračno LiDAR, ARSO",
     "us_3dep": "mračno LiDAR 3DEP, USGS",
     "gb_sct": "LiDAR DTM a DSM, Scottish Government",
