@@ -2641,6 +2641,10 @@ def si_clss_index(window: tuple[float, float, float, float], *, fetch=_si_clss_f
         part = {"dmr": props["path_dmr"], "dmp": props["path_dmp"], "date": props.get("datum_za_1") or ""}
         if part not in found[name]:
             found[name].append(part)
+    if not any(found.values()):
+        # prázdná odpověď (změna vrstvy, chyba GeoServeru i okno mimo SI) se neukládá: CLSS pokrývá celé Slovinsko,
+        # „mimo pokrytí“ se cachuje jen tehdy, když táž odpověď nese aspoň jeden list
+        return found
     with _SI_CLSS_INDEX_LOCK:
         try:
             index = json.loads(path.read_text(encoding="utf-8"))
@@ -2756,7 +2760,9 @@ def si_clss_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
             log(f"⚠ Slovinsko: CLSS (GURS) nedostupné ({type(exc).__name__}: {exc}), výšky ze staršího mračna ARSO 2011–2015")
         return si_arso_provider(bounds, out_dir, log=log)
     if not folders:
-        raise ElevationUnavailable("výřez je mimo pokrytí CLSS (Slovinsko)")
+        if log:
+            log("⚠ Slovinsko: CLSS (GURS) pro výřez nevrátilo žádný list, výšky ze staršího mračna ARSO 2011–2015")
+        return si_arso_provider(bounds, out_dir, log=log)
     out: dict[str, Path] = {}
     for kind in ("dtm", "dsm"):
         vrt = out_dir / f"si_clss_{kind}.vrt"

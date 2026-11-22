@@ -112,3 +112,16 @@ def test_clss_outage_falls_back_to_arso(tmp_path, monkeypatch):
     lines = []
     got = elevation_raster.si_clss_provider((14.5, 46.05, 14.51, 46.06), tmp_path, log=lines.append)
     assert got is sentinel and "ARSO" in lines[0]
+
+
+def test_clss_empty_index_not_cached_and_falls_back(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "CACHE_DIR", tmp_path)
+    window = (472100.0, 87100.0, 472900.0, 87900.0)
+    assert elevation_raster.si_clss_index(window, fetch=lambda u: {"features": []}) == {"472_87": []}
+    assert not (tmp_path / "si_clss" / elevation_raster.SI_CLSS_INDEX_FILE).exists()  # prázdná odpověď se necachuje
+    sentinel = object()
+    monkeypatch.setattr(elevation_raster, "si_clss_index", lambda window, **kw: {})
+    monkeypatch.setattr(elevation_raster, "si_arso_provider", lambda bounds, out_dir, log=None: sentinel)
+    lines = []
+    assert elevation_raster.si_clss_provider((14.5, 46.05, 14.51, 46.06), tmp_path, log=lines.append) is sentinel
+    assert "ARSO" in lines[0]
