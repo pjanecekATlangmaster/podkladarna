@@ -599,6 +599,8 @@ PT:
   view: [36.96, -9.51, 42.16, -6.18]
   elevation: pt_dgt         # LiDAR DGT 2024–2025 (10 bodů/m²): MDT + MDS 0,5 m z Centro de Dados (bezplatný účet e-mailem), výšky Cascais
   elevation_years: "2024–2025"
+  green: understory         # zrnitost zelenala pobřežní borovice (Livelox 2026-11-22: Mira 66 % zeleně v lese proti 14 % u mapaře, Sátão 61 / 43 %)
+  green_share: 0.25         # přísnější práh podílu nízkého patra jako NL (borovice, Petr 2026-11-22)
   technical_map: none       # obdoba DTM volně není – kresba z OSM
   cz_sources: false
   # Licence: CC BY 4.0, uvést „Direção-Geral do Território“ (metadata kolekcí Centro de Dados, ověřeno 2026-11-22).
