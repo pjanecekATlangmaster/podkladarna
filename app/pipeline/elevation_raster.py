@@ -19,6 +19,7 @@ Kde DTM z měření chybí (AHN: budovy a voda), je CHM 0.
 
 from __future__ import annotations
 
+import io
 import json
 import math
 import os
@@ -340,13 +341,15 @@ def cog_windows(
     log=None,
     nodata: float | None = None,
     resolution: str | None = None,
+    config: list[str] | None = None,
 ) -> Path | None:
     """Okno ``window`` (v ``crs``) z každého vzdáleného COG přes /vsicurl → VRT; None, když žádné okno nevyšlo.
 
     Čte se jen část dlaždice v okně (COG: swisstopo 1 km ~15 MB, BEV 50 km ~10 GB). Dlaždice, která do okna
     nezasahuje, gdal_translate odmítne – přeskočí se. ``nodata`` pro zdroje bez NoData: okno přesahující list se jinak
     doplní nulou a ta ve VRT přepíše sousední list (Estonsko DSM). ``resolution`` pro gdalbuildvrt (``highest`` při
-    listech s různým rozlišením; výchozí průměr). Při překryvu má přednost dlaždice později v ``urls``."""
+    listech s různým rozlišením; výchozí průměr). Při překryvu má přednost dlaždice později v ``urls``. ``config``: další
+    volby GDAL (``--config`` dvojice) pro všechny dlaždice, např. soubor hlaviček s přihlášením (Švédsko)."""
     xmin, ymin, xmax, ymax = window
     nodata_args = ["-a_nodata", f"{nodata:g}"] if nodata is not None else []
     tiles = []
@@ -359,6 +362,7 @@ def cog_windows(
                     "--config", "GDAL_HTTP_MAX_RETRY", "3",
                     "--config", "GDAL_HTTP_RETRY_DELAY", "2",
                     "--config", "GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR",
+                    *(config or []),
                     "-projwin", f"{xmin:.1f}", f"{ymax:.1f}", f"{xmax:.1f}", f"{ymin:.1f}",
                     "-projwin_srs", crs,
                     *nodata_args,
@@ -2588,6 +2592,221 @@ def si_arso_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 PROVIDERS["si_arso"] = si_arso_provider
 
 
+# --------------------------------------------------------------------------- SE: Markhöjdmodell 1 m + mračno Laserdata skog
+
+# Lantmäteriet (``reference_se``): terén z COG ``dtm-cog`` (listy 10 km) jen v okně výřezu přes /vsicurl, povrch
+# z mračna COPC ``dsm-skoglig-copc`` (listy 2,5 km, ~1 bod/m²) – laspy čte přes HTTP Range jen uzly v okně a body se
+# hned převedou na nejvyšší bod v buňce 1 m (mračno se nikam neukládá, GDPR). Prázdné buňky (řídké mračno) doplní
+# nejvyšší soused 3 × 3, zbytek ``_fill``. Soubory chtějí Basic auth účtu Geotorget, jen z prostředí.
+SE_BUFFER_M = 20.0
+SE_NOISE_CLASSES = (7, 18)
+SE_MAX_COPC_BYTES = 400_000_000  # okno v listu 2,5 km; celý list má ~100–200 MB
+SE_COPC_WORKERS = 3
+SE_STAC_MAX_PAGES = 20
+
+
+def se_stac_items(collection: str, bbox_wgs84: tuple[float, float, float, float], *, fetch=None) -> list[dict]:
+    """Položky kolekce STAC Lantmäteriet v bboxu (katalog je veřejný, bez přihlášení)."""
+    import urllib.request
+
+    from app.pipeline.bgt_nl import next_page_url
+    from app.pipeline.fetch_openzu import USER_AGENT
+    from app.pipeline.reference_se import SE_STAC
+
+    if fetch is None:
+        def fetch(u):
+            req = urllib.request.Request(u, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310 – pevný server STAC
+                return json.loads(resp.read())
+    url: str | None = (f"{SE_STAC}/search?collections={collection}&bbox="
+                       + ",".join(f"{v:.6f}" for v in bbox_wgs84) + "&limit=100")
+    items: list[dict] = []
+    pages = 0
+    while url and pages < SE_STAC_MAX_PAGES:
+        data = fetch(url)
+        pages += 1
+        items.extend(data.get("features") or [])
+        url = next_page_url(data, url)
+    return items
+
+
+def se_latest_assets(items: list[dict]) -> list[tuple[str, str]]:
+    """(URL dat, datum) nejnovějšího snímkování každého listu; jen HTTPS na serveru dat Lantmäteriet.
+
+    Id listu terénu je ``657_67``, mračna ``<oblast skenování>-<list>`` (``21c031-65775_6700_25``): list se stejným
+    číslem z více oblastí (překryv skenování) se bere jen jednou, nejnovější."""
+    from app.pipeline.reference_se import is_data_url
+
+    best: dict[str, tuple[str, str]] = {}
+    for item in items:
+        tile = str(item.get("id") or "").rsplit("-", 1)[-1]
+        when = str((item.get("properties") or {}).get("datetime") or "")
+        href = str(((item.get("assets") or {}).get("data") or {}).get("href") or "")
+        if not tile or not is_data_url(href):
+            continue
+        if tile not in best or when > best[tile][1]:
+            best[tile] = (href, when)
+    return [best[t] for t in sorted(best)]
+
+
+class _SeRangeFile(io.RawIOBase):
+    """Vzdálený soubor Lantmäteriet jako soubor s HTTP Range a Basic auth (pro ``laspy.CopcReader``)."""
+
+    def __init__(self, url: str, max_bytes: int = SE_MAX_COPC_BYTES, *, opener=None):
+        import urllib.request
+
+        from app.pipeline.reference_se import auth_headers
+
+        self.url, self.pos, self.bytes_read, self.max_bytes = url, 0, 0, max_bytes
+        self._open = opener or (lambda req: urllib.request.urlopen(req, timeout=120))  # noqa: S310
+        self._headers = auth_headers(url)
+        with self._request(method="HEAD") as resp:
+            self.size = int(resp.headers["Content-Length"])
+
+    def _request(self, *, method: str = "GET", headers: dict | None = None):
+        import urllib.request
+
+        from app.pipeline.fetch_openzu import USER_AGENT
+
+        req = urllib.request.Request(self.url, method=method,
+                                     headers={"User-Agent": USER_AGENT, **self._headers, **(headers or {})})
+        return self._open(req)
+
+    def readable(self):
+        return True
+
+    def seekable(self):
+        return True
+
+    def tell(self):
+        return self.pos
+
+    def seek(self, off, whence=0):
+        self.pos = off if whence == 0 else (self.pos + off if whence == 1 else self.size + off)
+        return self.pos
+
+    def read(self, n=-1):
+        n = self.size - self.pos if n is None or n < 0 else min(n, self.size - self.pos)
+        if n <= 0:
+            return b""
+        if self.bytes_read + n > self.max_bytes:
+            raise RuntimeError(f"stahování přes {self.max_bytes / 1e6:.0f} MB odmítnuto")
+        a = self.pos
+        with self._request(headers={"Range": f"bytes={a}-{a + n - 1}"}) as resp:
+            data = resp.read(n + 1)
+        if len(data) > n:
+            raise RuntimeError("server nevrátil požadovaný úsek (HTTP Range)")
+        self.pos += len(data)
+        self.bytes_read += len(data)
+        return data
+
+    def readinto(self, buf):
+        data = self.read(len(buf))
+        buf[: len(data)] = data
+        return len(data)
+
+
+class _SeSurface:
+    """Nejvyšší bod (bez šumu 7 a 18) v buňkách 1 m okna."""
+
+    def __init__(self, window: tuple[float, float, float, float]):
+        xmin, ymin, xmax, ymax = window
+        self.left, self.top = math.floor(xmin), math.ceil(ymax)
+        self.width, self.height = int(math.ceil(xmax) - self.left), int(self.top - math.floor(ymin))
+        self.top_z = np.full(self.width * self.height, -np.inf, dtype="float64")
+
+    def add(self, x: np.ndarray, y: np.ndarray, z: np.ndarray, cls: np.ndarray) -> int:
+        col = np.floor(x - self.left).astype(np.int64)
+        row = np.floor(self.top - y).astype(np.int64)
+        keep = (col >= 0) & (col < self.width) & (row >= 0) & (row < self.height) & ~np.isin(cls, SE_NOISE_CLASSES)
+        np.maximum.at(self.top_z, row[keep] * self.width + col[keep], z[keep])
+        return int(keep.sum())
+
+    def grid(self) -> np.ndarray:
+        """Povrch s doplněnými prázdnými buňkami (nejvyšší ze sousedů 3 × 3); bez bodů v okolí NODATA."""
+        from scipy.ndimage import maximum_filter
+
+        g = self.top_z.reshape(self.height, self.width)
+        near = maximum_filter(g, size=3, mode="constant", cval=-np.inf)
+        g = np.where(np.isfinite(g), g, near)
+        return np.where(np.isfinite(g), g, NODATA).astype("float32")
+
+
+def _se_copc_window(url: str, window: tuple[float, float, float, float], surface: _SeSurface,
+                    *, reader_factory=None) -> tuple[int, int]:
+    """Body listu COPC v okně do ``surface``; (bodů, stažených bajtů)."""
+    import laspy
+    from laspy.copc import Bounds
+
+    f = _SeRangeFile(url)
+    xmin, ymin, xmax, ymax = window
+    factory = reader_factory or (lambda fh: laspy.CopcReader(fh, http_num_threads=1))
+    with factory(f) as reader:
+        pts = reader.query(bounds=Bounds(mins=np.array([xmin, ymin]), maxs=np.array([xmax, ymax])))
+    n = surface.add(np.asarray(pts.x), np.asarray(pts.y), np.asarray(pts.z), np.asarray(pts.classification))
+    return n, f.bytes_read
+
+
+def se_lm_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """Švédsko: terén Markhöjdmodell 1 m (COG) a povrch z mračna Laserdata skog (COPC), účet Geotorget."""
+    import threading as _threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.pipeline.reference_se import SE_COLLECTIONS, SE_CRS, credentials, gdal_header_file, redact
+
+    if credentials() is None:
+        raise ElevationUnavailable("chybí účet Lantmäteriet (Geotorget) na serveru")
+    window = _buffered(bounds, SE_CRS, SE_BUFFER_M)
+    bbox_wgs = _bounds_in(window, SE_CRS, "EPSG:4326")
+    dtm_urls = [u for u, _w in se_latest_assets(se_stac_items(SE_COLLECTIONS["dtm"], bbox_wgs))]
+    if not dtm_urls:
+        raise ElevationUnavailable("výřez je mimo pokrytí Markhöjdmodell (Švédsko)")
+    with gdal_header_file() as hdr:
+        dtm = cog_windows(dtm_urls, window, SE_CRS, out_dir, "se_dtm", log=log, nodata=NODATA,
+                          config=["--config", "GDAL_HTTP_HEADER_FILE", str(hdr)])
+    if dtm is None:
+        raise ElevationUnavailable("terén Markhöjdmodell se pro výřez nestáhl (Švédsko)")
+    copc = se_latest_assets(se_stac_items(SE_COLLECTIONS["dsm"], bbox_wgs))
+    if not copc:
+        log_issue(log, "Švédsko: mračno Laserdata skog pro výřez chybí, výška porostu se nespočítá")
+        return SourceRasters(dtm, None)
+    surface = _SeSurface(window)
+    lock = _threading.Lock()
+
+    def one(item):
+        url, _when = item
+        try:
+            sub = _SeSurface(window)
+            n, nbytes = _se_copc_window(url, window, sub)
+        except Exception as exc:  # noqa: BLE001 – jeden list nesmí shodit job; díru zalije ``_fill``
+            return url, 0, 0, redact(str(exc))[:160]
+        with lock:
+            np.maximum(surface.top_z, sub.top_z, out=surface.top_z)
+        return url, n, nbytes, None
+
+    with ThreadPoolExecutor(max_workers=SE_COPC_WORKERS, thread_name_prefix="se-copc") as ex:
+        results = list(ex.map(one, copc))
+    failed = [(u, e) for u, _n, _b, e in results if e]
+    points = sum(n for _u, n, _b, _e in results)
+    if log:
+        years = sorted({w[:4] for _u, w in copc if w})
+        log(f"  Laserdata skog: {len(copc) - len(failed)}/{len(copc)} listů, {points / 1e6:.1f} mil. bodů v okně, "
+            f"{sum(b for _u, _n, b, _e in results) / 1e6:.0f} MB" + (f", snímkování {'–'.join(dict.fromkeys([years[0], years[-1]]))}" if years else ""))
+        for u, e in failed:
+            log(f"    {u.rsplit('/', 1)[-1]}: {e}")
+    if failed:
+        log_issue(log, f"Švédsko: {len(failed)} z {len(copc)} listů mračna Laserdata skog se nestáhlo, "
+                       "část výřezu může být bez výšky porostu")
+    if points == 0:
+        return SourceRasters(dtm, None)
+    dsm = out_dir / "se_dsm.tif"
+    _write_tif(dsm, surface.grid(), float(surface.left), float(surface.top), SE_CRS)
+    return SourceRasters(dtm, dsm)
+
+
+PROVIDERS["se_lm"] = se_lm_provider
+
+
 # --------------------------------------------------------------------------- ES: mračno LiDAR regionů (Navarra, Baskicko)
 
 # Stejně jako Slovinsko: list LAZ se jednou převede na terén (průměr bodů země v buňce 1 m) a povrch (nejvyšší bod
@@ -3648,6 +3867,7 @@ SOURCE_LABELS = {
     "dk_dhm": "DHM terén a povrch, Klimadatastyrelsen",
     "no_hoyde": "Høydemodell DTM a DOM, Kartverket",
     "si_arso": "mračno LiDAR, ARSO",
+    "se_lm": "Markhöjdmodell a Laserdata skog, Lantmäteriet",
     "us_3dep": "mračno LiDAR 3DEP, USGS",
     "gb_sct": "LiDAR DTM a DSM, Scottish Government",
     "gb_wls": "LiDAR DTM a DSM, Welsh Government",

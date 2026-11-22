@@ -52,6 +52,7 @@ from app.pipeline.geodanmark_dk import GEODK_PROBE
 from app.pipeline.reference_dk import DK_ELEVATION_PROBE, with_key as dk_with_key
 from app.pipeline.reference_no import NO_ELEVATION_PROBE
 from app.pipeline.reference_si import SI_ELEVATION_PROBE
+from app.pipeline.reference_se import SE_ELEVATION_PROBE, auth_headers as se_auth_headers
 from app.pipeline.reference_us import US_ELEVATION_PROBE, US_INDEX_PROBE
 from app.pipeline.reference_be import BE_ELEVATION_PROBE, BE_GRB_PROBE, BE_ORTHO_PROBE, BE_URBIS_PROBE
 from app.pipeline.reference_de_nw import DE_NW_DOP_PROBE, DE_NW_ELEVATION_PROBE
@@ -394,6 +395,16 @@ PROBES: tuple[Probe, ...] = (
         fatal=True,
         countries=("SI",),
     ),
+    # Švédsko: HEAD listu terénu Lantmäteriet u Stockholmu s účtem Geotorget (bez účtu 401, země se pak nenabízí).
+    Probe(
+        "se_elevation",
+        "Výšky Lantmäteriet (Markhöjdmodell, Laserdata skog)",
+        (SE_ELEVATION_PROBE,),
+        "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
+        method="HEAD",
+        fatal=True,
+        countries=("SE",),
+    ),
     # USA: index projektů WESM (výběr mračna QL 0 – QL 2) a ept.json jednoho projektu v bucketu 3DEP (~3 kB).
     Probe(
         "us_index",
@@ -729,7 +740,8 @@ def _probe_url(url: str, method: str) -> tuple[int | None, str | None, str]:
         url = dk_with_key(url)  # zástupný klíč Datafordeleru; chyby níž URL neobsahují
     except RuntimeError as exc:
         return None, str(exc)[:200], ""
-    req = urllib.request.Request(url, method=method, headers={"User-Agent": USER_AGENT})
+    # Přihlášení Lantmäteriet jen v hlavičce dotazu na jejich server (chyby níž hlavičky neobsahují).
+    req = urllib.request.Request(url, method=method, headers={"User-Agent": USER_AGENT, **se_auth_headers(url)})
     try:
         with urllib.request.urlopen(req, timeout=PROBE_TIMEOUT_S) as resp:
             if method != "HEAD":

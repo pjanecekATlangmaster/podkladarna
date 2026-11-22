@@ -230,8 +230,12 @@ def local_elevation_dir(elevation: str) -> Path | None:
     return path if path.is_absolute() else Path(settings.DATA_ROOT) / path
 
 
-# Zdroje výšek s API klíčem: klíč jen v proměnné prostředí instance (data/.env), bez něj se země nenabízí.
-ELEVATION_KEY_ENV = {"dk_dhm": "DK_DATAFORDELER_API_KEY"}
+# Zdroje výšek s API klíčem nebo účtem: údaje jen v proměnných prostředí instance (data/.env), bez nich se země
+# nenabízí. Hodnota = jméno proměnné, nebo n-tice jmen (všechny musí být vyplněné).
+ELEVATION_KEY_ENV: dict[str, str | tuple[str, ...]] = {
+    "dk_dhm": "DK_DATAFORDELER_API_KEY",
+    "se_lm": ("SE_LANTMATERIET_USER", "SE_LANTMATERIET_PASSWORD"),
+}
 
 
 def elevation_ready(country: Country) -> bool:
@@ -239,7 +243,8 @@ def elevation_ready(country: Country) -> bool:
     u zdroje s klíčem (``ELEVATION_KEY_ENV``) vyplněný klíč."""
     key_env = ELEVATION_KEY_ENV.get(country.elevation)
     if key_env is not None:
-        return bool(os.environ.get(key_env, "").strip())
+        names = (key_env,) if isinstance(key_env, str) else key_env
+        return all(os.environ.get(name, "").strip() for name in names)
     base = local_elevation_dir(country.elevation)
     if base is None:
         return True

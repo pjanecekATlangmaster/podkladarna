@@ -1798,27 +1798,28 @@ sources:
   url: https://api.lantmateriet.se/stac-hojd/v1
   info: https://www.lantmateriet.se/globalassets/geodata/geodataprodukter/anvandningsvillkor-for-laserdata-nedladdning-skog.pdf
   role: výšky
-  status: candidate
+  status: used
+  code: app/pipeline/elevation_raster.py (se_lm), app/pipeline/reference_se.py
+  provider_key: se_lm
+  probe: se_elevation
   license:
     class: public
-    name: CC BY 4.0 (mračno; u Markhöjdmodell jiný dokument podmínek)
+    name: CC BY 4.0 (Markhöjdmodell podle podmínek „värdefulla datamängder“, Laserdata skog podle vlastních podmínek z 20. 5. 2026)
     url: https://www.lantmateriet.se/globalassets/geodata/geodataprodukter/anvandningsvillkor-for-laserdata-nedladdning-skog.pdf
-    attribution: © Lantmäteriet
+    attribution: 'název produktu, ©Lantmäteriet, poznámka o úpravě a CC BY 4.0'
   access: account
-  checked: 'Grok: 2026-11-16 Geotorget (oba produkty, STAC) a PDF podmínek mračna z 20. 5. 2026 – Claude neověřil · opencode
-    (se_lantmateriet): 2026-11-16 STAC root (CC BY 4.0) + /collections (dtm-cog, dsm-cog, dsm-skoglig-copc) + PDF användarvillkor
-    + Geotorget produktové stránky – Claude neověřil'
+  checked: '2026-11-22 Claude: PDF podmínek Laserdata Nedladdning, skog (DNR LM2026/077164, bod 3.1 CC BY 4.0, uvést produkt,
+    ©Lantmäteriet, úpravu a CC BY 4.0; bod 4.2 GDPR) a „Användningsvillkor för värdefulla datamängder“ (odkaz licence
+    kolekce dtm-cog, bod 3.1 CC BY 4.0 se stejnými údaji); STAC /search veřejně, soubory dl1.lantmateriet.se bez účtu 401.'
   issues:
-  - 'OPRAVA: mračno je CC BY 4.0 i komerčně, ale příjemce je podle GDPR správce osobních údajů. Hustota 1–2 body/m². Od 1.
-    6. 2026 dlaždice 10 × 10 km a přístup jen po objednávce oprávnění na Geotorget (Basic auth).'
-  - Markhöjdmodell Geotorget váže na „Användningsvillkor för värdefulla datamängder“, ne na PDF mračna. Ten dokument se 2026-11-16
-    neotevřel — jestli je to taky CC BY 4.0, neověřeno.
-  - 'opencode navrhuje citaci: „Datakälla: Laserdata Nedladdning, skog, © Lantmäteriet, CC BY 4.0“ – Claude neověřil.'
-  - 'opencode: `license.url https://www.lantmateriet.se/` je domovská stránka; závazné jsou STAC root a PDF podmínek Laserdata
-    skog.'
-  - 'opencode: Od 1. 6. 2026 pouze STAC (distribuce přes Geotorget skončila 31. 5. 2026): https://www.lantmateriet.se/sv/geodata/vara-produkter/Produktnyheter/Geografisk-information/h/'
-  - 'opencode: Ythöjdmodell (dsm-cog) je z obrazové korelace – bez prostupnosti porostu; kolekce má v STAC `license: other`.'
-  - 'opencode: GDPR: příjemce mračna je personuppgiftsansvarig.'
+  - Soubory jen s bezplatným účtem Geotorget (Basic auth), aplikace čte SE_LANTMATERIET_USER / SE_LANTMATERIET_PASSWORD jen
+    z prostředí; bez nich se země nenabízí.
+  - Mračno Laserdata skog má jen ~0,7–1,2 bodu/m² (let 3 200 m) – povrch se počítá jako nejvyšší bod v buňce 1 m, prázdné
+    buňky doplní soused 3 × 3.
+  - 'GDPR: příjemce mračna je personuppgiftsansvarig (bod 4.2). Mračno se jen zpracuje v paměti na mřížku povrchu, neukládá se
+    ani nepřibaluje.'
+  - 'Ythöjdmodell (dsm-cog) je z obrazové korelace a má v STAC `license: other` – nepoužívá se.'
+  - Lantmäteriet si vyhrazuje vypnout přístup (bod 5); výpadek hlásí sonda se_elevation.
 
 - id: no_wms_topo
   countries: ["NO"]
