@@ -276,12 +276,26 @@ def state_for(bbox_wgs84: tuple[float, float, float, float]) -> State | None:
     return best
 
 
+def _with_leipzig(sorted_data: dict[str, list], bbox_wgs84, bounds, crs: str, log: LogFn | None) -> dict[str, list]:
+    """V Lipsku doplní vozovky, chodníky, stání, schody a ploty z městské DSGK; výpadek nechá jen ALKIS."""
+    from app.pipeline import dsgk_leipzig
+
+    if not dsgk_leipzig.intersects(bbox_wgs84):
+        return sorted_data
+    try:
+        return dsgk_leipzig.augment(sorted_data, bounds, crs, log=log)
+    except Exception as exc:  # doplněk: bez DSGK zůstává ALKIS
+        if log:
+            log(f"⚠ DSGK Lipsko nedostupná ({type(exc).__name__}: {exc}), kresba z ALKIS a OSM.")
+        return sorted_data
+
+
 LOG_LABELS = {
     "buildings": "budovy (Gebäude)",
-    "roads": "vozovky",
-    "sidewalks": "pěší zóny a náměstí (Platz, Fußgängerzone)",
-    "stairs": "schody",
-    "parking": "parkoviště (Parkplatz)",
+    "roads": "vozovky (Lipsko DSGK)",
+    "sidewalks": "pěší zóny a náměstí (Platz, Fußgängerzone; v Lipsku i chodníky DSGK)",
+    "stairs": "schody (Lipsko DSGK)",
+    "parking": "parkoviště (Parkplatz; v Lipsku i stání DSGK)",
     "small_paved": "ostatní zpevněné plochy",
     "green": "zeleň",
     "other_cover": "jiný kryt",
@@ -327,6 +341,8 @@ def prepare(
     streets = sorted_data.pop("streets")
     if write_streets(work_dir, streets) is not None and log:
         log(f"ALKIS uliční prostor (Straßenverkehr): {len(streets)} ploch – sprint ho kreslí jako ulici v celé šířce")
+    if state.code == "DE-SN":
+        sorted_data = _with_leipzig(sorted_data, bbox_wgs84, bounds, CRS_LABEL, log)
     try:
         sorted_data = node_coverage(sorted_data)
     except Exception as exc:  # bez uzlování se kreslí z původních ploch

@@ -1217,5 +1217,7 @@
   "api.source.fr_bdtopo.label": "BD TOPO (IGN) – budovy a silnice mimo Paříž",
   "api.source.fr_bdtopo.impact": "Budovy a vozovky mimo Paříž se nakreslí jen z OSM.",
   "api.source.fi_espoo.label": "InfStreet a budovy Espoo (kartat.espoo.fi)",
-  "api.source.fi_espoo.impact": "Budovy, vozovky a chodníky v Espoo se nakreslí jen z OSM."
+  "api.source.fi_espoo.impact": "Budovy, vozovky a chodníky v Espoo se nakreslí jen z OSM.",
+  "api.source.de_leipzig.label": "Stadtgrundkarte Lipsko (geodaten.leipzig.de)",
+  "api.source.de_leipzig.impact": "Vozovky, chodníky, stání, schody a ploty v Lipsku se nakreslí jen z ALKIS a OSM."
 }

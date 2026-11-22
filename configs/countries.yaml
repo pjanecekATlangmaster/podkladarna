@@ -271,15 +271,16 @@ DE-SN:
   boundary: countries/de_sn.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
   view: [50.17, 11.87, 51.69, 15.05]
   elevation: de_sn          # DGM1 + DOM1 (ALS) ze ZIPů GeoSN po 2 km, cache na serveru (app/pipeline/reference_de_states.py)
-  technical_map: de_alkis   # ALKIS vereinfacht z WFS země: budovy, uliční prostor (sprint 501 v celé šířce), náměstí, parkoviště
+  technical_map: de_alkis   # ALKIS vereinfacht z WFS země: budovy, uliční prostor (sprint 501 v celé šířce), náměstí, parkoviště; v Lipsku navíc Stadtgrundkarte (vozovky, chodníky, stání, schody, ploty)
   cz_sources: false
   # Licence: Datenlizenz Deutschland – Namensnennung 2.0, Quellenvermerk „GeoSN“, vzor „Quelle: GeoSN, dl-de/by-2-0“
   # (Allgemeine Nutzungsbedingungen GeoSN, ověřeno 2026-11-19).
-  citation: "Base map: Omapic · Quelle: GeoSN · OSM, [year]"
+  citation: "Base map: Omapic · Quelle: GeoSN · Stadt Leipzig · OSM, [year]"
   attribution:
     - "Elevation: DGM1 and DOM1, Quelle: GeoSN, dl-de/by-2-0 (Daten geändert)."
     - "Orthophoto DOP20: Quelle: GeoSN, dl-de/by-2-0."
     - "ALKIS (buildings, street space, squares, car parks): Quelle: GeoSN, dl-de/by-2-0 (Daten geändert)."
+    - "Digitale Stadtgrundkarte (Leipzig only: carriageways, footways, parking, stairs, fences): Stadt Leipzig, Amt für Geoinformation und Bodenordnung, dl-de/by-2-0 (Daten geändert)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 DE-HE:
   name: {cs: Německo – Hesensko, en: Germany – Hesse, de: Deutschland – Hessen}
