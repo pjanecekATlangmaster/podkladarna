@@ -174,6 +174,7 @@ docker compose -f docker-compose.nas-ab.yml logs --tail=100 podkladarna
 - Při každé změně kódu včetně oprav chyb zvyš verzi (patch, např. `2.8.1` → `2.8.2`). Čistě dokumentační úpravy (CLAUDE.md, DEV.md, DEPLOY.md apod.) verzi nezvyšují.
 - U velké změny zvyš minor o jedna a patch vynuluj (`2.8.2` → `2.9.0`). Zda jde o velkou změnu, posuzuje agent odhadem (nová funkce, změna výstupu pipeline, výrazné zrychlení apod.).
 - Box „Co je nového" na webu: `configs/whats_new.yaml` je generovaný CI z git logu — neupravuj ho ručně. Ruční milníky jsou v `configs/whats_new_milestones.yaml`; zapisuj sem jen významné změny z posledního období, ne drobnosti.
+- PR s viditelnou změnou pro uživatele (nová země nebo zdroj, změna kresby, nová volba) přidá do `configs/whats_new_milestones.yaml` záznam „Verze X.Y – …“ česky i anglicky (`title_en`) se `scope`: `cz` jen česká doména (DTM, ZABAGED, kresba jen v Česku), `intl` jen Omapic (země, změny jen mimo Česko), bez scope obě. Krátce, srozumitelně pro uživatele, bez interních detailů. Související změny slučuj do jednoho záznamu. Test `test_milestones_file_is_valid_and_current` selže, když nejnovější záznam zaostává o víc než 8 minor verzí.
 
 ## Ostré prostředí
 

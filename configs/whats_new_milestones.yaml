@@ -4,7 +4,47 @@
 # title_en: anglický nadpis pro anglický web (bez něj se milník v angličtině nezobrazí).
 # scope: cz = jen česká verze (nabízí jen Česko), intl = jen mezinárodní doména; bez scope všude.
 #   Texty bez názvu služby a bez odkazů na repozitář, musí platit pod oběma značkami (Petr 2026-11-20).
+# Nadpis začíná „Verze X.Y – “ (anglicky „Version X.Y – “). PR s viditelnou změnou pro uživatele přidá záznam
+#   (Petr 2026-11-23); test_whats_new.py hlídá, že nejnovější záznam není o víc než 8 minor verzí za APP_VERSION.
 milestones:
+  - date: "2026-11-23"
+    scope: intl
+    title: "Verze 4.28 – mimo Česko: pozemek obehnaný zdí se vyplní olivou jako oplocený (i ve sprintu); vrstevnice uvnitř jezer, řek a moře se nekreslí a končí na břehu; sprint nekreslí zdi a ploty uvnitř bloku budov"
+    title_en: "Version 4.28 – outside Czechia: land enclosed by walls is filled olive like a fenced plot (sprint too); contours inside lakes, rivers and the sea are not drawn and end at the shore; sprint maps drop walls and fences inside building blocks"
+  - date: "2026-11-23"
+    title: "Verze 4.27 – les a MTBO: cesta přes most se kreslí symbolem navazující cesty a most má po obou stranách hrany 512 (i lávka); chodník na silničním mostě se nekreslí jako další čára vedle silnice"
+    title_en: "Version 4.27 – forest and MTBO: a path over a bridge keeps the symbol of the adjoining path and the bridge gets edges 512 on both sides (footbridges too); a sidewalk on a road bridge is no longer drawn as an extra line beside the road"
+  - date: "2026-11-23"
+    scope: cz
+    title: "Verze 4.26 – železnice v tunelu ze ZABAGED se už nekreslí jako trať na povrchu, ani když OSM tunel chybí nebo vede jinudy"
+    title_en: "Version 4.26 – railway tunnels from ZABAGED are no longer drawn as a track on the surface, even where the OSM tunnel is missing or runs elsewhere"
+  - date: "2026-11-23"
+    scope: intl
+    title: "Verze 4.26 – Polsko: budovy, silnice, zdi a ploty z topografické databáze BDOT10k; při výpadku výškové služby se výšky vezmou ze záložních souborů GUGiK"
+    title_en: "Version 4.26 – Poland: buildings, roads, walls and fences from the BDOT10k topographic database; when the elevation service is down, heights come from the GUGiK backup files"
+  - date: "2026-11-22"
+    scope: intl
+    title: "Verze 4.25 – nové oblasti (beta): USA, Nový Zéland, Portugalsko, Lichtenštejnsko, Wales, Šlesvicko-Holštýnsko a ve Španělsku Baskicko, Navarra, Katalánsko, Andalusie, Valencie a Kastilie a León; Slovinsko z novějšího LiDARu 2023–2025"
+    title_en: "Version 4.25 – new areas (beta): USA, New Zealand, Portugal, Liechtenstein, Wales, Schleswig-Holstein and in Spain the Basque Country, Navarre, Catalonia, Andalusia, Valencia and Castile and León; Slovenia from newer 2023–2025 LiDAR"
+  - date: "2026-11-22"
+    scope: intl
+    title: "Verze 4.21 – budovy, ulice, náměstí a parkoviště z velkoměřítkových map měst a zemí: Německo (ALKIS v osmi spolkových zemích, v Lipsku i chodníky a ploty), Francie (BD TOPO), Espoo, New York a Washington DC"
+    title_en: "Version 4.21 – buildings, streets, squares and car parks from large-scale city and national maps: Germany (ALKIS in eight federal states, Leipzig with sidewalks and fences), France (BD TOPO), Espoo, New York and Washington DC"
+  - date: "2026-11-22"
+    title: "Verze 4.16 – les a MTBO: v ZIPu vedle plné mapy i verze bez zeleně, malých luk a pasek z výšek a bez drobných tvarů (srázy, skály, balvany, kupky) pro mapaře, kteří je domalují sami (soubor *_novege.omap)"
+    title_en: "Version 4.16 – forest and MTBO: next to the full map the ZIP has a version without green, small clearings and meadows from elevation data and without small landforms (cliffs, rocks, boulders, knolls) for mappers who draw them themselves (file *_novege.omap)"
+  - date: "2026-11-22"
+    scope: intl
+    title: "Verze 4.15 – mimo Česko spolehlivější zeleň v lese: pojistka proti celozelenému lesu, u zimních dat jen ve stálezeleném porostu, u povrchu ze snímků (Polsko, Bavorsko) z podílu nízkého patra; upozornění na stará výšková data i u hotové mapy"
+    title_en: "Version 4.15 – more reliable forest green outside Czechia: a safeguard against all-green forest, with winter data only in evergreen stands, with surfaces from aerial images (Poland, Bavaria) from the share of low vegetation; a note on old elevation data also on the finished map"
+  - date: "2026-11-21"
+    scope: intl
+    title: "Verze 4.11 – anglický ZIP má anglické názvy souborů a složek"
+    title_en: "Version 4.11 – the English ZIP uses English file and folder names"
+  - date: "2026-11-20"
+    scope: intl
+    title: "Verze 4.2 – mimo Česko: při potvrzeném výpadku zdroje výšek se mapa nezaloží a nezapočítá do limitů; tlačítko „Zkusit zdroje znovu“"
+    title_en: "Version 4.2 – outside Czechia: when an elevation source is confirmed down, the map is not started and does not count towards your limits; a “Check sources again” button"
   - date: "2026-11-20"
     title: "Verze 4.0 – soukromé mapy nejvýš 8 za 24 hodin na jeden e-mail; mezivýsledky hotové mapy se mažou 3 hodiny po doběhnutí, ZIP ke stažení zůstává jako dřív"
     title_en: "Version 4.0 – private maps limited to 8 per 24 hours per e-mail address; intermediate files of a finished map are deleted 3 hours after it completes, the ZIP stays available as before"
