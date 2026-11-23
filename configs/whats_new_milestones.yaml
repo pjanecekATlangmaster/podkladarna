@@ -13,8 +13,8 @@ milestones:
     title_en: "Version 4.29 – the technical log of a map build is shown in English on the English site"
   - date: "2026-11-23"
     scope: intl
-    title: "Verze 4.28 – mimo Česko: pozemek obehnaný zdí se vyplní olivou jako oplocený (i ve sprintu); vrstevnice uvnitř jezer, řek a moře se nekreslí a končí na břehu; sprint nekreslí zdi a ploty uvnitř bloku budov"
-    title_en: "Version 4.28 – outside Czechia: land enclosed by walls is filled olive like a fenced plot (sprint too); contours inside lakes, rivers and the sea are not drawn and end at the shore; sprint maps drop walls and fences inside building blocks"
+    title: "Verze 4.28 – mimo Česko: pozemek obehnaný zdí se vyplní olivou jako oplocený (i ve sprintu); vrstevnice uvnitř jezer, řek a moře se nekreslí a končí na břehu; sprint nekreslí zdi a ploty uvnitř bloku budov; les a MTBO: drobné keře v otevřeném terénu už nevycházejí jako bílé tečky lesa"
+    title_en: "Version 4.28 – outside Czechia: land enclosed by walls is filled olive like a fenced plot (sprint too); contours inside lakes, rivers and the sea are not drawn and end at the shore; sprint maps drop walls and fences inside building blocks; forest and MTBO: small bushes in open land no longer show up as white specks of forest"
   - date: "2026-11-23"
     title: "Verze 4.27 – les a MTBO: cesta přes most se kreslí symbolem navazující cesty a most má po obou stranách hrany 512 (i lávka); chodník na silničním mostě se nekreslí jako další čára vedle silnice"
     title_en: "Version 4.27 – forest and MTBO: a path over a bridge keeps the symbol of the adjoining path and the bridge gets edges 512 on both sides (footbridges too); a sidewalk on a road bridge is no longer drawn as an extra line beside the road"
