@@ -179,3 +179,31 @@ def test_milestone_scope_by_site(monkeypatch, tmp_path, intl, lang, shown):
     finally:
         i18n._INTL_BRAND.reset(token)
     assert {m["title"].split()[-1].lower() for m in payload["milestones"]} == shown
+
+
+MILESTONE_MAX_MINOR_LAG = 8
+
+
+def test_milestones_file_is_valid_and_current():
+    """Ruční novinky: dvojjazyčné, platný ``scope`` a nejnovější záznam drží krok s ``APP_VERSION`` (Petr 2026-11-23)."""
+    import re
+
+    import yaml
+
+    from app.settings import APP_VERSION, CONFIG_DIR
+
+    data = yaml.safe_load((CONFIG_DIR / "whats_new_milestones.yaml").read_text(encoding="utf-8"))
+    versions = []
+    for item in data["milestones"]:
+        assert item.get("date") and item.get("title") and item.get("title_en"), item
+        assert str(item.get("scope") or "") in {"", "cz", "intl"}, item
+        m = re.match(r"Verze (\d+)\.(\d+) – ", item["title"])
+        if m:
+            assert item["title_en"].startswith(f"Version {m[1]}.{m[2]} – "), item
+            versions.append((int(m[1]), int(m[2])))
+    major, minor = (int(x) for x in APP_VERSION.split(".")[:2])
+    newest = max(versions)
+    assert newest[0] == major and minor - newest[1] <= MILESTONE_MAX_MINOR_LAG, (
+        f"Nejnovější novinka je verze {newest[0]}.{newest[1]}, aplikace {APP_VERSION}: "
+        "doplň záznam do configs/whats_new_milestones.yaml (viz CLAUDE.md „Verze a Novinky“)."
+    )

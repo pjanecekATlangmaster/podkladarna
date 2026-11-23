@@ -514,6 +514,10 @@ RULES: tuple[tuple[str, str], ...] = (
     ("{f|p}: {m} MB", "{f}: {m} MB"),
 )
 
+# Delší řádky (traceback, výpis nástroje) se nepřekládají: šablony s několika ``.+?`` mají na nich
+# kvadratickou cenu (15 000 znaků ≈ 6 s) a takové řádky stejně nejsou česká hláška pro uživatele.
+MAX_LINE_CHARS = 1000
+
 _PREFIX_RE = re.compile(r"^(\s*)((?:\[[A-Za-zÀ-ž][^\]\n]{0,23}\] )?)((?:- |⚠ )?)(.*)$", re.S)
 _FIELD_RE = re.compile(r"\{(\w+)(?:\|(\w+))?\}")
 _CZ_CHARS = re.compile(r"[ěščřžýáíéůúňťďĚŠČŘŽÝÁÍÉŮÚŇŤĎ]")
@@ -735,7 +739,7 @@ def translate_body(body: str) -> str | None:
 @lru_cache(maxsize=8192)
 def translate_line(line: str, lang: str) -> str:
     """Řádek logu v jazyce ``lang``; čeština a nepřeložitelné řádky beze změny."""
-    if lang == "cs" or not line or not line.strip():
+    if lang == "cs" or not line or not line.strip() or len(line) > MAX_LINE_CHARS:
         return line
     m = _PREFIX_RE.match(line)
     if m is None:

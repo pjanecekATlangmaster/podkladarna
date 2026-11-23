@@ -146,3 +146,14 @@ def test_api_log_follows_page_language(client):
 
 def test_rules_compile_with_unique_fields():
     assert len(log_i18n._compiled()) == len(log_i18n.RULES)
+
+
+def test_long_lines_are_not_translated_quickly():
+    """Dlouhý řádek (traceback) zůstane beze změny a nestojí sekundy (šablony s více ``.+?``)."""
+    import time
+
+    line = "x: " * 5000
+    translate_line.cache_clear()
+    start = time.monotonic()
+    assert translate_line(line, "en") == line
+    assert time.monotonic() - start < 0.5
