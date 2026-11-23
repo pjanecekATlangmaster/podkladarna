@@ -50,6 +50,7 @@ UNDER_SHARE = 0.15
 UNDER_TOP_WINDOW_M = 15.0  # ``green_low_ratio``: nízké patro jen pod tímto podílem nejvyšší koruny v okně (PT borovice)
 LASER_FOREST_MAX = 0.55  # pojistka: víc zeleně ze zrnitosti v lesním okolí → režim understory
 LASER_MIN_FOREST = 0.20  # pojistka jen při dost velkém lese ve výřezu (malý vzorek rozhodnutí nenese)
+OPEN_WINDOW_M = 15.0  # keř vypadlý z masky zeleně: v otevřeném okolí (louka 401 / 403) → otevřený terén, ne bílý les
 
 WHITE, LIGHT, MID, DENSE = 0, 2, 3, 4  # třídy rastru porostu (vegetation_density / vegetation_chm)
 
@@ -112,6 +113,24 @@ def understory_mask(chm, cell_m: float, under_share: float | None = None, low_ra
     return (share >= (under_share or UNDER_SHARE)) & forest
 
 
+def _restore_open(out, cl, green, cell_m: float):
+    """Zeleň z výšky porostu, kterou čištění masky zahodilo (drobný keř pod ``MIN_AREA_M2``), zůstala bílá: v poli
+    a garigue z ní byly tisíce bílých teček lesa (Conques-sur-Orbiel 2026-11-23). V převážně otevřeném okolí
+    (okno ``OPEN_WINDOW_M``) dostane převládající otevřenou třídu (401 / 403), v lese zůstane bílá."""
+    from scipy import ndimage as ndi
+
+    lost = green & (out == WHITE)
+    if not lost.any():
+        return out
+    k = _odd(OPEN_WINDOW_M / cell_m)
+    s401 = ndi.uniform_filter((cl == 1).astype(np.float32), k)
+    s403 = ndi.uniform_filter((cl == 5).astype(np.float32), k)
+    is_open = lost & (s401 + s403 >= 0.5)
+    out[is_open & (s401 >= s403)] = 1
+    out[is_open & (s401 < s403)] = 5
+    return out
+
+
 def _shares(out):
     return {code: float(np.count_nonzero(out == v)) / out.size * 100 for code, v in (("406", LIGHT), ("408", MID), ("410", DENSE))}
 
@@ -146,6 +165,7 @@ def add_texture_green(classified, chm, cell_m: float, mode: str = "laser", info:
         out[g & (out == WHITE)] = LIGHT
         out[cl == MID] = MID
         out[cl == DENSE] = DENSE
+        out = _restore_open(out, cl, green, cell_m)
         return out, _shares(out)
     green = np.isin(cl, (LIGHT, MID, DENSE))
     young = young_stand_to_green(np.zeros_like(cl), chm, cell_m, DEFAULT_PARAMS) == MID
@@ -162,6 +182,7 @@ def add_texture_green(classified, chm, cell_m: float, mode: str = "laser", info:
     out[g & (out == WHITE)] = LIGHT
     out[both & g] = MID
     out[cl == DENSE] = DENSE
+    out = _restore_open(out, cl, green, cell_m)
     n_forest = int(np.count_nonzero(forest))
     if n_forest >= LASER_MIN_FOREST * forest.size:
         share = float(np.count_nonzero(forest & np.isin(out, (LIGHT, MID, DENSE)))) / n_forest
