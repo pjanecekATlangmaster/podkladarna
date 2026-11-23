@@ -89,6 +89,32 @@ def test_sprint_merge_buildings(tmp_path, rects, path, holes, expected_objects, 
         assert not _objects_of(out, "520")  # oliva v zalitém dvoře se ořízne pryč
 
 
+@pytest.mark.parametrize(
+    "country, wall, path, expected",
+    [
+        ("PL", [(12, 13), (14, 13)], None, 0),  # zeď v zalitém dvoře mimo Česko pryč
+        ("PL", [(2, 15), (28, 15)], None, 0),  # dělicí zeď uvnitř bloku pryč
+        ("PL", [(40, 0), (40, 30)], None, 1),  # zeď mimo blok zůstane
+        ("PL", [(0, -0.3), (30, -0.3)], None, 1),  # zeď podél obrysu bloku zůstane
+        ("PL", [(12, 11), (12, 15)], [(8, 13), (18, 13)], 1),  # zeď v otevřeném dvoře s cestou zůstane
+        ("CZ", [(12, 13), (14, 13)], None, 1),  # Česko beze změny
+    ],
+)
+def test_sprint_merge_buildings_block_walls(tmp_path, monkeypatch, country, wall, path, expected):
+    from app.pipeline.country_profile import JOB_COUNTRY_ENV
+
+    monkeypatch.setenv(JOB_COUNTRY_ENV, country)
+    sym = symbol_index_for_code(PRESET, SCALE, "521")
+    objs = [
+        _area_object_with_holes(sym, [_to_map(_rect(0, 0, 30, 30)), _to_map(_rect(10, 10, 16, 16))]),
+        _path_object(symbol_index_for_code(PRESET, SCALE, "513.2"), _to_map(wall)),
+    ]
+    if path:
+        objs.append(_path_object(symbol_index_for_code(PRESET, SCALE, "506"), _to_map(path)))
+    out = sprint_merge_buildings(_part(*objs), tmp_path, **KW)
+    assert len(_objects_of(out, "513.2")) == expected
+
+
 def test_sprint_merge_buildings_forest_unchanged(tmp_path):
     parts = _part(_area_object_with_holes(symbol_index_for_code("forest_10000", 10000, "521"), [_to_map(_rect(0, 0, 10, 10))]))
     assert sprint_merge_buildings(parts, tmp_path, **dict(KW, preset_id="forest_10000", scale=10000)) is parts

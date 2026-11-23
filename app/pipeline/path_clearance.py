@@ -1519,6 +1519,13 @@ SPRINT_BUILDING_HOLE_FILL_MAJORS = frozenset({401, 402, 403, 404, 501, 520, 527}
 SPRINT_COURTYARD_WALK_SHARE = 0.3
 # Část s předem zalitými dvory budov (OSM / DTM import, ``… dvory (budova)``) – nejsou to skutečné budovy.
 _COURTYARD_PART_MARK = "dvory ("
+# Mimo Česko: zeď / plot (513, 516, 518) ležící z ≥ 80 % délky uvnitř sloučeného bloku budov dál než 1 m od jeho obrysu
+# (zalitý dvůr, dělicí zeď vnitrobloku) se nekreslí – na šedé ploše budovy jen překáží (Krakov BDOT10k, 2026-11-23).
+# Zdi v otevřeném dvoře s cestou a podél obrysu bloku zůstávají. Česko beze změny (``False`` = vypnuto i v zahraničí).
+SPRINT_BLOCK_WALLS_DROP = True
+SPRINT_BLOCK_WALL_MAJORS = frozenset({513, 516, 518})
+SPRINT_BLOCK_WALL_INNER_M = 1.0
+SPRINT_BLOCK_WALL_SHARE = 0.8
 
 
 def _courtyard_access(work_dir: Path, *, ref_x: float, ref_y: float, scale: int, grivation_deg: float):
@@ -1597,6 +1604,12 @@ def sprint_merge_buildings(
     }
     if not building_ids:
         return parts
+    wall_ids: set[int] = set()
+    if SPRINT_BLOCK_WALLS_DROP:
+        from app.pipeline.country_profile import process_uses_cz_sources
+
+        if not process_uses_cz_sources():
+            wall_ids = {i for i, (major, kind) in info.items() if kind == "line" and major in SPRINT_BLOCK_WALL_MAJORS}
     try:
         polys = []
         real = []  # budovy bez předem zalitých dvorů (části „… dvory (budova)“)
@@ -1693,11 +1706,36 @@ def sprint_merge_buildings(
             for p in _rounded_pieces(g.simplify(EPS))
         ]
         filled_union = unary_union(filled) if filled else None
+        wall_zone = None
+        if wall_ids and merged:
+            wall_zone = unary_union(merged).buffer(-SPRINT_BLOCK_WALL_INNER_M * 1e6 / scale)
+            if wall_zone.is_empty:
+                wall_zone = None
+            else:
+                import shapely
+
+                shapely.prepare(wall_zone)  # rychlý test intersects pro každou zeď
     except Exception:  # kosmetika, mapa se kreslí i bez ní
         return parts
     if not new_objs:
         return parts
     placed = False
+
+    def wall_inside_block(match: re.Match) -> bool:
+        """Zeď / plot z ≥ 80 % délky uvnitř bloku budov (dál než 1 m od obrysu)."""
+        cm = _COORDS_RE.search(match.group(4))
+        if wall_zone is None or not cm:
+            return False
+        try:
+            pts = _flatten(_parse_coords(cm.group(1)))
+            if len(pts) < 2:
+                return False
+            line = LineString(pts)
+            if line.length <= 0 or not line.intersects(wall_zone):
+                return False
+            return line.intersection(wall_zone).length >= SPRINT_BLOCK_WALL_SHARE * line.length
+        except Exception:
+            return False
     fill_ids = {i for i, (major, kind) in info.items() if kind == "area" and major in SPRINT_BUILDING_HOLE_FILL_MAJORS}
 
     def cut_fill(match: re.Match) -> str:
@@ -1727,6 +1765,8 @@ def sprint_merge_buildings(
         sym = int(match.group(3))
         if sym in fill_ids:
             return cut_fill(match)
+        if sym in wall_ids and wall_inside_block(match):
+            return ""
         if sym not in building_ids:
             return match.group(0)
         if placed:
