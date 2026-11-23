@@ -2760,11 +2760,10 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
         return osm_oom_code(path_draw_highway(raw), preset_id)
 
     if is_bridge_highway(raw):
-        # Sprint a MTBO: stejná značka jako navazující cesta (silnice na mostě je plynulá silnice, vozová cesta
-        # vozová cesta; Harrachov, Petr 2026-11-20). Les: silnice na mostě jako silnice, ostatní 512.
-        if sprint or mtbo or is_road_bridge_highway(raw):
-            return osm_oom_code(path_draw_highway(raw), preset_id)
-        return "512"
+        # Stejná značka jako navazující cesta (silnice na mostě je plynulá silnice, vozová cesta vozová cesta;
+        # Harrachov, Petr 2026-11-20). Les a MTBO kreslí most hranami 512 po obou stranách čáry
+        # (``path_clearance.bridge_edges``, Petr 2026-11-23); dřív les kreslil pěší most jednou čarou 512 po ose.
+        return osm_oom_code(path_draw_highway(raw), preset_id)
 
     hw = path_draw_highway(raw)
     if raw.split(":", 1)[-1] == PATH_MAJOR_HIGHWAY and not sprint and not mtbo:
@@ -6764,19 +6763,23 @@ def sidewalk_dedup_bases(preset_id: str) -> frozenset[str]:
 
 
 def is_sidewalk_beside_road(
-    highway: str, coords: list, road_zone, bases: frozenset[str] = SIDEWALK_DEDUP_BASES
+    highway: str, coords: list, road_zone, bases: frozenset[str] = SIDEWALK_DEDUP_BASES, bridge_zone=None
 ) -> bool:
-    """Chodník (na povrchu) souběžný se silnicí: aspoň ``SIDEWALK_ROAD_SHARE`` délky v pásu kolem silnice."""
-    if road_zone is None or len(coords) < 2:
-        return False
-    if (
-        path_draw_highway(highway) not in bases
-        or is_bridge_highway(highway)
-        or is_tunnel_highway(highway)
-    ):
+    """Chodník (na povrchu) souběžný se silnicí: aspoň ``SIDEWALK_ROAD_SHARE`` délky v pásu kolem silnice.
+
+    Chodník na mostě se posuzuje jen proti pásu silnic na mostě (``bridge_zone``, ``road_bridge_zone``): chodník
+    silničního mostu (way/1157857315 u way/4878104) se zahodí, lávka přes silnici nebo vedle ní zůstane."""
+    if len(coords) < 2 or path_draw_highway(highway) not in bases or is_tunnel_highway(highway):
         return False
     from shapely.geometry import LineString
 
+    if is_bridge_highway(highway):
+        if bridge_zone is None or is_road_bridge_highway(highway):
+            return False
+        line = LineString(coords)
+        return line.length > 0 and line.intersection(bridge_zone).length >= SIDEWALK_ROAD_SHARE * line.length
+    if road_zone is None:
+        return False
     line = LineString(coords)
     local = zone_index.local_zone(road_zone, line, 1.0)  # pás silnic celé mapy jen v okolí čáry
     if line.length <= 0 or line.intersection(local).length < SIDEWALK_ROAD_SHARE * line.length:
@@ -8282,6 +8285,16 @@ def build_osm_path_parts(
             road_widths=road_widths,
         )
     )
+    # Les a MTBO: chodník na silničním mostě se nekreslí (most kreslí silnice s hranami 512 po obou stranách).
+    bridge_zone = None
+    if road_zone is not None:
+        _bridge_roads = [
+            f for f in road_feats if is_road_bridge_highway(str((f.get("properties") or {}).get("highway") or ""))
+        ]
+        if _bridge_roads:
+            bridge_zone = sidewalk_road_zone_geometry(
+                _bridge_roads, None, preset_id=preset_id, scale=scale, road_widths=road_widths
+            )
     if dtm_area_preset(preset_id):
         # Les a MTBO: chodník / pěšina podél koridoru nebo plochy chodníku z DTM by splynula s jejím okrajem;
         # a podél silnice, která je jen v DTM (v OSM chybí, kreslí ji ZABAGED), se zahodí jako u silnic z OSM (Petr 2026-10-26).
@@ -8419,7 +8432,7 @@ def build_osm_path_parts(
                 _ln = [(float(x), float(y)) for x, y, *_ in _c]
                 _rz, _bases = _dedup_args(_c)
                 if _rz is not None:
-                    if is_sidewalk_beside_road(_hw, _c, _rz, _bases):
+                    if is_sidewalk_beside_road(_hw, _c, _rz, _bases, bridge_zone):
                         continue
                     _bz = sidewalk_parallel_zone(_hw, _c, _rz, _bases)
                     if _bz is not None:
@@ -8471,7 +8484,7 @@ def build_osm_path_parts(
         beside_zone = None
         _rz, _bases = _dedup_args(coords)
         if _rz is not None:
-            if is_sidewalk_beside_road(hw, coords, _rz, _bases):
+            if is_sidewalk_beside_road(hw, coords, _rz, _bases, bridge_zone):
                 continue
             beside_zone = sidewalk_parallel_zone(hw, coords, _rz, _bases)
         # Symbol u schodů se volí až podle délky dílku (les/MTBO krátké → pěšina).

@@ -536,3 +536,74 @@ def test_edge_lines_inside_buildings_clipped_only_for_us_planimetrics(tmp_path, 
     out = clip_edges_in_buildings(parts, tmp_path, preset_id="sprint_2m", scale=4000)
     assert _line_lengths_m(out, "501.100") == pytest.approx(kept_m, abs=0.1)
     assert building.strip() in out[0].objects_xml  # budova se nemění
+
+
+def _bridge_work(tmp_path, bridges):
+    (tmp_path / "osm_paths").mkdir(exist_ok=True)
+    feats = [
+        {"type": "Feature", "properties": {"highway": hw}, "geometry": {"type": "LineString", "coordinates": [list(c) for c in cs]}}
+        for hw, cs in bridges
+    ]
+    (tmp_path / "osm_paths" / "paths_bridges.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8"
+    )
+    return tmp_path
+
+
+@pytest.mark.parametrize(
+    "preset, highway, length_m, edges",
+    [
+        ("forest_10000", "bridge:road_2", 40.0, 2),  # silnice na mostě: hrana po obou stranách (way/4878104)
+        ("mtbo_10000", "bridge:road_2", 40.0, 2),
+        ("forest_10000", "bridge:footway", 20.0, 2),  # lávka na cestě
+        ("forest_10000", "bridge:footway", 6.0, 0),  # malý most (pod 1 mm mapy) kreslí jen čára
+        ("forest_10000", "tunnel:road_2", 40.0, 0),  # tunel hrany nemá
+        ("sprint_4000", "bridge:road_2", 40.0, 0),  # sprint: mosty řeší víceúrovňová kresba
+    ],
+)
+def test_bridge_edges_on_both_sides_with_ends_outward(tmp_path, preset, highway, length_m, edges):
+    from app.pipeline.oom_import import _path_object
+    from app.pipeline.osm_paths import osm_oom_code, path_draw_highway
+    from app.pipeline.path_clearance import BRIDGE_EDGE_CODE, BRIDGE_EDGE_PART_NAME, bridge_edges
+
+    scale = 4000 if preset.startswith("sprint") else SCALE
+    kw = dict(preset_id=preset, scale=scale, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    half = length_m / 2.0
+    work = _bridge_work(tmp_path, [(highway, [(0.0, -half), (0.0, half)])])
+    code = osm_oom_code(path_draw_highway(highway), preset)
+    to_map = lambda pts: [projected_to_map_coord(x, y, ref_x=0.0, ref_y=0.0, scale=scale, grivation_deg=0.0) for x, y in pts]  # noqa: E731
+    line = _path_object(symbol_index_for_code(preset, scale, code), to_map([(0.0, -100.0), (0.0, 100.0)]))
+    parts = [OomObjectPart(name="OSM cesty", objects_xml=line, count=1)]
+    out = bridge_edges(parts, work, **kw)
+    added = [p for p in out if p.name == BRIDGE_EDGE_PART_NAME]
+    assert sum(p.count for p in added) == edges
+    if not edges:
+        assert _objects(out) == _objects(parts)
+        return
+    edge_idx = symbol_index_for_code(preset, scale, BRIDGE_EDGE_CODE)
+    sides = []
+    for obj in _objects(added):
+        assert f'symbol="{edge_idx}"' in obj
+        pts = _parse_coords(_COORDS_RE.search(obj).group(1))
+        xs = [x for x, _y, _f in pts]
+        side = 1 if min(xs) > 0 else -1 if max(xs) < 0 else 0
+        assert side != 0  # celá hrana na jedné straně čáry, mimo její kresbu
+        assert min(abs(x) for x in xs) / 1000.0 > symbol_width_mm(preset, scale, code) / 2.0
+        (x0, y0, _), (x1, y1, _) = pts[0], pts[-1]
+        assert math.hypot(x1 - x0, y1 - y0) / 1e6 * scale == pytest.approx(length_m, abs=0.5)
+        # zahnuté konce 512 jsou vlevo od směru (osa y mapy dolů): normála (dy, -dx) míří od čáry ven
+        assert (y1 - y0) * side > 0
+        sides.append(side)
+    assert sorted(sides) == [-1, 1]
+
+
+def test_bridge_edges_skip_bridge_without_drawn_line(tmp_path):
+    # chodník mostu zahozený dedupem nemá čáru → ani hrany
+    from app.pipeline.path_clearance import bridge_edges
+
+    work = _bridge_work(tmp_path, [("bridge:sidewalk", [(30.0, -20.0), (30.0, 20.0)])])
+    from app.pipeline.oom_import import _path_object
+
+    road = _path_object(symbol_index_for_code(PRESET, SCALE, "502"), _to_map([(0.0, -100.0), (0.0, 100.0)]))
+    parts = [OomObjectPart(name="OSM cesty", objects_xml=road, count=1)]
+    assert _objects(bridge_edges(parts, work, preset_id=PRESET, scale=SCALE, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)) == _objects(parts)

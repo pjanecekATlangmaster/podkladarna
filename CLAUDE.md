@@ -562,6 +562,11 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   406–410 z výšek, bez 401 ∪ 403 z výšek / ortofota v souvislých plochách pod `CLEAN_OPEN_MIN_M2` (0,3 ha) a bez části z DEM
   (srázy, skály, balvany, kupky, `CLEAN_DROP_DEM`). Data OSM / ZABAGED / DTM a vrstevnice zůstávají. Plná nese hlavní jméno
   (`*-les.omap`, `.ocd`), čistá `*-les_novege.omap` (od 4.16.2, Petr 2026-11-22; dřív čistá hlavní a plná `_full`); náhled webu a ukázky z plné. Sprint beze změny.
+- **Hrany mostů 512 v lese a MTBO** (4.27.0, Petr 2026-11-23, Chuchle way/4878104, `path_clearance.bridge_edges`): čára na OSM
+  mostě (i lávka v lese, dřív jedna čára 512 po ose) se kreslí symbolem navazující cesty a most dostane hrany 512 po obou stranách
+  (okraj kresby + `BRIDGE_EDGE_GAP_MM`), zahnuté konce ven; navazující mosty jeden pás, krátká boční větev rozvětvení
+  (`BRIDGE_EDGE_BRANCH_MM`) hrany nemá, most kratší než `BRIDGE_EDGE_MIN_MM` (1 mm) jen čárou. Chodník silničního mostu se nekreslí
+  (`is_sidewalk_beside_road(..., bridge_zone)`; MTBO ho kreslilo pěšinou vedle silnice). Tunely a sprint beze změny.
 - **Vrstevnice ve vodě mimo Česko** (4.26.2, Petr 2026-11-23, Francie Truyère: dno nádrže z DMR): vrstevnice 101–103 uvnitř OSM vodní
   plochy (`water_body`, i moře a řeky jako plocha) se nekreslí, přes břeh končí na břehu, ořezaný zbytek pod min. délkou vrstevnice
   (`contour_line_params`) pryč, ostrov zůstává, spádnice na uzavřené vrstevnici zasahující do vody ne (`contours_gdal.contour_water_mask`,

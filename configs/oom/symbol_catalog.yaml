@@ -2525,7 +2525,7 @@ mtbo:
     review: false
   - ocad_code: "512.0"
     cz_name: "Most / tunel"
-    generator_codes: []
+    generator_codes: ["512"]
     geom: line
     review: false
   - ocad_code: "512.1"
