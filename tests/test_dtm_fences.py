@@ -722,3 +722,40 @@ def test_sprint_cuts_fences_across_dtm_sidewalk():
     fills = di._fills_outside_sidewalks([fill], sidewalk)
     assert sum(Polygon(r[0], r[1:]).area for r in fills) == pytest.approx(600 - 30, abs=0.5)
     assert di._fills_outside_sidewalks([fill], None) == [[fill]]
+
+
+@pytest.mark.parametrize(
+    "country, kind, barrier, wall, filled, inside",
+    [
+        ("ES-CT", "wall", "wall", None, True, None),  # zeď kolem zahrady oplocuje jako plot
+        ("ES-CT", "wall", "wall", None, False, "pitch"),  # sprint: oplocené sportoviště je přístupné
+        ("ES-CT", "fence", None, None, False, "parking"),
+        ("ES-CT", "fence", None, None, True, "garden"),
+        ("ES-CT", "wall", "wall", "dry_stone", True, None),
+        ("ES-CT", "fence", None, None, True, None),  # sprint bez technické mapy: i plot
+        ("ES-CT", "wall", "retaining_wall", None, False, None),  # opěrná zeď ne
+        ("ES-CT", "wall", "city_wall", None, False, None),  # hradba ne
+        ("ES-CT", "wall", "wall", "noise_barrier", False, None),
+        ("ES-CT", "wall", None, None, False, None),  # starší job bez tagu barrier
+        ("CZ", "wall", "wall", None, False, None),  # Česko beze změny
+        ("CZ", "fence", None, None, False, None),
+    ],
+)
+def test_osm_wall_encloses_like_fence_abroad(tmp_path, monkeypatch, country, kind, barrier, wall, filled, inside):
+    import app.pipeline.dtm_import as di
+    from app.pipeline import country_profile
+
+    monkeypatch.setenv(country_profile.JOB_COUNTRY_ENV, country)
+    props = {"kind": kind, **({"barrier": barrier} if barrier else {}), **({"wall": wall} if wall else {})}
+    square = [[0, 0], [20, 0], [20, 15], [0, 15], [0, 0]]
+    feats = [{"type": "Feature", "properties": props, "geometry": {"type": "LineString", "coordinates": square}}]
+    if inside:  # plocha OSM uvnitř oplocení (přes 50 %)
+        feats.append({"type": "Feature", "properties": {"kind": inside}, "geometry": {"type": "Polygon", "coordinates": [[[1, 1], [19, 1], [19, 14], [1, 14], [1, 1]]]}})
+    # sprint bez technické mapy
+    fills = [f for f in di.with_osm_enclosure_fills(tmp_path, feats) if f["properties"].get("fence_fill")]
+    assert len(fills) == (1 if filled else 0)
+    if kind == "wall" and not inside:
+        # les a MTBO: zeď výplň dostane, kreslí se dál jako zeď (nespojuje se s ploty)
+        out = di.join_and_orient_osm_fences(tmp_path, feats)
+        assert len([f for f in out if f["properties"].get("fence_fill")]) == (1 if filled else 0)
+        assert [f for f in out if f["properties"]["kind"] == "wall"] == feats

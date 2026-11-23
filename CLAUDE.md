@@ -571,6 +571,11 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   plochy (`water_body`, i moře a řeky jako plocha) se nekreslí, přes břeh končí na břehu, ořezaný zbytek pod min. délkou vrstevnice
   (`contour_line_params`) pryč, ostrov zůstává, spádnice na uzavřené vrstevnici zasahující do vody ne (`contours_gdal.contour_water_mask`,
   `clip_lines_outside_water`, vypínač `WATER_CLIP`). Česko beze změny (`process_uses_cz_sources`). Výřezy `/mnt/project-files/vrstevnice-voda/`.
+- **Oliva v oplocení zdí mimo Česko** (4.28.0, Petr 2026-11-23, Barcelona job e728099ee094): OSM `barrier=wall` (ne `retaining_wall`,
+  `city_wall`, `wall=noise_barrier` / `flood_wall` / `castle_wall`) se pro hledání oplocení k výplni olivou bere jako plot – tytéž podmínky
+  `dtm_fences.private_enclosure_rings`; zeď se kreslí dál jako zeď (`dtm_import.osm_enclosure_wall_lines`, features.geojson nese u zdí
+  `barrier` / `wall`, starší joby nic). Sprint bez technické mapy dřív nevyplňoval ani ploty; teď vyplní oplocení z OSM plotů i zdí
+  (`with_osm_enclosure_fills`). Česko beze změny, vypínač `WALL_ENCLOSURES`. Výřezy `/mnt/project-files/oliva-zdi/`.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch
