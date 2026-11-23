@@ -567,6 +567,10 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   (okraj kresby + `BRIDGE_EDGE_GAP_MM`), zahnuté konce ven; navazující mosty jeden pás, krátká boční větev rozvětvení
   (`BRIDGE_EDGE_BRANCH_MM`) hrany nemá, most kratší než `BRIDGE_EDGE_MIN_MM` (1 mm) jen čárou. Chodník silničního mostu se nekreslí
   (`is_sidewalk_beside_road(..., bridge_zone)`; MTBO ho kreslilo pěšinou vedle silnice). Tunely a sprint beze změny.
+- **Vrstevnice ve vodě mimo Česko** (4.26.2, Petr 2026-11-23, Francie Truyère: dno nádrže z DMR): vrstevnice 101–103 uvnitř OSM vodní
+  plochy (`water_body`, i moře a řeky jako plocha) se nekreslí, přes břeh končí na břehu, ořezaný zbytek pod min. délkou vrstevnice
+  (`contour_line_params`) pryč, ostrov zůstává, spádnice na uzavřené vrstevnici zasahující do vody ne (`contours_gdal.contour_water_mask`,
+  `clip_lines_outside_water`, vypínač `WATER_CLIP`). Česko beze změny (`process_uses_cz_sources`). Výřezy `/mnt/project-files/vrstevnice-voda/`.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch

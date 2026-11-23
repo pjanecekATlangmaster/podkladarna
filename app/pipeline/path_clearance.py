@@ -732,8 +732,8 @@ def water_under_bridges(
     """Les a MTBO: voda (``WATER_MAJORS``) se vyřízne z pásu silnice / cesty kreslené na OSM mostě.
 
     Barva vody leží v sadách nad hnědou výplní silnice, takže řeka „přetékala“ přes most (Petr 2026-11-20, Harrachov).
-    Pás = OSM most (``paths_bridges.geojson``) v šířce kreslené čáry, která po mostě vede (502–508, MTBO 8xx; most
-    kreslený symbolem 512 se nemění). Sprint beze změny (mosty řeší víceúrovňová kresba).
+    Pás = OSM most (``paths_bridges.geojson``) v šířce kreslené čáry, která po mostě vede (502–508, MTBO 8xx).
+    Sprint beze změny (mosty řeší víceúrovňová kresba).
     """
     if preset_id.startswith("sprint") or not parts:
         return parts
