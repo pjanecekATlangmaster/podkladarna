@@ -1060,6 +1060,46 @@ ZABAGED_RAIL_LAYERS = frozenset({"ZeleznicniTrat", "ZeleznicniVlecka", "Tramvajo
 SPRINT_BANK_MIN_PIECE_M = 5.0
 
 
+# Tratě / vlečky ZABAGED se v okolí železničního Tunelu ZABAGED (vyplněný ``kod_zelez``) nekreslí – osa OSM tunelu
+# bývá od tratě ZABAGED až ~6 m (Chuchelský tunel way/4827132), ořez jen podle OSM nechal střed tunelu na povrchu.
+ZABAGED_RAIL_TUNNEL_CLIP_LAYERS = frozenset({"ZeleznicniTrat", "ZeleznicniVlecka"})
+ZABAGED_RAIL_TUNNEL_NEAR_M = 4.0
+
+
+def _union_zones(zones: list):
+    from shapely.ops import unary_union
+
+    return unary_union(zones)
+
+
+def _zabaged_rail_tunnel_zones(zabaged_clean: Path, dest_dir: Path, *, use_ogr: bool) -> dict:
+    """{``kod_zelez``: okolí (``ZABAGED_RAIL_TUNNEL_NEAR_M``) železničních Tunelů ZABAGED} – prázdné bez shapely / vrstvy."""
+    try:
+        from shapely.geometry import LineString
+        from shapely.ops import unary_union
+    except ImportError:
+        return {}
+    shp_path = _extract_shp_from_zip(zabaged_clean, "Tunel.shp", dest_dir)
+    if not shp_path:
+        return {}
+    rows: list[tuple[dict, list[list[tuple[float, float]]]]] = []
+    if use_ogr:
+        from osgeo import ogr
+
+        ds = ogr.Open(str(shp_path))
+        layer = ds.GetLayer() if ds else None
+        for feature in layer or []:
+            rows.append((feature_props(feature, layer_name="Tunel"), _ogr_line_parts_5514(feature.GetGeometryRef())))
+    else:
+        rows = [(props, _wkb_line_parts_5514(wkb)) for props, wkb in _pyogrio_layer_rows(shp_path)]
+    by_kod: dict[str, list] = {}
+    for props, parts in rows:
+        kod = str(props.get("kod_zelez") or "").strip()
+        if kod:
+            by_kod.setdefault(kod, []).extend(LineString(p) for p in parts)
+    return {kod: unary_union(lines).buffer(ZABAGED_RAIL_TUNNEL_NEAR_M) for kod, lines in by_kod.items() if lines}
+
+
 def build_zabaged_object_parts(zabaged_clean: Path, **kwargs) -> list[OomObjectPart]:
     """Objekty ZABAGED pro mapu; shp z ZIPu se rozbalují do vlastní dočasné složky volání
     (les a MTBO se mohou sestavovat souběžně v různých procesech), po návratu se smaže."""
@@ -1407,11 +1447,23 @@ def _build_zabaged_object_parts(
                 out.append(piece)
         return out
 
-    def _rail_zone(layer: str):
-        """Okolí OSM kolejí v tunelu, které skryje vrstvu ZABAGED ``layer`` (None = nic)."""
-        if isinstance(rail_tunnel_zone, dict):
-            return rail_tunnel_zone.get(layer)
-        return rail_tunnel_zone
+    zabaged_rail_tunnels = (
+        _zabaged_rail_tunnel_zones(zabaged_clean, stage / "_rail_tunnels", use_ogr=use_ogr)
+        if "Tunel.shp" in shp_names
+        else {}
+    )
+
+    def _rail_zone(layer: str, props: dict | None = None):
+        """Okolí kolejí v tunelu, které skryje vrstvu ZABAGED ``layer`` (None = nic): OSM koleje v tunelu
+        a u tratí / vleček i železniční Tunel ZABAGED téže tratě (``kod_zelez``; trať bez kódu všechny)."""
+        osm = rail_tunnel_zone.get(layer) if isinstance(rail_tunnel_zone, dict) else rail_tunnel_zone
+        if layer not in ZABAGED_RAIL_TUNNEL_CLIP_LAYERS or not zabaged_rail_tunnels:
+            return osm
+        kod = str((props or {}).get("kod_zelez") or "").strip()
+        own = zabaged_rail_tunnels.get(kod) if kod else _union_zones(list(zabaged_rail_tunnels.values()))
+        if own is None:
+            return osm
+        return own if osm is None else _union_zones([osm, own])
 
     def _filter_vs_osm(
         line_parts: list[list[tuple[float, float]]],
@@ -1547,6 +1599,8 @@ def _build_zabaged_object_parts(
                 rule = match_feature(props, rules)
                 if not rule:
                     continue
+                if layer_name == "Tunel" and rule.symbol_name in {"railway", "tramway"}:
+                    continue  # železniční tunel: trať pod zemí se nekreslí (jen ořízne koleje, ``_rail_zone``)
                 code = oom_code_for_vectorconf_rule(
                     rule.symbol_name,
                     rule.kp_code,
@@ -1640,11 +1694,12 @@ def _build_zabaged_object_parts(
                 elif layer_name == "SilniceNeevidovana":
                     # Sprint bez ploch z DTM: jen potvrzené úseky (``_filter_vs_osm``), ne původní geometrie.
                     objects.extend(_emit_line_objects(line_parts, symbol_index))
-                elif layer_name in ZABAGED_RAIL_LAYERS and _rail_zone(layer_name) is not None:
-                    # Trať v tunelu (OSM tunnel / layer < 0) se nekreslí, jen vjezd (les, MTBO i sprint).
+                elif layer_name in ZABAGED_RAIL_LAYERS and _rail_zone(layer_name, props) is not None:
+                    # Trať v tunelu (OSM tunnel / layer < 0, Tunel ZABAGED) se nekreslí, jen vjezd (les, MTBO i sprint).
                     from app.pipeline.dtm_sidewalks import clip_outside
 
-                    kept = [p for pts in line_parts for p in clip_outside(pts, _rail_zone(layer_name), MIN_LENGTH_M)]
+                    zone = _rail_zone(layer_name, props)
+                    kept = [p for pts in line_parts for p in clip_outside(pts, zone, MIN_LENGTH_M)]
                     objects.extend(_emit_line_objects(kept, symbol_index))
                 else:
                     if layer_name == "Cesta":
@@ -1700,6 +1755,8 @@ def _build_zabaged_object_parts(
                 rule = match_feature(props, rules)
                 if not rule:
                     continue
+                if layer_name == "Tunel" and rule.symbol_name in {"railway", "tramway"}:
+                    continue  # železniční tunel: trať pod zemí se nekreslí (jen ořízne koleje, ``_rail_zone``)
                 code = oom_code_for_vectorconf_rule(
                     rule.symbol_name,
                     rule.kp_code,
@@ -1787,11 +1844,12 @@ def _build_zabaged_object_parts(
                 elif layer_name == "SilniceNeevidovana":
                     # Sprint bez ploch z DTM: jen potvrzené úseky (``_filter_vs_osm``), ne původní geometrie.
                     objects.extend(_emit_line_objects(line_parts, symbol_index))
-                elif layer_name in ZABAGED_RAIL_LAYERS and _rail_zone(layer_name) is not None:
-                    # Trať v tunelu (OSM tunnel / layer < 0) se nekreslí, jen vjezd (les, MTBO i sprint).
+                elif layer_name in ZABAGED_RAIL_LAYERS and _rail_zone(layer_name, props) is not None:
+                    # Trať v tunelu (OSM tunnel / layer < 0, Tunel ZABAGED) se nekreslí, jen vjezd (les, MTBO i sprint).
                     from app.pipeline.dtm_sidewalks import clip_outside
 
-                    kept = [p for pts in line_parts for p in clip_outside(pts, _rail_zone(layer_name), MIN_LENGTH_M)]
+                    zone = _rail_zone(layer_name, props)
+                    kept = [p for pts in line_parts for p in clip_outside(pts, zone, MIN_LENGTH_M)]
                     objects.extend(_emit_line_objects(kept, symbol_index))
                 else:
                     if layer_name == "Cesta":

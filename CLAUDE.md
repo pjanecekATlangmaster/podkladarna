@@ -305,6 +305,8 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   Železnice a tramvaj ze ZABAGED se nekreslí v okolí 4 m od OSM kolejí v tunelu (`rail_tunnels.geojson` z přípravy OSM, `ZABAGED_RAIL_LAYERS`);
   od 3.22.1 i ve sprintu (Petr 2026-11-06, Barrandov) a jen kolejí téhož druhu (`RAIL_TUNNEL_KINDS_BY_LAYER`: tramvaj tramvají, trať tratí,
   metro nic – Vinohradská má metro pod tramvají na povrchu); starší joby bez druhu v `rail_tunnels.geojson` skryjí vše jako dřív.
+  Od 4.26.1 (Chuchelský tunel way/4827132: osa OSM až 6 m od tratě ZABAGED) se železniční `Tunel` ZABAGED (vyplněný `kod_zelez`)
+  nekreslí jako trať a jeho okolí 4 m skryje trať / vlečku ZABAGED téhož `kod_zelez` (`_zabaged_rail_tunnel_zones`), i bez OSM tunelu.
 - **Malé zalomené schody v lese a MTBO** (OSM, `small_complex_steps`): navazující čáry schodů tvaru „L“ / „C“ s rozsahem do 15 m (kratší strana
   otočeného obdélníku ≥ 2 m) se nekreslí. Složitá schodiště z DTM les nekreslí už dřív (`is_complex_stairs`, sprint je kreslí plochou).
 - **Plochy pod olivou v lese a MTBO** (Petr 2026-10-25, `paved_fill_outside_olive`): výplň 501.1 se o kreslenou olivu do 5 000 m² ořízne (`PAVED_FILL_OLIVE_MAX_M2`; velké areály jako ateliéry Barrandov ne), plocha
