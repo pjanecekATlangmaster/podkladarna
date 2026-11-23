@@ -468,8 +468,10 @@ def _with_texture_green(classified, arr, nodata, gt, *, log=None, mode="laser"):
         return classified
     if log and "fallback" in info:
         log(f"Vegetace: zrnitost by zazelenala {100.0 * info['fallback']:.0f} % lesa – zeleň z podílu nízkého patra (pojistka)")
+    if log and "fallback_low" in info:
+        log(f"Vegetace: mladý porost by zazelenal {100.0 * info['fallback_low']:.0f} % nízkého lesa – zeleň z podílu nízkého patra (pojistka)")
     if log and shares:
-        under = texture_mode(mode) == "understory" or "fallback" in info
+        under = texture_mode(mode) == "understory" or "fallback" in info or "fallback_low" in info
         log(("Vegetace: zeleň z podílu nízkého patra – " if under else "Vegetace: zeleň ze zrnitosti porostu – ") + ", ".join(f"{k} {v:.1f} %" for k, v in shares.items()))
     return out
 

@@ -50,6 +50,17 @@ UNDER_SHARE = 0.15
 UNDER_TOP_WINDOW_M = 15.0  # ``green_low_ratio``: nízké patro jen pod tímto podílem nejvyšší koruny v okně (PT borovice)
 LASER_FOREST_MAX = 0.55  # pojistka: víc zeleně ze zrnitosti v lesním okolí → režim understory
 LASER_MIN_FOREST = 0.20  # pojistka jen při dost velkém lese ve výřezu (malý vzorek rozhodnutí nenese)
+# Pojistka proti zelenému nízkému lesu (Petr 2026-11-23, garigue Aude: Conques-sur-Orbiel, Laure-Minervois): středomořské
+# borovice a duby dorostou jen do 6–12 m, pravidlo mladého porostu (průměr CHM pod 12 m) je zazelená skoro všechny
+# a lesní okolí pro ``LASER_FOREST_MAX`` (CHM nad 6 m souvisle) je tam malé. Když zeleň pokryje víc než
+# ``LOW_FOREST_GREENED_MAX`` porostu nad ``MEAN_M`` (aspoň ``LOW_FOREST_MIN`` výřezu), výřez se počítá jako
+# ``understory`` s prahy Portugalska a Andalusie (``LOW_FOREST_SHARE`` / ``LOW_FOREST_RATIO``, země může mít vlastní).
+# Livelox (rastr porostu proti mapě, les mapaře): Laure-Minervois zeleň 69 → 30 % / mapař 32 %, zeleň v bílém lese
+# 60 → 19 %; ostatních 17 referencí v režimu laser má podíl nejvýš 0,50 (Estonsko, Sasko-Anhaltsko), beze změny.
+LOW_FOREST_GREENED_MAX = 0.75
+LOW_FOREST_MIN = 0.10
+LOW_FOREST_SHARE = 0.25
+LOW_FOREST_RATIO = 0.45
 OPEN_WINDOW_M = 15.0  # keř vypadlý z masky zeleně: v otevřeném okolí (louka 401 / 403) → otevřený terén, ne bílý les
 
 WHITE, LIGHT, MID, DENSE = 0, 2, 3, 4  # třídy rastru porostu (vegetation_density / vegetation_chm)
@@ -183,6 +194,16 @@ def add_texture_green(classified, chm, cell_m: float, mode: str = "laser", info:
     out[both & g] = MID
     out[cl == DENSE] = DENSE
     out = _restore_open(out, cl, green, cell_m)
+    tall = cl == WHITE  # porost nad hranicí bílého lesa (vegetation_chm ``green_dense_max_m``)
+    n_tall = int(np.count_nonzero(tall))
+    if n_tall >= LOW_FOREST_MIN * tall.size:
+        greened = float(np.count_nonzero(tall & np.isin(out, (LIGHT, MID, DENSE)))) / n_tall
+        if greened > LOW_FOREST_GREENED_MAX:
+            if info is not None:
+                info["fallback_low"] = greened
+            return add_texture_green(classified, chm, cell_m, mode="understory",
+                                     under_share=under_share or LOW_FOREST_SHARE,
+                                     low_ratio=low_ratio or LOW_FOREST_RATIO)
     n_forest = int(np.count_nonzero(forest))
     if n_forest >= LASER_MIN_FOREST * forest.size:
         share = float(np.count_nonzero(forest & np.isin(out, (LIGHT, MID, DENSE)))) / n_forest

@@ -56,7 +56,8 @@ def _scene(kind: str):
         ("field_bushes", 1, "understory", None),
         ("under", T.LIGHT, "understory", 0.45),  # PT: mlází 4 m pod korunami 22 m zůstává podrostem
         ("low_pines", T.LIGHT, "understory", None),  # bez stropu by koruny 7 m byly „nízké patro“
-        ("low_pines", T.WHITE, "understory", 0.45),  # PT: strop 0,45 × okolní koruny → bílý les
+        ("low_pines", T.WHITE, "understory", 0.45),
+        ("low_pines", T.WHITE, "laser", None),  # garigue: mladý porost zazelená celý nízký les → pojistka s prahy PT  # PT: strop 0,45 × okolní koruny → bílý les
     ],
 )
 def test_texture_green(kind, expect, mode, ratio):

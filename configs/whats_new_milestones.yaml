@@ -9,6 +9,10 @@
 milestones:
   - date: "2026-11-23"
     scope: intl
+    title: "Verze 4.30 – mimo Česko: nízký středomořský les (garigue, borovice a duby do 12 m) už nevychází celý zelený, zeleň se bere z podílu nízkého patra"
+    title_en: "Version 4.30 – outside Czechia: low Mediterranean woodland (garrigue, pines and oaks under 12 m) no longer comes out entirely green; green now follows the share of low undergrowth"
+  - date: "2026-11-23"
+    scope: intl
     title: "Verze 4.29 – technický log průběhu mapy se na anglické stránce zobrazuje anglicky"
     title_en: "Version 4.29 – the technical log of a map build is shown in English on the English site"
   - date: "2026-11-23"
