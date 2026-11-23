@@ -30,6 +30,13 @@ def _scene(kind: str):
         chm[:] = 0.3
         cl[:] = 1  # 401
         chm[90:110, 90:110] = np.where((yy[:20, :20] % 7 < 3) & (xx[:20, :20] % 7 < 3), 22.0, 0.3)  # solitéry
+    if kind == "field_bushes":
+        # garigue: louka s drobnými keři 3 × 3 m po 12 m (pod MIN_AREA_M2) – čištění je zahodí, nesmí zůstat bílé
+        chm[:] = 0.3
+        cl[:] = 1
+        bush = (np.indices((200, 200))[0] % 12 < 3) & (np.indices((200, 200))[1] % 12 < 3)
+        chm[bush] = 2.5
+        cl[bush] = T.LIGHT
     return chm, cl
 
 
@@ -45,6 +52,8 @@ def _scene(kind: str):
         ("tall_rough", T.WHITE, "understory", None),  # Trentino: drsná vysoká smrčina bez nízkého patra zůstává bílá
         ("smooth", T.WHITE, "understory", None),
         ("field_rough", 1, "understory", None),
+        ("field_bushes", 1, "laser", None),  # drobné keře v louce: 401, ne bílé tečky lesa
+        ("field_bushes", 1, "understory", None),
         ("under", T.LIGHT, "understory", 0.45),  # PT: mlází 4 m pod korunami 22 m zůstává podrostem
         ("low_pines", T.LIGHT, "understory", None),  # bez stropu by koruny 7 m byly „nízké patro“
         ("low_pines", T.WHITE, "understory", 0.45),  # PT: strop 0,45 × okolní koruny → bílý les
@@ -55,4 +64,6 @@ def test_texture_green(kind, expect, mode, ratio):
     out, shares = T.add_texture_green(cl, chm, 1.0, mode=mode, low_ratio=ratio)
     centre = out[85:115, 85:115]
     assert np.mean(centre == expect) > 0.9
+    if kind == "field_bushes":
+        assert not np.any(out == T.WHITE)  # zahozený keř dřív zůstal bílou tečkou lesa
     assert set(shares) == {"406", "408", "410"}
