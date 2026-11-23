@@ -28,7 +28,14 @@ from functools import lru_cache
 from pathlib import Path
 
 from app.pipeline.oom_coords import projected_to_map_coord
-from app.pipeline.oom_import import MAP_COORD_CLOSE_POINT, MAP_COORD_CURVE_START, MAP_COORD_HOLE_POINT, OomObjectPart, _fmt
+from app.pipeline.oom_import import (
+    MAP_COORD_CLOSE_POINT,
+    MAP_COORD_CURVE_START,
+    MAP_COORD_HOLE_POINT,
+    OomObjectPart,
+    _fmt,
+    _path_object,
+)
 from app.pipeline.tree_rows import TREE_ROW_PART_NAME
 
 # Odsouvané symboly (hlavní číslo kódu v sadě; ISOM 2017 i ISMTBOM 2022 číslují umělé objekty stejně).
@@ -827,6 +834,182 @@ def water_under_bridges(
             if count:
                 out_parts.append(OomObjectPart(name=part.name, objects_xml=xml, count=count))
     return out_parts
+
+
+# Hrany mostu 512 (ISOM 2017-2 / ISMTBOM 512 Most / tunel): po obou stranách kreslené čáry, zahnuté konce ven.
+BRIDGE_EDGE_CODE = "512"
+# Mezera mezi okrajem kresby čáry a vnitřní hranou čáry 512 (mm na mapě).
+BRIDGE_EDGE_GAP_MM = 0.1
+# Kratší strana mostu (mm na mapě) se nekreslí: malý most na cestě kreslí jen čára (ISOM 512, min. délka 0,4 mm).
+BRIDGE_EDGE_MIN_MM = 1.0
+# Konec mostu do této vzdálenosti (m v terénu) od jiného kresleného mostu na něj navazuje (bez příčného konce).
+BRIDGE_EDGE_JOIN_M = 0.5
+# V rozvětvení na mostě pokračují hrany přímým směrem; boční větev kratší než tolik mm mapy hrany nemá
+# (jinak by se mezi větvemi kreslil klín hran, Chuchle way/840310000 a way/840310001).
+BRIDGE_EDGE_BRANCH_MM = 3.0
+BRIDGE_EDGE_PART_NAME = "Mosty – hrany 512"
+
+
+def _drop_bridge_fork_branches(matched: list, join: float, branch_max: float) -> list:
+    """Mosty bez krátkých bočních větví rozvětvení: v uzlu se ≥ 3 mosty zůstane dvojice s nejpřímějším pokračováním."""
+    ends = []  # (index mostu, bod konce, směr od uzlu)
+    for i, (b, _off) in enumerate(matched):
+        cs = list(b.coords)
+        for end, nxt in ((cs[0], cs[1]), (cs[-1], cs[-2])):
+            dx, dy = nxt[0] - end[0], nxt[1] - end[1]
+            n = math.hypot(dx, dy)
+            if n > 0:
+                ends.append((i, end, (dx / n, dy / n)))
+    drop: set[int] = set()
+    used = [False] * len(ends)
+    for a in range(len(ends)):
+        if used[a]:
+            continue
+        node = [a] + [
+            k
+            for k in range(a + 1, len(ends))
+            if not used[k] and math.hypot(ends[k][1][0] - ends[a][1][0], ends[k][1][1] - ends[a][1][1]) <= join
+        ]
+        for k in node:
+            used[k] = True
+        if len({ends[k][0] for k in node}) < 3:
+            continue
+        # nejpřímější pokračování = směry od uzlu co nejvíc proti sobě
+        best = min(
+            ((p, q) for p in node for q in node if p < q and ends[p][0] != ends[q][0]),
+            key=lambda pq: ends[pq[0]][2][0] * ends[pq[1]][2][0] + ends[pq[0]][2][1] * ends[pq[1]][2][1],
+        )
+        through = {ends[best[0]][0], ends[best[1]][0]}
+        for k in node:
+            i = ends[k][0]
+            if i not in through and matched[i][0].length < branch_max:
+                drop.add(i)
+    return [m for i, m in enumerate(matched) if i not in drop]
+
+
+def bridge_edges(
+    parts: list[OomObjectPart],
+    work_dir: Path,
+    *,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+) -> list[OomObjectPart]:
+    """Les a MTBO: hrany 512 po obou stranách čáry kreslené na OSM mostě (Petr 2026-11-23, way/4878104).
+
+    Most = OSM ``paths_bridges.geojson`` bez tunelů, ke kterému vede kreslená čára (502–508, MTBO 8xx) po
+    ``BRIDGE_MATCH_SHARE`` délky. Pás = most v šířce kresby + ``BRIDGE_EDGE_GAP_MM`` + půlka čáry 512, navazující
+    mosty (rozvětvení) jeden pás; hrany = obrys pásu bez příčných konců. Hrana je orientovaná tak, aby zahnuté
+    konce symbolu (vlevo od směru kreslení) mířily od mostu ven. Sprint beze změny (mosty řeší víceúrovňová kresba).
+    """
+    if preset_id.startswith("sprint") or not parts:
+        return parts
+    import json
+
+    from shapely import STRtree
+    from shapely.geometry import LineString, Point
+    from shapely.ops import linemerge, unary_union
+
+    from app.pipeline.oom_symbol_map import _symbol_widths, symbol_index_for_code
+    from app.pipeline.oom_symbols import symbol_set_path
+
+    try:
+        feats = json.loads((work_dir / "osm_paths" / "paths_bridges.geojson").read_text(encoding="utf-8")).get("features") or []
+        edge_idx = symbol_index_for_code(preset_id, scale, BRIDGE_EDGE_CODE)
+        set_path = symbol_set_path(preset_id, scale)
+        info = _symbol_info(set_path)
+        widths = _symbol_widths(set_path)
+    except Exception:  # kosmetika, bez mostů beze změny
+        return parts
+    if edge_idx is None:
+        return parts
+    from app.pipeline.osm_paths import is_tunnel_highway
+
+    bridges = []
+    for f in feats:
+        geom = f.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        if geom.get("type") != "LineString" or len(coords) < 2:
+            continue
+        if is_tunnel_highway(str((f.get("properties") or {}).get("highway") or "")):
+            continue
+        pts = [
+            projected_to_map_coord(float(c[0]), float(c[1]), ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg)
+            for c in coords
+        ]
+        line = LineString(pts)
+        if line.length > 0:
+            bridges.append(line)
+    if not bridges:
+        return parts
+    drawn = _drawn_path_objects(parts, info, widths)
+    if not drawn:
+        return parts
+    lines = [LineString(c) for c, _h, _m in drawn]
+    tree = STRtree(lines)
+    match = BRIDGE_MATCH_M * 1e6 / scale
+    edge_w = widths.get(edge_idx, 0.0) * 1000.0  # µm
+    gap = BRIDGE_EDGE_GAP_MM * 1000.0
+    matched: list[tuple[LineString, float]] = []
+    for b in bridges:
+        best = 0.0
+        for k in tree.query(b.buffer(match)):
+            k = int(k)
+            if lines[k].buffer(match).intersection(b).length >= BRIDGE_MATCH_SHARE * b.length:
+                best = max(best, drawn[k][1])
+        if best > 0:
+            matched.append((b, best + gap + edge_w / 2.0))
+    if not matched:
+        return parts
+    join = BRIDGE_EDGE_JOIN_M * 1e6 / scale
+    matched = _drop_bridge_fork_branches(matched, join, BRIDGE_EDGE_BRANCH_MM * 1000.0)
+    # Příčné konce pásu u volných konců mostů; navazující most konec nemá (kruh v uzlu zacelí zub mezi pásy).
+    eps = 5.0  # µm
+    pieces = [b.buffer(off, cap_style="flat", join_style="mitre", mitre_limit=2.0) for b, off in matched]
+    caps = []
+    for i, (b, off) in enumerate(matched):
+        cs = list(b.coords)
+        for end, nxt in ((cs[0], cs[1]), (cs[-1], cs[-2])):
+            p = Point(end)
+            if any(j != i and o.distance(p) <= join for j, (o, _off) in enumerate(matched)):
+                pieces.append(p.buffer(off))
+                continue
+            dx, dy = end[0] - nxt[0], end[1] - nxt[1]
+            n = math.hypot(dx, dy)
+            if n <= 0:
+                continue
+            nx, ny = -dy / n * (off + eps), dx / n * (off + eps)
+            caps.append(LineString([(end[0] + nx, end[1] + ny), (end[0] - nx, end[1] - ny)]).buffer(eps))
+    band = unary_union(pieces)
+    outline = band.boundary
+    if caps:
+        outline = outline.difference(unary_union(caps))
+    if outline.is_empty:
+        return parts
+    merged = linemerge(outline) if outline.geom_type != "LineString" else outline
+    min_len = BRIDGE_EDGE_MIN_MM * 1000.0
+    objects = []
+    for g in getattr(merged, "geoms", [merged]):
+        if g.geom_type != "LineString" or g.length < min_len:
+            continue
+        cs = list(g.coords)
+        mid = g.interpolate(0.5, normalized=True)
+        a = g.interpolate(max(0.0, g.length / 2.0 - 50.0))
+        c = g.interpolate(min(g.length, g.length / 2.0 + 50.0))
+        tx, ty = c.x - a.x, c.y - a.y
+        n = math.hypot(tx, ty)
+        if n <= 0:
+            continue
+        # zahnuté konce 512 leží vlevo od směru (souřadnice mapy, osa y dolů): normála (ty, -tx)
+        probe = Point(mid.x + ty / n * 2.0 * eps, mid.y - tx / n * 2.0 * eps)
+        if band.contains(probe):
+            cs.reverse()
+        objects.append(_path_object(edge_idx, [(round(x), round(y)) for x, y in cs]))
+    if not objects:
+        return parts
+    return parts + [OomObjectPart(name=BRIDGE_EDGE_PART_NAME, objects_xml="\n".join(objects), count=len(objects))]
 
 
 def displace_objects_from_paths(

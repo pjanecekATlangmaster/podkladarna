@@ -193,6 +193,7 @@ def collect_generated_codes(
         add("501.0", "residual_paved (sprint)", "area")
     if key != "sprint":
         add(osm_paths.BUILDING_MIN_SIZE_CODE, "small_buildings_as_points (les, MTBO)", "point")
+        add("512", "path_clearance.bridge_edges: hrany mostu (les, MTBO)", "line")
     if key == "isom":
         add("501.2", "okraj zpevněné plochy 501.1 (osm_paths)", "line")
     if key == "mtbo":

@@ -1568,6 +1568,12 @@ def _prepare_oom_map(
     object_parts = water_under_bridges(
         object_parts, kp_cwd, preset_id=preset_id, scale=scale, ref_x=ref_x, ref_y=ref_y, grivation_deg=grivation
     )
+    # Les a MTBO: hrany mostu 512 po obou stranách čáry na OSM mostě, zahnuté konce ven.
+    from app.pipeline.path_clearance import bridge_edges
+
+    object_parts = bridge_edges(
+        object_parts, kp_cwd, preset_id=preset_id, scale=scale, ref_x=ref_x, ref_y=ref_y, grivation_deg=grivation
+    )
     aoi_part = build_aoi_boundary_part(
         bbox_wgs84,
         preset_id=preset_id,

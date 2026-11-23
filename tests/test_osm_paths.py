@@ -1336,7 +1336,7 @@ def test_short_osm_bridge_is_kept():
     kept_b, drop_b = filter_osm_items_against_zabaged([bridge], zab)
     assert drop_b == 0 and len(kept_b) == 1 and kept_b[0][1] == "bridge:footway"
 
-    assert osm_oom_code(OSM_BRIDGE_HIGHWAY, "forest_10000") == "512"
+    assert osm_oom_code(OSM_BRIDGE_HIGHWAY, "forest_10000") == osm_oom_code("path", "forest_10000")
     assert osm_oom_code(OSM_BRIDGE_HIGHWAY, "sprint_2m") == "506"
     assert osm_oom_code("bridge:footway", "sprint_2m") == "506"
     assert osm_oom_code("bridge:sidewalk", "sprint_2m") == "501.10"
@@ -1352,7 +1352,8 @@ def test_short_osm_bridge_is_kept():
         ("bridge:road_3", "mtbo_10000", "502"),
         ("bridge:track", "mtbo_10000", "833"),
         ("bridge:road_3", "forest_10000", "502"),
-        ("bridge:footway", "forest_10000", "512"),
+        # les: pěší most jako navazující cesta, hrany 512 kreslí ``path_clearance.bridge_edges`` (Petr 2026-11-23)
+        ("bridge:footway", "forest_10000", "506"),
     ],
 )
 def test_osm_oom_code_bridge_keeps_base(highway, preset, code):
@@ -2902,7 +2903,7 @@ def test_major_path_draws_505_in_forest_only():
     assert osm_oom_code("path_major", "forest_15000") == "505"
     assert osm_oom_code("path_major", "sprint_4000") == osm_oom_code("path", "sprint_4000")
     assert osm_oom_code("path_major", "mtbo_10000") == osm_oom_code("path", "mtbo_10000")
-    assert osm_oom_code("bridge:path_major", "forest_10000") == "512"
+    assert osm_oom_code("bridge:path_major", "forest_10000") == osm_oom_code("path", "forest_10000")
 
 
 def test_sprint_skips_gates_and_bollards_but_keeps_stiles(tmp_path):
@@ -3166,3 +3167,26 @@ def test_keep_relation_natural_cover_abroad(monkeypatch, tags, cz, keep):
 
     monkeypatch.setattr(osm_paths, "_cz_process", lambda: cz)
     assert osm_paths._keep_relation(tags) is keep
+
+
+@pytest.mark.parametrize(
+    "highway, coords, bridge_zone, dropped",
+    [
+        # chodník silničního mostu souběžně se silnicí (way/1157857315 u way/4878104) se nekreslí
+        ("bridge:sidewalk", [(4.0, -50.0), (4.0, 50.0)], True, True),
+        ("bridge:footway", [(4.0, -50.0), (4.0, 50.0)], True, True),
+        # lávka přes silniční most / vedle něj napříč zůstává
+        ("bridge:footway", [(-50.0, 0.0), (50.0, 0.0)], True, False),
+        # bez silnice na mostě, silnice na mostě sama a tunel beze změny
+        ("bridge:sidewalk", [(4.0, -50.0), (4.0, 50.0)], False, False),
+        ("bridge:road_3", [(4.0, -50.0), (4.0, 50.0)], True, False),
+        ("tunnel:footway", [(4.0, -50.0), (4.0, 50.0)], True, False),
+    ],
+)
+def test_sidewalk_on_road_bridge_dropped(highway, coords, bridge_zone, dropped):
+    from shapely.geometry import LineString
+
+    from app.pipeline.osm_paths import SIDEWALK_DEDUP_BASES, is_sidewalk_beside_road
+
+    zone = LineString([(0.0, -60.0), (0.0, 60.0)]).buffer(6.0) if bridge_zone else None
+    assert is_sidewalk_beside_road(highway, coords, None, SIDEWALK_DEDUP_BASES, zone) is dropped
