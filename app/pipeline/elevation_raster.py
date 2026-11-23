@@ -1623,8 +1623,130 @@ def _pl_dsm_tile(url: str, dest: Path, *, log=None) -> Path:
     return dest
 
 
+PL_WCS_PROBE_TIMEOUT_S = 40.0
+PL_SHEET_MAX_BYTES = 400_000_000  # list NMPT 0,5 m má ~150 MB
+PL_SHEET_RETRIES = 2
+PL_SHEET_WORKERS = 2
+
+
+def _pl_wcs_alive(log=None) -> bool:
+    """Malý výřez NMT z WCS; při výpadku (prázdná odpověď po ~10 s, 2026-11-23) se rovnou berou listy."""
+    import urllib.request
+
+    from app.pipeline.fetch_openzu import USER_AGENT
+    from app.pipeline.reference_pl import PL_ELEVATION_PROBE
+
+    for _ in range(2):
+        try:
+            req = urllib.request.Request(PL_ELEVATION_PROBE, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=PL_WCS_PROBE_TIMEOUT_S) as resp:  # noqa: S310 – pevná adresa GUGiK
+                if len(resp.read(1 << 20)) >= 200:
+                    return True
+        except Exception:  # noqa: BLE001 – jakákoli chyba = služba nejede
+            pass
+    return False
+
+
+def _pl_fetch(url: str, dest: Path, *, max_bytes: int, timeout: float = 300.0) -> Path:
+    import time
+    import urllib.request
+
+    from app.pipeline.fetch_openzu import USER_AGENT
+
+    for attempt in range(PL_SHEET_RETRIES + 1):
+        tmp = dest.with_suffix(dest.suffix + ".part")
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=timeout) as resp, tmp.open("wb") as fh:  # noqa: S310 – GUGiK
+                size = 0
+                while chunk := resp.read(1 << 20):
+                    size += len(chunk)
+                    if size > max_bytes:
+                        raise RuntimeError(f"odpověď GUGiK přes {max_bytes // 1_000_000} MB odmítnuta")
+                    fh.write(chunk)
+            tmp.replace(dest)
+            return dest
+        except RuntimeError:
+            tmp.unlink(missing_ok=True)
+            raise
+        except Exception:  # noqa: BLE001 – síť / 5xx: znovu
+            tmp.unlink(missing_ok=True)
+            if attempt >= PL_SHEET_RETRIES:
+                raise
+            time.sleep(5.0 * (attempt + 1))
+    raise AssertionError("nedosažitelné")
+
+
+def _asc_extent(path: Path) -> tuple[float, float, float, float, float]:
+    """Rozsah ARC/INFO ASCII z hlavičky (xmin, ymin, xmax, ymax, cellsize)."""
+    head: dict[str, float] = {}
+    with path.open("r", encoding="ascii", errors="replace") as fh:
+        for _ in range(6):
+            parts = fh.readline().split()
+            if len(parts) >= 2:
+                head[parts[0].lower()] = float(parts[1])
+    cell = head["cellsize"]
+    x0 = head["xllcorner"] if "xllcorner" in head else head["xllcenter"] - cell / 2
+    y0 = head["yllcorner"] if "yllcorner" in head else head["yllcenter"] - cell / 2
+    return x0, y0, x0 + head["ncols"] * cell, y0 + head["nrows"] * cell, cell
+
+
+def pl_sheet_rasters(kind: str, bounds_pl: tuple[float, float, float, float], out_dir: Path, log=None) -> list[Path]:
+    """Záloha za WCS: listy NMT / NMPT z opendata GUGiK (index WFS), oříznuté na výřez a po 1 m jako GeoTIFF.
+
+    Pořadí výsledku: starší listy první, nejnovější poslední (ve VRT vyhrává poslední)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.pipeline.reference_pl import PL_CRS, PL_SHEET_YEARS, choose_sheets, parse_sheet_index, pl_sheet_index_url
+
+    x0, y0, x1, y1 = (math.floor(bounds_pl[0] - PL_BUFFER_M), math.floor(bounds_pl[1] - PL_BUFFER_M),
+                      math.ceil(bounds_pl[2] + PL_BUFFER_M), math.ceil(bounds_pl[3] + PL_BUFFER_M))
+    records: list[dict] = []
+    for year in PL_SHEET_YEARS[kind]:
+        idx = out_dir / f"pl_{kind}_index_{year}.xml"
+        try:
+            _pl_fetch(pl_sheet_index_url(kind, year, (x0, y0, x1, y1)), idx, max_bytes=20_000_000, timeout=60.0)
+            records += parse_sheet_index(idx.read_bytes(), year)
+        except Exception as exc:  # noqa: BLE001 – rok bez vrstvy / chyba indexu: další rok
+            if log:
+                log(f"  {kind.upper()} index {year}: {str(exc)[:80]}")
+    sheets = choose_sheets(records)
+    if not sheets:
+        raise RuntimeError(f"GUGiK: pro výřez není list {kind.upper()} ke stažení")
+    sheets.sort(key=lambda r: (r["laser"], r["year"], r["date"]))
+    if log:
+        names = ", ".join(f"{r['godlo']} {r['year']}" for r in sheets)
+        log(f"  {kind.upper()} z listů GUGiK: {len(sheets)} ({names})")
+
+    def one(k: int, rec: dict) -> Path | None:
+        asc = out_dir / f"pl_{kind}_sheet_{k}.asc"
+        _pl_fetch(rec["url"], asc, max_bytes=PL_SHEET_MAX_BYTES)
+        try:
+            sx0, sy0, sx1, sy1, _cell = _asc_extent(asc)
+            ix0, iy0, ix1, iy1 = max(x0, sx0), max(y0, sy0), min(x1, sx1), min(y1, sy1)
+            if ix1 - ix0 < 1 or iy1 - iy0 < 1:
+                return None
+            tif = out_dir / f"pl_{kind}_sheet_{k}.tif"
+            run_cmd([_gdal_tool("gdalwarp"), "-overwrite", "-s_srs", PL_CRS, "-t_srs", PL_CRS,
+                     "-te", str(math.floor(ix0)), str(math.floor(iy0)), str(math.ceil(ix1)), str(math.ceil(iy1)),
+                     "-tr", "1", "1", "-r", "average", "-srcnodata", "-9999", "-dstnodata", str(NODATA),
+                     "-ot", "Float32", "-co", "COMPRESS=DEFLATE", str(asc), str(tif)], log=log)
+            return tif
+        finally:
+            asc.unlink(missing_ok=True)  # ASCII listu je velké, drží se jen ořez
+
+    # statické soubory opendata: dva listy naráz (z cloudu ~1 MB/s na spojení)
+    with ThreadPoolExecutor(max_workers=PL_SHEET_WORKERS, thread_name_prefix=f"pl-{kind}") as ex:
+        out = [p for p in ex.map(lambda a: one(*a), enumerate(sheets)) if p is not None]
+    if not out:
+        raise RuntimeError(f"GUGiK: listy {kind.upper()} výřez nepokrývají")
+    return out
+
+
 def pl_gugik_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
-    """NMT 1 m (GeoTIFF) a NMPT 1 m (ASCII) z WCS GUGiK; bez NMPT jen terén (job upozorní)."""
+    """NMT 1 m (GeoTIFF) a NMPT 1 m (ASCII) z WCS GUGiK; bez NMPT jen terén (job upozorní).
+
+    Při výpadku WCS (sonda malého výřezu neprojde) celé listy z opendata GUGiK (``pl_sheet_rasters``)."""
     from concurrent.futures import ThreadPoolExecutor
 
     from app.pipeline.reference_pl import PL_CRS, pl_dsm_url, pl_dtm_url
@@ -1636,6 +1758,16 @@ def pl_gugik_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
         run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", PL_CRS, str(path), *map(str, tiles)], log=log)
         return path
 
+    if not _pl_wcs_alive(log):
+        log_issue(log, "Polsko: výšková služba WCS GUGiK neodpovídá, výšky ze záložních listů opendata GUGiK (pomalejší stahování)")
+        dtm = pl_sheet_rasters("nmt", bounds_pl, out_dir, log=log)
+        try:
+            dsm = pl_sheet_rasters("nmpt", bounds_pl, out_dir, log=log)
+        except Exception as exc:  # noqa: BLE001 – bez povrchu terén zůstane, porost chybí
+            log_issue(log, f"Polsko: povrch NMPT se nestáhl ({str(exc)[:120]}), výška porostu chybí")
+            return SourceRasters(vrt("dtm", dtm), None)
+        return SourceRasters(vrt("dtm", dtm), vrt("dsm", dsm))
+
     dsm_boxes = pl_tile_boxes(bounds_pl, PL_DSM_SIDE_M)
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="pl-nmpt") as ex:  # NMPT běží vedle NMT, sám po jedné
         def all_dsm():
@@ -1646,9 +1778,13 @@ def pl_gugik_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
                for k, b in enumerate(pl_tile_boxes(bounds_pl, PL_DTM_SIDE_M))]
         try:
             dsm = dsm_future.result()
-        except Exception as exc:  # noqa: BLE001 – bez povrchu terén zůstane, porost chybí
-            log_issue(log, f"Polsko: povrch NMPT se nestáhl ({str(exc)[:120]}), výška porostu chybí")
-            return SourceRasters(vrt("dtm", dtm), None)
+        except Exception as exc:  # noqa: BLE001 – povrch z WCS nejde: zkusit listy, jinak jen terén
+            try:
+                log_issue(log, f"Polsko: povrch NMPT z WCS se nestáhl ({str(exc)[:120]}), zkouším listy opendata GUGiK")
+                dsm = pl_sheet_rasters("nmpt", bounds_pl, out_dir, log=log)
+            except Exception as exc2:  # noqa: BLE001 – bez povrchu terén zůstane, porost chybí
+                log_issue(log, f"Polsko: povrch NMPT se nestáhl ({str(exc2)[:120]}), výška porostu chybí")
+                return SourceRasters(vrt("dtm", dtm), None)
     return SourceRasters(vrt("dtm", dtm), vrt("dsm", dsm))
 
 

@@ -61,7 +61,7 @@ from app.pipeline.alkis_de import STATES as DE_ALKIS_STATES, probe_url as alkis_
 from app.pipeline.reference_de_states import DE_WCS_STATES, elevation_probe, elevation_probe_method, ortho_probe
 from app.pipeline.reference_by import BY_ELEVATION_PROBE, BY_ORTHO_PROBE
 from app.pipeline.reference_gb import GB_EA_PROBE, SCT_ELEVATION_PROBE, WLS_ELEVATION_PROBE
-from app.pipeline.reference_pl import PL_ELEVATION_PROBE, PL_ORTHO_PROBE
+from app.pipeline.reference_pl import PL_ELEVATION_PROBE, PL_ORTHO_PROBE, PL_SHEET_PROBE
 from app.pipeline.reference_lu import LU_ELEVATION_PROBE, LU_ORTHO_PROBE
 from app.pipeline.reference_nz import NZ_ELEVATION_PROBE
 from app.pipeline.reference_es import (
@@ -680,11 +680,11 @@ PROBES: tuple[Probe, ...] = (
         "Šablona ortofota bude chybět.",
         countries=("DE-NW",),
     ),
-    # Polsko: malý výřez NMT z WCS a malý výřez ortofota (kresba z OSM).
+    # Polsko: malý výřez NMT z WCS nebo index záložních listů, malý výřez ortofota (kresba z OSM).
     Probe(
         "pl_elevation",
         "Výšky GUGiK – NMT a NMPT",
-        (PL_ELEVATION_PROBE,),
+        (PL_ELEVATION_PROBE, PL_SHEET_PROBE),
         "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
         fatal=True,
         countries=("PL",),
