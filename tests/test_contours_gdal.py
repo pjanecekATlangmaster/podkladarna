@@ -446,3 +446,41 @@ def test_slope_lines_on_depression_ring(tmp_path):
         ds.GetRasterBand(1).WriteArray((100.0 + sign * 0.1 * r).astype("float32"))
         ds = None
         assert cs.is_depression(cs._Dem(path), ring, 100.0 + sign * 3.0) is depression
+
+
+# Mimo Česko: vrstevnice ve vodě (dno nádrže z DMR) se nekreslí, přes břeh končí na břehu, ostrov zůstává.
+@pytest.mark.parametrize(
+    "pts, expect_pieces, expect_len",
+    [
+        ([(10.0, 10.0), (90.0, 10.0), (90.0, 90.0), (10.0, 90.0), (10.0, 10.0)], 0, 0.0),  # celá ve vodě (dno)
+        ([(-50.0, 20.0), (150.0, 20.0)], 2, 100.0),  # přes nádrž: dva kusy, konec na břehu
+        ([(-50.0, 20.0), (-5.0, 20.0)], 1, 45.0),  # mimo vodu beze změny
+        ([(42.0, 42.0), (58.0, 42.0), (58.0, 58.0), (42.0, 58.0), (42.0, 42.0)], 1, 64.0),  # na ostrově
+        ([(-10.0, 20.0), (5.0, 20.0)], 0, 0.0),  # zbytek na břehu kratší než min. délka
+    ],
+)
+def test_contours_clipped_by_water(pts, expect_pieces, expect_len):
+    from shapely.geometry import LineString, Polygon
+
+    from app.pipeline.contours_gdal import clip_lines_outside_water, is_closed_polyline
+
+    lake = Polygon([(0, 0), (100, 0), (100, 100), (0, 100)], [[(40, 40), (60, 40), (60, 60), (40, 60)]])
+    out, _ = clip_lines_outside_water([("line", pts, is_closed_polyline(pts))], lake, min_length_m=15.0)
+    assert len(out) == expect_pieces
+    assert sum(LineString(p[1]).length for p in out) == pytest.approx(expect_len, abs=0.01)
+    assert all(LineString(p[1]).intersection(lake).length < 1e-6 for p in out)
+
+
+def test_contour_water_mask_off_in_czechia(tmp_path, monkeypatch):
+    import json
+
+    from app.pipeline import contours_gdal, country_profile
+
+    (tmp_path / "osm_paths").mkdir()
+    lake = {"type": "Polygon", "coordinates": [[[0, 0], [100, 0], [100, 100], [0, 100], [0, 0]]]}
+    feat = {"type": "Feature", "properties": {"kind": "water_body"}, "geometry": lake}
+    (tmp_path / "osm_paths" / "features.geojson").write_text(json.dumps({"features": [feat]}))
+    monkeypatch.setenv(country_profile.JOB_COUNTRY_ENV, "CZ")
+    assert contours_gdal.contour_water_mask(tmp_path) is None
+    monkeypatch.setenv(country_profile.JOB_COUNTRY_ENV, "FR")
+    assert contours_gdal.contour_water_mask(tmp_path).area == pytest.approx(10000.0)
