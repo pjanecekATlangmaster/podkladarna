@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.pipeline import elevation_raster as er
+from app.pipeline.job_progress import ISSUE_LOG_PREFIX
 from app.pipeline.reference_pl import pl_dsm_url, pl_dtm_url
 
 RAW = (
@@ -146,5 +147,25 @@ def test_provider_uses_sheets_when_wcs_down(monkeypatch, tmp_path):
     monkeypatch.setattr(er, "run_cmd", lambda cmd, log=None: None)
     monkeypatch.setattr(er, "_gdal_tool", lambda name: name)
     monkeypatch.setattr(er, "_download_retry", lambda *a, **k: pytest.fail("WCS se při výpadku nevolá"))
-    res = er.pl_gugik_provider((0, 0, 1, 1), tmp_path)
+    lines = []
+    res = er.pl_gugik_provider((0, 0, 1, 1), tmp_path, log=lines.append)
     assert calls == ["nmt", "nmpt"] and res.dsm is not None
+    # záloha uspěla: informace, ne chyba jobu (⚠ by dalo „hotovo s chybami“)
+    assert lines and not any(line.startswith(ISSUE_LOG_PREFIX) for line in lines)
+
+
+def test_provider_sheet_dsm_failure_is_issue(monkeypatch, tmp_path):
+    def sheets(kind, b, d, log=None):
+        if kind == "nmpt":
+            raise RuntimeError("GUGiK: listy NMPT výřez nepokrývají")
+        return [d / f"{kind}.tif"]
+
+    monkeypatch.setattr(er, "_pl_wcs_alive", lambda log=None: False)
+    monkeypatch.setattr(er, "pl_sheet_rasters", sheets)
+    monkeypatch.setattr(er, "_bounds_in", lambda b, s, t: (566000.0, 244000.0, 567000.0, 245000.0))
+    monkeypatch.setattr(er, "run_cmd", lambda cmd, log=None: None)
+    monkeypatch.setattr(er, "_gdal_tool", lambda name: name)
+    lines = []
+    res = er.pl_gugik_provider((0, 0, 1, 1), tmp_path, log=lines.append)
+    assert res.dsm is None
+    assert any(line.startswith(ISSUE_LOG_PREFIX) and "NMPT" in line for line in lines)

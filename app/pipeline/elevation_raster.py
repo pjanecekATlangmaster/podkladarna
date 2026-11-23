@@ -1758,8 +1758,14 @@ def pl_gugik_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
         run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", PL_CRS, str(path), *map(str, tiles)], log=log)
         return path
 
+    def note(message: str) -> None:
+        # záloha, která uspěla, není chyba jobu (bez ⚠, job a0aa09091b96 „hotovo s chybami“ s celými výškami);
+        # selhání zálohy hlásí výjimka nebo log_issue níže
+        if log is not None:
+            log(message)
+
     if not _pl_wcs_alive(log):
-        log_issue(log, "Polsko: výšková služba WCS GUGiK neodpovídá, výšky ze záložních listů opendata GUGiK (pomalejší stahování)")
+        note("Polsko: výšková služba WCS GUGiK neodpovídá, výšky ze záložních listů opendata GUGiK (pomalejší stahování)")
         dtm = pl_sheet_rasters("nmt", bounds_pl, out_dir, log=log)
         try:
             dsm = pl_sheet_rasters("nmpt", bounds_pl, out_dir, log=log)
@@ -1780,7 +1786,7 @@ def pl_gugik_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
             dsm = dsm_future.result()
         except Exception as exc:  # noqa: BLE001 – povrch z WCS nejde: zkusit listy, jinak jen terén
             try:
-                log_issue(log, f"Polsko: povrch NMPT z WCS se nestáhl ({str(exc)[:120]}), zkouším listy opendata GUGiK")
+                note(f"Polsko: povrch NMPT z WCS se nestáhl ({str(exc)[:120]}), zkouším listy opendata GUGiK")
                 dsm = pl_sheet_rasters("nmpt", bounds_pl, out_dir, log=log)
             except Exception as exc2:  # noqa: BLE001 – bez povrchu terén zůstane, porost chybí
                 log_issue(log, f"Polsko: povrch NMPT se nestáhl ({str(exc2)[:120]}), výška porostu chybí")
