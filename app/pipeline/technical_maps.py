@@ -115,6 +115,14 @@ FOREIGN: dict[str, TechnicalMap] = {
         content="budovy, vozovky podle šířky silnic",
         module="app.pipeline.zbgis_sk",
     ),
+    "pl_bdot10k": TechnicalMap(
+        key="pl_bdot10k",
+        short="BDOT10k",
+        step="data BDOT10k",
+        background="Data BDOT10k (GUGiK)",
+        content="budovy, vozovky podle šířky silnic, zpevněná náměstí",
+        module="app.pipeline.bdot10k_pl",
+    ),
     "fi_hel": TechnicalMap(
         key="fi_hel",
         short="YLRE",

@@ -1230,5 +1230,12 @@
   "api.source.fi_espoo.label": "InfStreet and Espoo buildings (kartat.espoo.fi)",
   "api.source.fi_espoo.impact": "Buildings, roadways and sidewalks in Espoo will be drawn from OSM only.",
   "api.source.de_leipzig.label": "Leipzig Stadtgrundkarte (geodaten.leipzig.de)",
-  "api.source.de_leipzig.impact": "Carriageways, footways, parking spaces, stairs and fences in Leipzig will be drawn from ALKIS and OSM only."
+  "api.source.de_leipzig.impact": "Carriageways, footways, parking spaces, stairs and fences in Leipzig will be drawn from ALKIS and OSM only.",
+  "web.js.step.bdot10k": "BDOT10k data (Poland)",
+  "web.js.source.pl_bdot10k": "BDOT10k (Poland)",
+  "web.js.bdot10k.failed": "BDOT10k data could not be downloaded, the map was drawn from OSM.",
+  "web.js.bdot10k.text": "BDOT10k Poland ({n} objects): prepared in the background in {dur}.",
+  "web.js.bg.pl_bdot10k": "BDOT10k data (GUGiK)",
+  "api.source.pl_bdot10k.label": "BDOT10k (GUGiK)",
+  "api.source.pl_bdot10k.impact": "Buildings, carriageways and squares will be drawn from OSM only."
 }

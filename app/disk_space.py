@@ -200,6 +200,7 @@ def aoi_cache_roots() -> list[tuple[Path, int]]:
         (root / "aopk", settings.AOPK_CACHE_MAX_AGE_DAYS),
         (root / "osm", osm_cache_max_age_days()),
         (root / "sk_zbgis", settings.SK_ZBGIS_CACHE_MAX_AGE_DAYS),  # celostátní sady, položka = sada (bu / tn)
+        (root / "pl_bdot10k", PL_BDOT10K_CACHE_MAX_AGE_DAYS),  # BDOT10k, položka = okres (TERYT)
         (root / "de_leipzig", LEIPZIG_DSGK_CACHE_MAX_AGE_DAYS),  # Stadtgrundkarte Lipsko, položka = sada (dsgk)
         (root / "fi_mtk", settings.FI_MTK_CACHE_MAX_AGE_DAYS),  # Maastotietokanta, položka = ZIP poloviny listu
         # indexy dlaždic německých zemí (položka = soubor indexu); obnovují se po 7 / 30 dnech, nepoužívané se smažou
@@ -209,6 +210,7 @@ def aoi_cache_roots() -> list[tuple[Path, int]]:
 
 
 LEIPZIG_DSGK_CACHE_MAX_AGE_DAYS = 90  # jako ZBGIS: nepoužitá stažená Stadtgrundkarte (~80 MB) se smaže
+PL_BDOT10K_CACHE_MAX_AGE_DAYS = 90  # jako ZBGIS: nepoužitý okres BDOT10k (desítky MB) se smaže
 DE_INDEX_CACHE_MAX_AGE_DAYS = 60  # nad obnovu indexu (Metalink 7 dní, adresáře ZIPů 30 dní)
 
 
