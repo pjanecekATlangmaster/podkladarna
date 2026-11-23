@@ -1123,6 +1123,75 @@ def _formline_geometry(
     return result
 
 
+# Mimo Česko: vrstevnice uvnitř OSM vodní plochy (dno nádrže / interpolace přes hladinu z DMR) se nekreslí,
+# vrstevnice přes břeh končí na břehu; ostrov (díra ve vodě) zůstává. Česko beze změny.
+WATER_CLIP = True
+
+
+def contour_water_mask(work_dir: Path):
+    """OSM vodní plochy (``water_body``, i moře) pro ořez vrstevnic, nebo None (Česko, vypnuto, bez vody)."""
+    if not WATER_CLIP:
+        return None
+    from app.pipeline.country_profile import process_uses_cz_sources
+
+    if process_uses_cz_sources():
+        return None
+    from app.pipeline.osm_paths import osm_water_area_geometry
+
+    water = osm_water_area_geometry(work_dir)
+    if water is None or water.is_empty:
+        return None
+    import shapely
+
+    shapely.prepare(water)  # mnoho dotazů intersects (spádnice na uzavřených vrstevnicích)
+    return water
+
+
+def clip_lines_outside_water(smoothed: list, water, *, min_length_m: float) -> tuple[list, int]:
+    """Kusy ``("line", body, uzavřená)`` mimo vodu; ořezané zbytky kratší než ``min_length_m`` pryč.
+
+    Vrací (kusy, počet zasažených linií). Linie bez průniku s vodou zůstávají beze změny (stejné body)."""
+    from shapely import STRtree
+    from shapely.geometry import LineString
+    from shapely.prepared import prep
+
+    if water is None or water.is_empty or not smoothed:
+        return smoothed, 0
+    polys = list(getattr(water, "geoms", [water]))
+    tree = STRtree(polys)
+    out: list = []
+    touched = 0
+    for item in smoothed:
+        pts = item[1]
+        line = LineString(pts)
+        hits = [polys[i] for i in tree.query(line, predicate="intersects")]
+        if not hits:
+            out.append(item)
+            continue
+        touched += 1
+        rest = line
+        for poly in hits:
+            if prep(poly).contains(rest):
+                rest = None
+                break
+            rest = rest.difference(poly)
+            if rest.is_empty:
+                break
+        if rest is None or rest.is_empty:
+            continue
+        if rest.geom_type == "MultiLineString":
+            # Uzavřená vrstevnice přes břeh: oblouk přes počáteční bod jako jeden kus.
+            from shapely.ops import linemerge
+
+            rest = linemerge(rest)
+        for piece in getattr(rest, "geoms", [rest]):
+            if piece.geom_type != "LineString" or piece.length < min_length_m:
+                continue
+            coords = [(float(x), float(y)) for x, y, *_ in piece.coords]
+            out.append(("line", coords, is_closed_polyline(coords)))
+    return out, touched
+
+
 def build_gdal_contour_parts(
     work_dir: Path,
     *,
@@ -1172,7 +1241,13 @@ def build_gdal_contour_parts(
             "Importuji vrstevnice do OOM: Chaikin → DP simplify "
             f"({_SIMPLIFY_PAPER_MM:g} mm ≈ {simplify_tol:.2f} m) → Bézier",
         )
+    water = contour_water_mask(work_dir)
+    min_len, _gap = contour_line_params(scalefactor, interval_m)
+    n_water = 0
     for code, smoothed in entry["smoothed"]:
+        if water is not None:
+            smoothed, hit = clip_lines_outside_water(smoothed, water, min_length_m=min_len)
+            n_water += hit
         symbol_index = symbol_index_for_code(preset_id, scale, code)
         if symbol_index is None and not preset_uses_catalog(preset_id, scale):
             # Jen staré sady; u katalogových se chybějící kód nenahrazuje.
@@ -1201,6 +1276,10 @@ def build_gdal_contour_parts(
         smoothed, n_candidates, formline_rings, extra = _formline_geometry(
             entry, formline_shp, interval_m=interval_m, scale=scale, mode=formlines
         )
+        if water is not None:
+            smoothed, hit = clip_lines_outside_water(smoothed, water, min_length_m=min_len)
+            n_water += hit
+            formline_rings = [(elev, pts) for elev, pts in formline_rings if not _ring_hits(water, pts)]
         if log:
             log(
                 f"Pomocné vrstevnice 103 ({formlines}): {len(smoothed)} kusů "
@@ -1219,9 +1298,15 @@ def build_gdal_contour_parts(
                 )
             )
 
+    if water is not None and log and n_water:
+        log(f"Vrstevnice ve vodě: {n_water} linií ořezáno na břehu nebo vynecháno (OSM vodní plochy)")
     slope = _slope_line_objects(
         work_dir,
-        [(code, elev, pts) for code, elev, pts in entry.get("rings", [])]
+        [
+            (code, elev, pts)
+            for code, elev, pts in entry.get("rings", [])
+            if water is None or not _ring_hits(water, pts)
+        ]
         + [("103", elev, pts) for elev, pts in formline_rings],
         preset_id=preset_id,
         scale=scale,
@@ -1247,6 +1332,13 @@ def build_gdal_contour_parts(
             OomObjectPart(name="Spádnice (GDAL)", objects_xml="\n".join(slope), count=len(slope))
         )
     return parts
+
+
+def _ring_hits(water, pts) -> bool:
+    """Uzavřená vrstevnice zasahuje do vody → spádnice ne (kreslená část už není prohlubeň)."""
+    from shapely.geometry import LineString
+
+    return bool(water.intersects(LineString(pts)))
 
 
 def slope_line_codes(preset_id: str, scale: int) -> dict[str, str]:

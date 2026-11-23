@@ -560,6 +560,10 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   406–410 z výšek, bez 401 ∪ 403 z výšek / ortofota v souvislých plochách pod `CLEAN_OPEN_MIN_M2` (0,3 ha) a bez části z DEM
   (srázy, skály, balvany, kupky, `CLEAN_DROP_DEM`). Data OSM / ZABAGED / DTM a vrstevnice zůstávají. Plná nese hlavní jméno
   (`*-les.omap`, `.ocd`), čistá `*-les_novege.omap` (od 4.16.2, Petr 2026-11-22; dřív čistá hlavní a plná `_full`); náhled webu a ukázky z plné. Sprint beze změny.
+- **Vrstevnice ve vodě mimo Česko** (4.26.2, Petr 2026-11-23, Francie Truyère: dno nádrže z DMR): vrstevnice 101–103 uvnitř OSM vodní
+  plochy (`water_body`, i moře a řeky jako plocha) se nekreslí, přes břeh končí na břehu, ořezaný zbytek pod min. délkou vrstevnice
+  (`contour_line_params`) pryč, ostrov zůstává, spádnice na uzavřené vrstevnici zasahující do vody ne (`contours_gdal.contour_water_mask`,
+  `clip_lines_outside_water`, vypínač `WATER_CLIP`). Česko beze změny (`process_uses_cz_sources`). Výřezy `/mnt/project-files/vrstevnice-voda/`.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch
