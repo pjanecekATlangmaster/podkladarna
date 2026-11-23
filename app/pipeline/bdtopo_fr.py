@@ -31,6 +31,10 @@ MAX_PAGES = 20
 HTTP_TIMEOUT_S = 180
 HTTP_RETRIES = 3
 MAX_RESPONSE_BYTES = 300_000_000
+# Géoplateforme občas vrátí 200 s prázdným tělem / HTML místo GeoJSON (job 12710683e5bd 2026-11-23, o pár minut
+# později týž dotaz prošel): stránku zkusit znovu, než se celá technická mapa vzdá.
+BAD_RESPONSE_RETRIES = 3
+BAD_RESPONSE_WAIT_S = 5.0
 LAYERS = ("batiment", "troncon_de_route")
 
 IN_SERVICE = "En service"
@@ -86,15 +90,30 @@ def _get(url: str) -> bytes:
     raise last
 
 
+def _fetch_page(fetch, url: str) -> tuple[bytes, dict]:
+    """Jedna stránka GetFeature jako GeoJSON; odpověď, která není FeatureCollection, se zkusí znovu."""
+    for attempt in range(BAD_RESPONSE_RETRIES + 1):
+        raw = fetch(url)
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            data = None
+        if isinstance(data, dict) and "features" in data:
+            return raw, data
+        if attempt < BAD_RESPONSE_RETRIES:
+            time.sleep(BAD_RESPONSE_WAIT_S * (attempt + 1))
+    if data is None:
+        head = raw[:120].decode("utf-8", "replace").strip()
+        raise RuntimeError(f"BD TOPO WFS: odpověď není JSON ({len(raw)} B, začátek: {head!r})")
+    raise RuntimeError(f"BD TOPO WFS: {str(data)[:200]}")
+
+
 def _fetch_layer(layer: str, bounds, fetch, log: LogFn | None = None) -> tuple[list[dict], int]:
     feats: list[dict] = []
     nbytes = 0
     for page in range(MAX_PAGES):
-        raw = fetch(wfs_url(layer, bounds, page * PAGE_SIZE))
+        raw, data = _fetch_page(fetch, wfs_url(layer, bounds, page * PAGE_SIZE))
         nbytes += len(raw)
-        data = json.loads(raw)
-        if "features" not in data:
-            raise RuntimeError(f"BD TOPO WFS: {str(data)[:200]}")
         batch = data["features"] or []
         feats.extend(f for f in batch if f.get("geometry"))
         if len(batch) < PAGE_SIZE:
