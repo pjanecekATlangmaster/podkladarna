@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import area_probe, countries, db, donations, i18n, paid_flow, prefetch, samples_refresh, settings as app_settings, source_events, source_gate, source_status, user_sources, worker
+from app import area_probe, countries, db, donations, i18n, log_i18n, paid_flow, prefetch, samples_refresh, settings as app_settings, source_events, source_gate, source_status, user_sources, worker
 from app.cleanup import maybe_purge_old_jobs, prune_caches, purge_old_jobs, start_cleanup_scheduler
 from app.client_ip import client_ip
 from app.feedback import (
@@ -1209,7 +1209,7 @@ def api_job_template(job_id: str, request: Request):
 
 
 @app.get("/api/jobs/{job_id}/log")
-def api_job_log(job_id: str, after: int = 0):
+def api_job_log(job_id: str, request: Request, after: int = 0):
     try:
         job = db.get_job(job_id)
     except KeyError:
@@ -1217,7 +1217,8 @@ def api_job_log(job_id: str, after: int = 0):
     if db.job_is_expired(job):
         db.delete_job(job_id)
         raise HTTPException(410, i18n.Msg("api.private_expired"))
-    return {"lines": db.get_logs(job_id, after)}
+    # Log se ukládá česky (web z něj čte průběh); v jiném jazyce stránky přeložený řádek + původní v ``src``.
+    return {"lines": log_i18n.localize_log_lines(db.get_logs(job_id, after), i18n.resolve_lang(request)[0])}
 
 
 @app.get("/api/jobs/{job_id}/download/oom")

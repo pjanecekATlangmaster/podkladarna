@@ -9,6 +9,10 @@
 milestones:
   - date: "2026-11-23"
     scope: intl
+    title: "Verze 4.29 – technický log průběhu mapy se na anglické stránce zobrazuje anglicky"
+    title_en: "Version 4.29 – the technical log of a map build is shown in English on the English site"
+  - date: "2026-11-23"
+    scope: intl
     title: "Verze 4.28 – mimo Česko: pozemek obehnaný zdí se vyplní olivou jako oplocený (i ve sprintu); vrstevnice uvnitř jezer, řek a moře se nekreslí a končí na břehu; sprint nekreslí zdi a ploty uvnitř bloku budov; les a MTBO: drobné keře v otevřeném terénu už nevycházejí jako bílé tečky lesa"
     title_en: "Version 4.28 – outside Czechia: land enclosed by walls is filled olive like a fenced plot (sprint too); contours inside lakes, rivers and the sea are not drawn and end at the shore; sprint maps drop walls and fences inside building blocks; forest and MTBO: small bushes in open land no longer show up as white specks of forest"
   - date: "2026-11-23"

@@ -1914,7 +1914,9 @@ async function refreshLog() {
   for (const line of data.lines) {
     pre.textContent += line.line + "\n";
     logAfter = line.id;
-    if (PROGRESS_LINE_RE.test(line.line)) detailProgressLines.push(line.line);
+    // Průběh se čte z původního (českého) řádku; ``line`` je v jazyce stránky (app/log_i18n.py).
+    const src = line.src || line.line;
+    if (PROGRESS_LINE_RE.test(src)) detailProgressLines.push(src);
   }
   if (hadNew) detailProgress = parseJobProgress(detailProgressLines);
   if (jobIsLive(selectedJobStatus)) {
@@ -3466,7 +3468,8 @@ async function barProgressFor(id) {
     const d = await api(`/api/jobs/${id}/log?after=${barTracker.after}`);
     for (const l of d.lines) {
       barTracker.after = l.id;
-      if (PROGRESS_LINE_RE.test(l.line)) barTracker.lines.push(l.line);
+      const src = l.src || l.line;
+      if (PROGRESS_LINE_RE.test(src)) barTracker.lines.push(src);
     }
     if (d.lines.length) barTracker.progress = parseJobProgress(barTracker.lines);
   } catch (_) {
