@@ -4330,6 +4330,11 @@ def prepare_osm_paths(
             }
             if kind == "barrier_point":
                 props["barrier"] = (tags.get("barrier") or "").lower()  # sprint brány a sloupky nekreslí
+            if kind == "wall":
+                # Mimo Česko oplocuje i zeď (``dtm_import.osm_enclosure_wall_lines``); opěrná zeď a hradba ne.
+                props["barrier"] = (tags.get("barrier") or "").lower()
+                if tags.get("wall"):
+                    props["wall"] = str(tags.get("wall")).lower()
             if kind == "water_tower" and (tags.get("man_made") or "").lower() in OSM_TOWERS_ABROAD:
                 props["tower"] = (tags.get("man_made") or "").lower()  # věž mimo Česko: v budově se nekreslí
             if kind == "playground_equipment":
@@ -8896,6 +8901,11 @@ def build_osm_feature_parts(
 
         if dtm_owns_fences(work_dir):
             feats = [f for f in feats if (f.get("properties") or {}).get("kind") != "fence"]
+        else:
+            # Mimo Česko bez technické mapy: oplocení z OSM plotů a zdí se vyplní olivou (Česko beze změny).
+            from app.pipeline.dtm_import import with_osm_enclosure_fills
+
+            feats = with_osm_enclosure_fills(work_dir, feats)
         # OSM parkoviště překrývající parkoviště z DTM se nekreslí (DTM má přednost, kreslí je
         # build_dtm_parking_parts).
         from app.pipeline.dtm_import import apply_dtm_priority_to_paved

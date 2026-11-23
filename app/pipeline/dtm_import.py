@@ -3347,6 +3347,48 @@ def _osm_fence_lines(work_dir: Path) -> list[tuple[str, list[tuple[float, float]
     return [(dtm_fences.CODE_FENCE, ln) for ln in dtm_fences.merge_lines(pieces)]
 
 
+# Mimo Česko oplocuje pozemek i zeď (Petr 2026-11-23, Barcelona: zahrady řadových domů obehnané zdí). OSM ``barrier=wall``
+# se pro hledání oplocení k výplni olivou bere jako plot – stejné podmínky (``dtm_fences.private_enclosure_rings``);
+# kreslí se dál jako zeď. Opěrná zeď (``retaining_wall``), hradba (``city_wall``) a zdi podle ``wall=*`` níže ne.
+# Česko beze změny (zdi z DTM / ZABAGED). ``False`` = zdi oplocení netvoří (jako do 4.27).
+WALL_ENCLOSURES = True
+WALL_ENCLOSURE_SKIP_TYPES = frozenset({"noise_barrier", "retaining_wall", "flood_wall", "castle_wall", "city_wall"})
+
+
+def wall_enclosures_enabled() -> bool:
+    from app.pipeline.country_profile import process_uses_cz_sources
+
+    return WALL_ENCLOSURES and not process_uses_cz_sources()
+
+
+def osm_enclosure_wall_lines_from_feats(feats: list[dict]) -> list[tuple[str, list[tuple[float, float]]]]:
+    """OSM zdi, které oplocují (``barrier=wall``, mimo Česko), jako spojené čáry s kódem plotu; jen pro hledání
+    oplocení k výplni olivou. Starší joby bez tagu ``barrier`` u zdí nic."""
+    if not wall_enclosures_enabled():
+        return []
+    pieces = []
+    for feat in feats:
+        props = feat.get("properties") or {}
+        geom = feat.get("geometry") or {}
+        if props.get("kind") != "wall" or props.get("barrier") != "wall" or props.get("wall") in WALL_ENCLOSURE_SKIP_TYPES:
+            continue
+        coords = geom.get("coordinates") or []
+        if geom.get("type") == "LineString" and len(coords) >= 2:
+            pieces.append([(float(x), float(y)) for x, y, *_ in coords])
+    return [(dtm_fences.CODE_FENCE, ln) for ln in dtm_fences.merge_lines(pieces)] if pieces else []
+
+
+def osm_enclosure_wall_lines(work_dir: Path) -> list[tuple[str, list[tuple[float, float]]]]:
+    """``osm_enclosure_wall_lines_from_feats`` nad ``osm_paths/features.geojson`` jobu."""
+    if not wall_enclosures_enabled():
+        return []
+    try:
+        feats = json.loads((work_dir / "osm_paths" / "features.geojson").read_text(encoding="utf-8")).get("features") or []
+    except (OSError, ValueError):
+        return []
+    return osm_enclosure_wall_lines_from_feats(feats)
+
+
 def _load_opl_areas(work_dir: Path) -> dict[str, list]:
     areas: dict[str, list] = {"olive": [], "public": [], "building": [], "open": []}
     try:
@@ -3526,6 +3568,50 @@ def _zabaged_olive_polygons(work_dir: Path) -> list:
         return []
 
 
+def with_osm_enclosure_fills(work_dir: Path, feats: list[dict]) -> list[dict]:
+    """Sprint mimo Česko bez technické mapy (ploty nekreslí ``build_dtm_fence_parts``): oplocení z OSM plotů a zdí
+    se vyplní olivou (``kind == "garden"``, ``fence_fill``) podle týchž podmínek jako jinde
+    (``dtm_fences.private_enclosure_rings``; oliva = OSM zahrady, budovy z OSM). Ploty a zdi se nemění.
+    Česko a ``WALL_ENCLOSURES = False`` beze změny; při chybě ``feats`` beze změny."""
+    if not wall_enclosures_enabled():
+        return feats
+    try:
+        from shapely.geometry import shape
+
+        fences = [
+            [(float(x), float(y)) for x, y, *_ in f["geometry"]["coordinates"]]
+            for f in feats
+            if (f.get("properties") or {}).get("kind") == "fence"
+            and (f.get("geometry") or {}).get("type") == "LineString"
+            and len((f.get("geometry") or {}).get("coordinates") or []) >= 2
+        ]
+        lines = [(dtm_fences.CODE_FENCE, ln) for ln in dtm_fences.merge_lines(fences)] if fences else []
+        lines += osm_enclosure_wall_lines_from_feats(feats)
+        if not lines:
+            return feats
+        olive_rings, buildings = [], []
+        for feat in feats:
+            props = feat.get("properties") or {}
+            geom = feat.get("geometry") or {}
+            if props.get("kind") == "garden" and geom.get("type") in ("Polygon", "MultiPolygon"):
+                g = shape(geom)
+                g = g if g.is_valid else g.buffer(0)
+                for p in [g] if g.geom_type == "Polygon" else list(getattr(g, "geoms", [])):
+                    if p.geom_type == "Polygon" and not p.is_empty:
+                        olive_rings.append([list(p.exterior.coords)] + [list(r.coords) for r in p.interiors])
+            elif props.get("kind") == "building" and geom.get("type") == "Polygon":
+                buildings.append([[(float(x), float(y)) for x, y, *_ in ring] for ring in geom.get("coordinates") or []])
+        rings = valid_fill_rings(dtm_fences.private_enclosure_rings(lines, {"olive": olive_rings, "building": buildings}))
+    except Exception:  # výplň je doplněk
+        return feats
+    fills = [
+        {"type": "Feature", "properties": {"kind": "garden", "fence_fill": True}, "geometry": {"type": "Polygon", "coordinates": [[list(p) for p in r]]}}
+        for r in rings
+        if len(r) >= 4
+    ]
+    return feats + fills
+
+
 def join_and_orient_osm_fences(
     work_dir: Path, feats: list[dict], *, preset_id: str = "", scale: int = 0, path_source: str = "mixed"
 ) -> list[dict]:
@@ -3543,7 +3629,8 @@ def join_and_orient_osm_fences(
         and (f.get("geometry") or {}).get("type") == "LineString"
         and len((f.get("geometry") or {}).get("coordinates") or []) >= 2
     ]
-    if not fences:
+    wall_lines = osm_enclosure_wall_lines_from_feats(feats)  # mimo Česko oplocuje i zeď (jen hledání výplně)
+    if not fences and not wall_lines:
         return feats
     try:
         from shapely.geometry import shape
@@ -3588,7 +3675,9 @@ def join_and_orient_osm_fences(
             if connectors:
                 joined_lines = dtm_fences.merge_lines([ln for _c, ln in tagged + connectors])
                 tagged = dtm_fences.orient_fences([(dtm_fences.CODE_FENCE, ln) for ln in joined_lines], {"olive": olive_rings})
-        fill_rings = valid_fill_rings(dtm_fences.private_enclosure_rings(tagged, {"olive": olive_rings, "building": buildings}))
+        fill_rings = valid_fill_rings(
+            dtm_fences.private_enclosure_rings(tagged + wall_lines, {"olive": olive_rings, "building": buildings})
+        )
     except Exception:  # výplň je doplněk
         fill_rings = []
     try:
@@ -3696,12 +3785,18 @@ def build_dtm_fence_parts(
         except Exception:  # sjednocení je doplněk, ploty se kreslí i bez něj
             lines = dtm_lines + osm_lines
             osm_keys = {_line_key(ln) for _c, ln in osm_lines}
-    if not lines and not _load_dubious_fences(work_dir) and not load_yard_polygons(work_dir):
+    wall_lines = osm_enclosure_wall_lines(work_dir) if fill_olive else []  # mimo Česko oplocuje i zeď
+    if not lines and not wall_lines and not _load_dubious_fences(work_dir) and not load_yard_polygons(work_dir):
         return []
     if fill_olive and osm_lines and (areas["olive"] or areas["building"]):
         try:
             fill_rings = dtm_fences.private_enclosure_rings(lines, areas)
         except Exception:
+            pass
+    if wall_lines and (areas["olive"] or areas["building"]):
+        try:
+            fill_rings = merge_fill_rings(fill_rings, dtm_fences.private_enclosure_rings(lines + wall_lines, areas))
+        except Exception:  # výplň oplocení zdí je doplněk
             pass
     try:
         olive_geom = _olive_geometry(work_dir, fill_rings if fill_olive else [])
