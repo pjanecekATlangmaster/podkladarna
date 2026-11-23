@@ -1526,6 +1526,7 @@ SPRINT_BLOCK_WALLS_DROP = True
 SPRINT_BLOCK_WALL_MAJORS = frozenset({513, 516, 518})
 SPRINT_BLOCK_WALL_INNER_M = 1.0
 SPRINT_BLOCK_WALL_SHARE = 0.8
+SPRINT_BLOCK_WALL_SAMPLE_M = 0.5
 
 
 def _courtyard_access(work_dir: Path, *, ref_x: float, ref_y: float, scale: int, grivation_deg: float):
@@ -1731,9 +1732,16 @@ def sprint_merge_buildings(
             if len(pts) < 2:
                 return False
             line = LineString(pts)
-            if line.length <= 0 or not line.intersects(wall_zone):
+            if line.length <= 0 or not wall_zone.intersects(line):
                 return False
-            return line.intersection(wall_zone).length >= SPRINT_BLOCK_WALL_SHARE * line.length
+            # Podíl délky ze vzorků po ~0,5 m (připravená zóna): přesný průnik s blokem celé mapy by rostl
+            # kvadraticky s územím (každá zeď proti všem vrcholům bloků).
+            import numpy as np
+            import shapely
+
+            n = max(int(line.length // (SPRINT_BLOCK_WALL_SAMPLE_M * 1e6 / scale)), 1)
+            samples = shapely.line_interpolate_point(line, (np.arange(n) + 0.5) * line.length / n)
+            return float(shapely.contains(wall_zone, samples).mean()) >= SPRINT_BLOCK_WALL_SHARE
         except Exception:
             return False
     fill_ids = {i for i, (major, kind) in info.items() if kind == "area" and major in SPRINT_BUILDING_HOLE_FILL_MAJORS}
