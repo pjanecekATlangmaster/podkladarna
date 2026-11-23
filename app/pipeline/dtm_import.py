@@ -3568,6 +3568,11 @@ def _zabaged_olive_polygons(work_dir: Path) -> list:
         return []
 
 
+# Sprint bez technické mapy: oplocení z ≥ ``SPRINT_ENCLOSURE_PUBLIC_SHARE`` plochy kryté přístupnou OSM plochou se nevyplní.
+SPRINT_ENCLOSURE_PUBLIC_KINDS = frozenset({"pitch", "playground", "pedestrian_area", "parking"})
+SPRINT_ENCLOSURE_PUBLIC_SHARE = 0.5
+
+
 def with_osm_enclosure_fills(work_dir: Path, feats: list[dict]) -> list[dict]:
     """Sprint mimo Česko bez technické mapy (ploty nekreslí ``build_dtm_fence_parts``): oplocení z OSM plotů a zdí
     se vyplní olivou (``kind == "garden"``, ``fence_fill``) podle týchž podmínek jako jinde
@@ -3589,10 +3594,13 @@ def with_osm_enclosure_fills(work_dir: Path, feats: list[dict]) -> list[dict]:
         lines += osm_enclosure_wall_lines_from_feats(feats)
         if not lines:
             return feats
-        olive_rings, buildings = [], []
+        olive_rings, buildings, public = [], [], []
         for feat in feats:
             props = feat.get("properties") or {}
             geom = feat.get("geometry") or {}
+            if props.get("kind") in SPRINT_ENCLOSURE_PUBLIC_KINDS and geom.get("type") in ("Polygon", "MultiPolygon"):
+                g = shape(geom)
+                public.append(g if g.is_valid else g.buffer(0))
             if props.get("kind") == "garden" and geom.get("type") in ("Polygon", "MultiPolygon"):
                 g = shape(geom)
                 g = g if g.is_valid else g.buffer(0)
@@ -3602,6 +3610,17 @@ def with_osm_enclosure_fills(work_dir: Path, feats: list[dict]) -> list[dict]:
             elif props.get("kind") == "building" and geom.get("type") == "Polygon":
                 buildings.append([[(float(x), float(y)) for x, y, *_ in ring] for ring in geom.get("coordinates") or []])
         rings = valid_fill_rings(dtm_fences.private_enclosure_rings(lines, {"olive": olive_rings, "building": buildings}))
+        if public and rings:
+            # Oplocené hřiště, sportoviště, pěší zóna nebo parkoviště je přístupné – olivou ne (Petr 2026-11-23).
+            from shapely.geometry import Polygon
+            from shapely.ops import unary_union
+
+            pub = unary_union(public)
+            rings = [
+                r
+                for r in rings
+                if (g := Polygon(r)).area <= 0 or g.intersection(pub).area < SPRINT_ENCLOSURE_PUBLIC_SHARE * g.area
+            ]
     except Exception:  # výplň je doplněk
         return feats
     fills = [
