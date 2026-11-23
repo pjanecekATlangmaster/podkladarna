@@ -1783,6 +1783,9 @@ sources:
   issues:
   - 'Napojeno 2026-11-16 (beta PL): NMT po 2 km (GeoTIFF), NMPT po 1 km jako ASCII a po jedné dlaždici (server souběh zahazuje);
     les 3 km² ~5 min stahování povrchu. Bez NMPT job kreslí jen terén a upozorní.'
+  - 'Výpadek WCS 2026-11-23 (GetCoverage prázdná odpověď po ~10 s, GetCapabilities běží; z cloudu i domácí sítě, ne blokace):
+    od 4.28.1 záloha – listy 1 : 5000 ASC z opendata.geoportal.gov.pl/NumDaneWys podle WFS skorowidzů (NumerycznyModelTerenuEVRF2007 /
+    NumerycznyModelPokryciaTerenuEVRF2007, url_do_pobrania), laser před snímky, jen listy PL-1992; EVRF2007, NMPT 0,5 m → 1 m.'
   - Mračno LAZ po listech 1 : 1250 má ~155 MB (Varšava 2023, 12 b/m²), LAZ 1.2 bez COPC → nepoužito.
   - Katastr KIEG (integracja.gugik.gov.pl) je rozcestník na servery okresů, Varšava vrací reset spojení → šablona nepoužita.
 
