@@ -1297,3 +1297,47 @@ def test_zabaged_tram_in_osm_tunnel_not_drawn(tmp_path, preset, scale):
     assert drawn_max_x(None) > 390
     surface = drawn_max_x(LineString([(x0 + 200, y0), (x0 + 450, y0)]).buffer(4.0))
     assert surface is not None and surface < 200
+
+
+@pytest.mark.parametrize("preset,scale", [("sprint_4000", 4000), ("forest_10000", 10000), ("mtbo_10000", 10000)])
+@pytest.mark.parametrize(
+    "track_kod,drawn_m",
+    [
+        ("A20604", (180, 215)),  # trať téhož kódu: v tunelu ZABAGED se nekreslí, jen vjezd (Chuchelský tunel)
+        ("A20202", (390, 410)),  # jiná trať (křížení nad tunelem) zůstane celá
+    ],
+)
+def test_zabaged_rail_tunnel_not_drawn(tmp_path, preset, scale, track_kod, drawn_m):
+    """Železniční Tunel ZABAGED se nekreslí jako trať a skryje trať téhož ``kod_zelez`` i bez OSM tunelu."""
+    pytest.importorskip("pyogrio")
+    pytest.importorskip("shapely")
+    import re
+    import tempfile
+
+    from app.pipeline.oom_import import build_zabaged_object_parts
+
+    x0, y0 = -744000.0, -1047000.0
+    _zabaged_line_zip(tmp_path, "ZeleznicniTrat", [[(x0, y0), (x0 + 400, y0)]], {"kod_zelez": track_kod})
+    z = _zabaged_line_zip(
+        tmp_path, "Tunel", [[(x0 + 200, y0 + 1.0), (x0 + 450, y0 + 1.0)]], {"kod_zelez": "A20604", "jmeno": "Tunel"}
+    )
+    parts = build_zabaged_object_parts(
+        z,
+        vectorconf_name="zabaged.txt" if preset.startswith("sprint") else "zabaged_forest.txt",
+        preset_id=preset,
+        scale=scale,
+        ref_x=x0,
+        ref_y=y0,
+        grivation_deg=0.0,
+        work_dir=Path(tempfile.mkdtemp()),
+    )
+    assert not any(p.count for p in parts if p.name.endswith("Tunel"))
+    xml = "\n".join(p.objects_xml for p in parts if "ZeleznicniTrat" in p.name)
+    xs = [
+        int(pt.split()[0])
+        for body in re.findall(r"<coords[^>]*>(.*?)</coords>", xml, re.S)
+        for pt in body.split(";")
+        if pt.strip()
+    ]
+    drawn = (max(xs) - min(xs)) * scale / 1_000_000
+    assert drawn_m[0] <= drawn <= drawn_m[1]
