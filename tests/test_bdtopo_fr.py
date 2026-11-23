@@ -61,9 +61,27 @@ def test_fetch_pages_with_sort(monkeypatch):
     assert calls[0]["BBOX"] == ["840000.0,6519000.0,841000.0,6520000.0,urn:ogc:def:crs:EPSG::2154"]
 
 
-def test_fetch_raises_on_exception_report():
-    with pytest.raises(RuntimeError, match="BD TOPO"):
-        bdtopo_fr.fetch_layers((0, 0, 1, 1), layers=("batiment",), fetch=lambda _u: b'{"exceptions": ["bad"]}')
+_OK = json.dumps({"features": [{"geometry": {"type": "Point", "coordinates": [0, 0]}, "properties": {}}]}).encode()
+
+
+@pytest.mark.parametrize(
+    "responses, n_feats, error",
+    [
+        ([b"", b"<html>busy</html>", _OK], 1, None),  # přechodně prázdná / HTML odpověď → další pokus projde
+        ([b""] * 4, None, "není JSON"),  # trvale ne-JSON → zřetelná chyba se začátkem odpovědi
+        ([b'{"exceptions": ["bad"]}'] * 4, None, "exceptions"),  # ExceptionReport
+    ],
+)
+def test_fetch_retries_bad_responses(monkeypatch, responses, n_feats, error):
+    monkeypatch.setattr(bdtopo_fr.time, "sleep", lambda _s: None)
+    it = iter(responses)
+    fetch = lambda _u: next(it)  # noqa: E731
+    if error:
+        with pytest.raises(RuntimeError, match=error):
+            bdtopo_fr.fetch_layers((0, 0, 1, 1), layers=("batiment",), fetch=fetch)
+    else:
+        data, _n = bdtopo_fr.fetch_layers((0, 0, 1, 1), layers=("batiment",), fetch=fetch)
+        assert len(data["batiment"]) == n_feats
 
 
 def test_france_outside_paris_uses_bdtopo():
