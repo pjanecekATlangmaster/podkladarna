@@ -2743,8 +2743,17 @@ PROVIDERS["si_arso"] = si_arso_provider
 # Když CLSS selže (síť, server), výřez se spočítá z mračna ARSO (``si_arso_provider``) a log to řekne.
 SI_CLSS_MAX_LAZ_BYTES = 60_000_000  # DMR / DMP mají 3–7 MB; víc je chyba služby
 SI_CLSS_INDEX_FILE = "index.json"
-SI_CLSS_RETRIES = 3  # opakování stažení po přechodné chybě (5, 10 s)
+SI_CLSS_RETRIES = 6  # pokusy o stažení souboru po přechodné chybě (429, 5xx, síť)
+# assets.flycom.si (nginx) odpovídá 429 bez Retry-After, když jde víc požadavků naráz (2026-11-24: 4 souběžná
+# stahování → občas 429, 2 souběžná ani 40 za sebou ne). Proto 2 vlákna, odstup mezi začátky požadavků
+# a po 429 společná pauza všech vláken (Retry-After, jinak 3, 6, 12, 24, 30 s), ne vzdát celé CLSS.
+SI_CLSS_WORKERS = 2
+SI_CLSS_MIN_INTERVAL_S = 0.5
+SI_CLSS_BACKOFF_S = (3.0, 6.0, 12.0, 24.0, 30.0)
+SI_CLSS_RETRY_AFTER_MAX_S = 120.0
 _SI_CLSS_INDEX_LOCK = threading.Lock()
+_SI_CLSS_PACE_LOCK = threading.Lock()
+_si_clss_next_request = 0.0  # time.monotonic(), dřív žádný požadavek na CLSS nezačne (odstup i pauza po 429)
 
 
 def si_clss_cache_dir() -> Path:
@@ -2804,18 +2813,64 @@ def si_clss_index(window: tuple[float, float, float, float], *, fetch=_si_clss_f
     return found
 
 
-def _si_clss_download(url: str, dest: Path) -> int:
-    """Stáhne soubor CLSS do ``dest`` (opakuje přechodné chyby); vrací velikost v bajtech."""
+def _si_clss_wait_turn(*, sleep=None, clock=None) -> None:
+    """Počká na řadu: mezi začátky požadavků na CLSS aspoň ``SI_CLSS_MIN_INTERVAL_S``, po 429 do konce pauzy."""
     import time
+
+    global _si_clss_next_request
+    sleep = sleep or time.sleep
+    clock = clock or time.monotonic
+    with _SI_CLSS_PACE_LOCK:
+        now = clock()
+        start = max(now, _si_clss_next_request)
+        _si_clss_next_request = start + SI_CLSS_MIN_INTERVAL_S
+    if start > now:
+        sleep(start - now)
+
+
+def _si_clss_pause(seconds: float, *, clock=None) -> None:
+    """Pauza všech vláken stahujících CLSS (server odmítl požadavek); delší pauza vyhrává."""
+    import time
+
+    global _si_clss_next_request
+    clock = clock or time.monotonic
+    with _SI_CLSS_PACE_LOCK:
+        _si_clss_next_request = max(_si_clss_next_request, clock() + seconds)
+
+
+def _si_clss_retry_after(exc) -> float | None:
+    """Sekundy z hlavičky Retry-After (číslo nebo datum HTTP) v mezích ``SI_CLSS_RETRY_AFTER_MAX_S``; jinak None."""
+    import email.utils
+    import time
+
+    value = (exc.headers.get("Retry-After") if getattr(exc, "headers", None) else None) or ""
+    value = value.strip()
+    if not value:
+        return None
+    try:
+        seconds = float(value)
+    except ValueError:
+        try:
+            seconds = email.utils.parsedate_to_datetime(value).timestamp() - time.time()
+        except (TypeError, ValueError, OverflowError):
+            return None
+    return min(max(seconds, 0.0), SI_CLSS_RETRY_AFTER_MAX_S)
+
+
+def _si_clss_download(url: str, dest: Path, *, opener=None) -> int:
+    """Stáhne soubor CLSS do ``dest`` (odstup mezi požadavky, opakuje 429 / 5xx / síť); vrací velikost v bajtech."""
     import urllib.error
     import urllib.request
 
     from app.pipeline.fetch_openzu import USER_AGENT
 
+    opener = opener or urllib.request.urlopen
     for attempt in range(SI_CLSS_RETRIES):
+        _si_clss_wait_turn()
+        wait = SI_CLSS_BACKOFF_S[min(attempt, len(SI_CLSS_BACKOFF_S) - 1)]
         try:
             req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(req, timeout=300) as resp, dest.open("wb") as fh:
+            with opener(req, timeout=300) as resp, dest.open("wb") as fh:
                 size = 0
                 while chunk := resp.read(1 << 20):
                     size += len(chunk)
@@ -2827,10 +2882,12 @@ def _si_clss_download(url: str, dest: Path) -> int:
         except urllib.error.HTTPError as exc:
             if exc.code < 500 and exc.code != 429 or attempt == SI_CLSS_RETRIES - 1:
                 raise
+            after = _si_clss_retry_after(exc)
+            wait = max(wait, after) if after is not None else wait
         except (urllib.error.URLError, TimeoutError, ConnectionError):
             if attempt == SI_CLSS_RETRIES - 1:
                 raise
-        time.sleep(5 * (attempt + 1))
+        _si_clss_pause(wait)
     raise RuntimeError("nedosažitelné")
 
 
@@ -2884,7 +2941,8 @@ def _si_clss_tile(east_km: int, north_km: int, parts: list[dict], *, log=None) -
     (folder / ".complete").touch()
     touch_last_used(folder)
     if log:
-        dates = ", ".join(sorted({p.get("date") or "?" for p in parts}))
+        dates = ", ".join(sorted({re.sub(r"^od (\S+) do (\S+)$", r"\1–\2", (p.get("date") or "?").strip())
+                                  for p in parts}))
         log(f"  Slovinsko CLSS {east_km}_{north_km} ({dates}): {total / 1e6:.0f} MB převedeno do cache")
     return folder
 
@@ -2898,7 +2956,7 @@ def si_clss_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
     window = _buffered(bounds, SI_CRS, SI_BUFFER_M)
     try:
         index = si_clss_index(window)
-        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="si-clss") as ex:
+        with ThreadPoolExecutor(max_workers=SI_CLSS_WORKERS, thread_name_prefix="si-clss") as ex:
             folders = [f for f in ex.map(
                 lambda t: _si_clss_tile(t[0], t[1], index.get(f"{t[0]}_{t[1]}") or [], log=log), si_tiles(window)) if f]
     except Exception as exc:  # noqa: BLE001 – výpadek CLSS nesmí shodit job, záloha ARSO
