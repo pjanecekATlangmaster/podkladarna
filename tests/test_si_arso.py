@@ -125,3 +125,44 @@ def test_clss_empty_index_not_cached_and_falls_back(tmp_path, monkeypatch):
     lines = []
     assert elevation_raster.si_clss_provider((14.5, 46.05, 14.51, 46.06), tmp_path, log=lines.append) is sentinel
     assert "ARSO" in lines[0]
+
+
+def test_clss_download_retries_429_with_shared_pause(tmp_path, monkeypatch):
+    """429 z assets.flycom.si (víc požadavků naráz) se opakuje se společnou pauzou, ne pád na zálohu ARSO."""
+    import io
+    import urllib.error
+
+    pauses, waits = [], []
+    monkeypatch.setattr(elevation_raster, "_si_clss_wait_turn", lambda **kw: waits.append(1))
+    monkeypatch.setattr(elevation_raster, "_si_clss_pause", lambda s, **kw: pauses.append(s))
+    calls = []
+
+    def opener(req, timeout):
+        calls.append(req.full_url)
+        if len(calls) == 1:
+            raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {}, None)
+        if len(calls) == 2:
+            raise urllib.error.HTTPError(req.full_url, 503, "x", {"Retry-After": "40"}, None)
+        return io.BytesIO(b"abc")
+
+    assert elevation_raster._si_clss_download("https://assets.flycom.si/x.laz", tmp_path / "x.laz", opener=opener) == 3
+    assert len(calls) == len(waits) == 3 and pauses == [3.0, 40.0]
+
+    def forbidden(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, 404, "x", {}, None)
+
+    with pytest.raises(urllib.error.HTTPError):
+        elevation_raster._si_clss_download("https://assets.flycom.si/y.laz", tmp_path / "y.laz", opener=forbidden)
+
+
+def test_clss_requests_are_spaced(monkeypatch):
+    monkeypatch.setattr(elevation_raster, "_si_clss_next_request", 0.0)
+    now = [100.0]
+    slept = []
+    sleep = lambda s: (slept.append(s), now.__setitem__(0, now[0] + s))  # noqa: E731
+    for _ in range(3):
+        elevation_raster._si_clss_wait_turn(sleep=sleep, clock=lambda: now[0])
+    assert slept == [pytest.approx(0.5), pytest.approx(0.5)]
+    elevation_raster._si_clss_pause(10.0, clock=lambda: now[0])
+    elevation_raster._si_clss_wait_turn(sleep=sleep, clock=lambda: now[0])
+    assert slept[-1] == pytest.approx(10.0)

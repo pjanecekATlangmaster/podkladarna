@@ -94,6 +94,18 @@ def test_sample_log_has_no_czech_left():
         ("[BGT] BGT chodníky (voetpad): 40 ploch", "[BGT] BGT sidewalks (voetpad): 40 areas"),
         ("Země výřezu: Francie – kresba z OSM, výšky z LiDAR HD MNT a MNS (IGN, 0,5 m).",
          "Country of the area: France – drawn from OSM, elevation from LiDAR HD MNT and MNS (IGN, 0,5 m)."),
+        # Slovinsko (job c2a285e54bf3): zdroj výšek, zimní snímek, šablony OCD, souhrn chyb.
+        ("    Slovinsko CLSS 546_151 (15.03.2024–30.04.2024): 11 MB převedeno do cache",
+         "    Slovenia CLSS 546_151 (15.03.2024–30.04.2024): 11 MB converted into cache"),
+        ("  - Slovinsko: CLSS (GURS) nedostupné (HTTPError: HTTP Error 429: Too Many Requests), výšky ze staršího "
+         "mračna ARSO 2011–2015", "  - Slovenia: CLSS (GURS) unavailable (HTTPError: HTTP Error 429: Too Many Requests), "
+         "elevation from the older ARSO 2011–2015 point cloud"),
+        ("  Vegetace: stálezelený porost ze zimního snímku Sentinel-2 2026-02-28 (27 % výřezu)",
+         "  Vegetation: evergreen canopy from the winter Sentinel-2 image 2026-02-28 (27 % of the area)"),
+        ("  Vrstevnice ve vodě: 1 linií ořezáno na břehu nebo vynecháno (OSM vodní plochy)",
+         "  Contours in water: 1 lines clipped at the shore or omitted (OSM water areas)"),
+        ("  OOM OCD: šablony opraveny 6× (a.ocd), beze změny: vegetation_height.png",
+         "  OOM OCD: templates fixed 6× (a.ocd), unchanged: vegetation_height.png"),
         # Příkazy a neznámé řádky zůstávají (nic se neztratí).
         ("  > gdal_contour -a elev -i 5.0 dem.tif contours.shp", "  > gdal_contour -a elev -i 5.0 dem.tif contours.shp"),
         ("  Úplně nová hláška bez pravidla", "  Úplně nová hláška bez pravidla"),

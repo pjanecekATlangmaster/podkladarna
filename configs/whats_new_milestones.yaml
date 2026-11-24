@@ -7,6 +7,10 @@
 # Nadpis začíná „Verze X.Y – “ (anglicky „Version X.Y – “). PR s viditelnou změnou pro uživatele přidá záznam
 #   (Petr 2026-11-23); test_whats_new.py hlídá, že nejnovější záznam není o víc než 8 minor verzí za APP_VERSION.
 milestones:
+  - date: "2026-11-24"
+    scope: intl
+    title: "Verze 4.30 – Slovinsko: novější výšky CLSS 2023–2025 se stahují spolehlivě i u větších výřezů (dřív při přetížení serveru mapa spadla na starší data 2011–2015); technický log na anglické stránce je anglicky celý"
+    title_en: "Version 4.30 – Slovenia: the newer CLSS 2023–2025 elevation data now download reliably for larger areas too (a busy server used to make the map fall back to older 2011–2015 data); the technical log on the English site is fully in English"
   - date: "2026-11-23"
     scope: intl
     title: "Verze 4.30 – mimo Česko: nízký středomořský les (garigue, borovice a duby do 12 m) už nevychází celý zelený, zeleň se bere z podílu nízkého patra"
