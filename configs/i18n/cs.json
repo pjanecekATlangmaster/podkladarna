@@ -1212,6 +1212,7 @@
   "web.page.user_sources.cmd": "Ořez na tento výřez v GDAL (pro terén i povrch):",
   "api.job.source_down": "Zdroj výšek této země ({source}) teď neodpovídá, mapu proto nejde vytvořit. Zkuste to prosím později.",
   "api.job.source_planned": "Zdroj výšek této země ({source}) má teď plánovanou odstávku, mapu proto nejde vytvořit. Zkuste to prosím později.",
+  "api.job.source_off": "Zdroj výšek této země ({source}) je teď dočasně vypnutý kvůli opravě, mapu proto nejde vytvořit. Zkuste to prosím později.",
   "issue.failure.source_down": "Zdroj výšek této země ({source}) v době výpočtu neodpovídal, mapu proto nešlo vytvořit. Nejde o chybu výřezu ani nastavení a pokus se nezapočítává do limitů. Zkuste to prosím později; dostupnost zdrojů ověříte u výběru plochy tlačítkem „Zkusit zdroje znovu“.",
   "web.page.zkusit_zdroje_znovu": "Zkusit zdroje znovu",
   "web.js.sources.retrying": "Ověřuji zdroje…",
