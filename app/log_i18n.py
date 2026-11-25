@@ -213,6 +213,15 @@ PHRASES: tuple[tuple[str, str], ...] = (
 
 # Pravidla: (česká šablona celého řádku, anglická šablona). První shoda vyhrává, pořadí = od konkrétních k obecným.
 RULES: tuple[tuple[str, str], ...] = (
+    # --- rychlá oprava zdrojů na serveru (app.source_overrides) ---
+    ("Ladění zdrojů: soubor tuning.yaml je neplatný, nepoužit ({te|p})",
+     "Source tuning: tuning.yaml is invalid, not used ({te})"),
+    ("Ladění zdrojů: {ts} – souběžnost {tw} (tuning.yaml)", "Source tuning: {ts} – concurrency {tw} (tuning.yaml)"),
+    ("Oprava zdroje {ps}: kód z commitu {pc} (verze {pv}, nainstalováno {pd}) místo image {pi}",
+     "Source fix {ps}: code from commit {pc} (version {pv}, installed {pd}) instead of image {pi}"),
+    ("Oprava zdroje {ps} z commitu {pc} nepoužita: {pr|p}", "Source fix {ps} from commit {pc} not used: {pr}"),
+    ("⚠ Oprava zdroje {ps} z commitu {pc} selhala ({pe|p}), jede kód image {pi}",
+     "⚠ Source fix {ps} from commit {pc} failed ({pe}), running image code {pi}"),
     # --- zdroje výšek a vegetace mimo Česko (Slovinsko CLSS, zimní snímek, zrnitost; job c2a285e54bf3) ---
     ("Slovinsko: CLSS (GURS) nedostupné ({sie|p}), výšky ze staršího mračna ARSO 2011–2015",
      "Slovenia: CLSS (GURS) unavailable ({sie}), elevation from the older ARSO 2011–2015 point cloud"),
