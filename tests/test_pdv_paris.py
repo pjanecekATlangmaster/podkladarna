@@ -138,11 +138,39 @@ def test_lidarhd_download_bare_400_is_service_fault(monkeypatch, tmp_path):
     assert len(calls) == 1
 
 
+def test_lidarhd_download_unknown_layer_is_service_fault(monkeypatch, tmp_path):
+    """WMS-R IGN 2026-11-24 (dva joby Omapicu): 400 „Layer … unknown“ u pevné vrstvy je krátká chyba služby –
+    opakuje se a po vyčerpání pokusů je to výpadek služby, ne „výřez na moři“. Bez ``fault_re`` beze změny."""
+    import io
+    import urllib.error
+
+    body = (b'<ServiceExceptionReport version="1.3.0" xmlns="http://www.opengis.net/ogc"><ServiceException '
+            b'code="LayerNotDefined">Layer IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93 unknown'
+            b'</ServiceException></ServiceExceptionReport>')
+    calls = []
+
+    def unknown(url, dest, log=None):
+        calls.append(url)
+        raise urllib.error.HTTPError(url, 400, "Bad Request", {}, io.BytesIO(body))
+
+    monkeypatch.setattr(elevation_raster, "_download", unknown)
+    with pytest.raises(RuntimeError, match="výšková služba má výpadek na své straně.*Layer IGNF_LIDAR-HD_MNT.*unknown"):
+        elevation_raster._download_retry("u", tmp_path / "t.tif", wait_s=0, retry_bare_400=True,
+                                         fault_re=elevation_raster.FR_FAULT_RE)
+    assert len(calls) == 4
+
+    calls.clear()
+    with pytest.raises(urllib.error.HTTPError, match="unknown"):
+        elevation_raster._download_retry("u", tmp_path / "t.tif", wait_s=0, retry_bare_400=True)
+    assert len(calls) == 1
+
+
 def test_lidarhd_provider_retries_bare_400(monkeypatch, tmp_path):
     """Provider Francie stahuje s ``retry_bare_400``; ostatní země beze změny (výchozí False)."""
     seen = []
     monkeypatch.setattr(elevation_raster, "_download_retry",
-                        lambda url, dest, log=None, **kw: seen.append(kw.get("retry_bare_400")) or dest)
+                        lambda url, dest, log=None, **kw: seen.append(
+                            kw.get("retry_bare_400") and kw.get("fault_re") is elevation_raster.FR_FAULT_RE) or dest)
     monkeypatch.setattr(elevation_raster, "run_cmd", lambda *a, **k: None)
     monkeypatch.setattr(elevation_raster, "_gdal_tool", lambda name: name)
     monkeypatch.setattr(elevation_raster, "_bounds_in", lambda b, *_a: b)
