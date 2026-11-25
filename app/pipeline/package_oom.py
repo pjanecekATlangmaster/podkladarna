@@ -1008,12 +1008,15 @@ def _prepare_oom_map(
     certain_only: bool = False,
     veg_smooth: int = 0,
     clean_dest: Path | None = None,
+    clean_keep_open: bool = True,
+    osm_tags: bool = False,
     log=None,
 ) -> Path | None:
     """``certain_only``: jen čistá data – bez vegetace, OSM polí a LiDAR/DEM výstupů.
 
     ``clean_dest`` (les a MTBO): vedle plné mapy ``dest`` zapíše i čistou verzi z týchž hotových objektů
-    (``clean_map.clean_object_parts``); vrací cestu k plné mapě."""
+    (``clean_map.clean_object_parts``); ``clean_keep_open=False`` = čistá verze i bez 401 / 403 z výšek.
+    Vrací cestu k plné mapě."""
     del formline
     map_phase("polohopis a vegetace")
     drain_unmapped_codes()  # počítadlo chybějících symbolů jen pro tento job
@@ -1595,6 +1598,20 @@ def _prepare_oom_map(
             f"OOM: zjednodušení tvaru ({SIMPLIFY_TOLERANCE_MM:g} mm): "
             f"{simp_stats['before']} → {simp_stats['after']} souřadnic"
         )
+    # Volba osm_tags: tagy OSM k objektům částí „OSM …“ podle tvaru (kresbu nemění, viz osm_tags).
+    if osm_tags:
+        try:
+            from app.pipeline import osm_tags as _osm_tags
+
+            tag_stats: dict = {}
+            object_parts = _osm_tags.attach_osm_tags(
+                object_parts, kp_cwd, scale=scale, ref_x=ref_x, ref_y=ref_y, grivation_deg=grivation,
+                stats=tag_stats,
+            )
+            if log:
+                log(_osm_tags.log_line(tag_stats))
+        except Exception as exc:
+            log_issue(log, f"OSM tagy: přeskočeno ({exc})")
     # Kódy generátoru, které katalogová sada nezná (u starých sad vždy prázdné).
     unmapped_msg = unmapped_codes_message(drain_unmapped_codes())
     if unmapped_msg and log:
@@ -1628,7 +1645,10 @@ def _prepare_oom_map(
             from app.pipeline import clean_map
 
             clean_stats: dict = {}
-            clean_parts = clean_map.clean_object_parts(object_parts, scale=scale, stats=clean_stats)
+            clean_min_open = clean_map.CLEAN_OPEN_MIN_M2 if clean_keep_open else None
+            clean_parts = clean_map.clean_object_parts(
+                object_parts, scale=scale, min_open_m2=clean_min_open, stats=clean_stats
+            )
             write_oom_map(
                 clean_dest,
                 map_name=map_name,
@@ -1642,7 +1662,7 @@ def _prepare_oom_map(
                 preset_id=preset_id,
             )
             if log:
-                log(clean_map.log_line(clean_stats))
+                log(clean_map.log_line(clean_stats, clean_min_open))
         except Exception as exc:
             Path(clean_dest).unlink(missing_ok=True)
             log_issue(log, f"OOM: čistá verze přeskočena ({exc})")

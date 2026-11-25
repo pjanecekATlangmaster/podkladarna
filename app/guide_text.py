@@ -51,7 +51,7 @@ WEB_ABOUT_HTML = """
   <summary><strong>V ZIPu je mimo jiné</strong></summary>
 <ul>
   <li><code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code> (+ stejnojmenné <code>.ocd</code>) – podle názvu projektu a měřítka; cesty z OSM; <code>.omap</code> v OOM, <code>.ocd</code> v OCAD (OSM, ZTM, katastr, DTM kraje, DMP OK, hillshade, reliéf)</li>
-  <li>Les a MTBO ve dvou verzích: <code>*-les.omap</code> / <code>*-mtbo.omap</code> je plná kresba, <code>*_novege.omap</code> verze bez vegetace jen s jistými daty (bez zeleně z výšek, luk a pasek pod 0,3 ha a objektů z DEM); obě i jako <code>.ocd</code></li>
+  <li>Les a MTBO ve dvou verzích: <code>*-les.omap</code> / <code>*-mtbo.omap</code> je plná kresba, <code>*_novege.omap</code> verze bez vegetace jen s jistými daty (bez zeleně z výšek, luk a pasek pod 0,3 ha a objektů z DEM; volba „Verze bez vegetace“ ji umí i bez žluté z výšek); obě i jako <code>.ocd</code></li>
   <li>DXF srázy, vrstevnice GDAL (<code>contours_gdal.*</code>), vegetace / srázy / kupky ve <code>base/</code>, ZABAGED, budovy z OSM v .omap, RÚIAN/ZABAGED budovy ve složce <code>zabaged/</code>, OSM SHP ve složce <code>osm/</code>, památné stromy AOPK, návod <code>README_OOM.txt</code></li>
 </ul>
 </details>
@@ -175,7 +175,7 @@ WEB_ABOUT_HTML_EN = """
   <summary><strong>The ZIP contains, among other things</strong></summary>
 <ul>
   <li><code>*-sprint.omap</code> / <code>*-forest.omap</code> / <code>*-mtbo.omap</code> (+ <code>.ocd</code> of the same name), named after the project and scale; paths from OSM; <code>.omap</code> for OOM, <code>.ocd</code> for OCAD (templates: orthophoto, base map, cadastre, hillshade … depending on the country, and OSM)</li>
-  <li>Forest and MTBO in two versions: <code>*-forest.omap</code> / <code>*-mtbo.omap</code> is the full drawing, <code>*_novege.omap</code> the version without vegetation with certain data only (no vegetation from elevation, meadows or clearings under 0.3 ha or DEM objects); both also as <code>.ocd</code></li>
+  <li>Forest and MTBO in two versions: <code>*-forest.omap</code> / <code>*-mtbo.omap</code> is the full drawing, <code>*_novege.omap</code> the version without vegetation with certain data only (no vegetation from elevation, meadows or clearings under 0.3 ha or DEM objects; the “Version without vegetation” option can also drop all yellow from elevation); both also as <code>.ocd</code></li>
   <li>cliff DXF, GDAL contours (<code>contours_gdal.*</code>), vegetation / cliffs / knolls in <code>base/</code>, OSM buildings in the .omap, OSM shapefiles in <code>osm/</code>, in Czechia also ZABAGED, RÚIAN/ZABAGED buildings in <code>zabaged/</code> and AOPK memorial trees, guide <code>README_OOM.txt</code></li>
 </ul>
 </details>
@@ -299,7 +299,7 @@ WEB_ABOUT_HTML_CS_INTL = """
   <summary><strong>ZIP obsahuje mimo jiné</strong></summary>
 <ul>
   <li><code>*-sprint.omap</code> / <code>*-les.omap</code> (les) / <code>*-mtbo.omap</code> (+ stejnojmenný <code>.ocd</code>), pojmenované podle projektu a měřítka; cesty z OSM; <code>.omap</code> pro OOM, <code>.ocd</code> pro OCAD (šablony: ortofoto, základní mapa, katastr, stínování … podle země, a OSM)</li>
-  <li>Les a MTBO ve dvou verzích: <code>*-les.omap</code> / <code>*-mtbo.omap</code> je plná kresba, <code>*_novege.omap</code> verze bez vegetace jen s jistými daty (bez zeleně z výšek, luk a pasek pod 0,3 ha a objektů z DEM); obě i jako <code>.ocd</code></li>
+  <li>Les a MTBO ve dvou verzích: <code>*-les.omap</code> / <code>*-mtbo.omap</code> je plná kresba, <code>*_novege.omap</code> verze bez vegetace jen s jistými daty (bez zeleně z výšek, luk a pasek pod 0,3 ha a objektů z DEM; volba „Verze bez vegetace“ ji umí i bez žluté z výšek); obě i jako <code>.ocd</code></li>
   <li>DXF srázů, vrstevnice GDAL (<code>contours_gdal.*</code>), vegetace / srázy / kupky v <code>base/</code>, budovy OSM v .omap, shapefily OSM v <code>osm/</code>, v Česku i ZABAGED, budovy RÚIAN/ZABAGED v <code>zabaged/</code> a památné stromy AOPK, návod <code>README_OOM.txt</code></li>
 </ul>
 </details>

@@ -51,6 +51,25 @@ def resolve_veg_smooth(options: dict | None) -> int:
     return level if level in VEG_SMOOTH_LEVELS else VEG_SMOOTH_DEFAULT
 
 
+# Čistá verze les / MTBO (``*_novege``, clean_map): ``big`` = otevřený terén z výšek jen v souvislých
+# plochách od 0,3 ha (výchozí, i API a starší joby), ``none`` = bez 401 / 403 z výšek (Leo / Petr 2026-11-25).
+CLEAN_OPEN_MODES = ("big", "none")
+CLEAN_OPEN_DEFAULT = "big"
+
+
+def resolve_clean_open(options: dict | None) -> str:
+    raw = str((options or {}).get("clean_open", "")).strip().lower()
+    return raw if raw in CLEAN_OPEN_MODES else CLEAN_OPEN_DEFAULT
+
+
+def resolve_osm_tags(options: dict | None) -> bool:
+    """Tagy OSM u objektů .omap (osm_tags): výchozí vypnuto, i API a starší joby."""
+    raw = (options or {}).get("osm_tags", False)
+    if isinstance(raw, bool):
+        return raw
+    return str(raw).strip().lower() in {"1", "true", "on", "yes"}
+
+
 # Vyhlazení vrstevnic (contour_smooth, viz contours_adaptive): 0 = méně vyhlazení
 # (původní chování do 3.6.x), 1 = adaptivní (víc vyhladit rovinu a zástavbu, členitý
 # terén bit po bitu jako 0). Od 3.7.4 je výchozí 1 (Petr 2026-11-02), i pro API a

@@ -6,6 +6,8 @@ Mapa se skládá jednou (plná kresba); před zápisem se z hotových objektů o
 * otevřený terén 401 a drsný otevřený terén 403 z výšek / ortofota zůstane jen jako souvislé plochy
   (401 a 403 dohromady, i přes řezy objektů podle počtu vrcholů) od ``CLEAN_OPEN_MIN_M2`` – jasné velké
   paseky a louky; drobné louky a ploška náletu zmizí,
+  Volba jobu ``clean_open=none`` (Leo / Petr 2026-11-25, „i bez žluté“) vynechá 401 a 403 z výšek celé,
+  louky a pole z dat zůstávají,
 * (``CLEAN_DROP_DEM``) srázy, skály, balvany, kupky a prohlubně odvozené z DEM se vynechají.
 
 Data (OSM, ZABAGED, DTM, RÚIAN, AOPK) a vrstevnice zůstávají, i když mají symbol porostu (OSM křoví, sad,
@@ -143,12 +145,17 @@ def clean_object_parts(
     parts: list[OomObjectPart],
     *,
     scale: int,
-    min_open_m2: float = CLEAN_OPEN_MIN_M2,
+    min_open_m2: float | None = CLEAN_OPEN_MIN_M2,
     drop_dem: bool = CLEAN_DROP_DEM,
     stats: dict | None = None,
 ) -> list[OomObjectPart]:
-    """Části čisté mapy z hotových částí plné mapy (vstup se nemění)."""
-    kept_open = _big_open_objects(parts, scale, min_open_m2)
+    """Části čisté mapy z hotových částí plné mapy (vstup se nemění).
+
+    ``min_open_m2=None``: bez otevřeného terénu z výšek (401 / 403) vůbec."""
+    if min_open_m2 is None:
+        kept_open = {i: [] for i, p in enumerate(parts) if p.name in OPEN_PART_NAMES}
+    else:
+        kept_open = _big_open_objects(parts, scale, min_open_m2)
     out: list[OomObjectPart] = []
     st = {"green": 0, "open_dropped": 0, "open_kept": 0, "dem": 0}
     for i, part in enumerate(parts):
@@ -171,7 +178,13 @@ def clean_object_parts(
     return out
 
 
-def log_line(stats: dict, min_open_m2: float = CLEAN_OPEN_MIN_M2) -> str:
+def log_line(stats: dict, min_open_m2: float | None = CLEAN_OPEN_MIN_M2) -> str:
+    if min_open_m2 is None:
+        return (
+            f"OOM: čistá verze – vynecháno {stats.get('green', 0)} ploch zeleně z výšek, "
+            f"všech {stats.get('open_dropped', 0)} ploch otevřeného terénu z výšek, "
+            f"{stats.get('dem', 0)} objektů z DEM"
+        )
     ha = f"{min_open_m2 / 1e4:g}".replace(".", ",")
     return (
         f"OOM: čistá verze – vynecháno {stats.get('green', 0)} ploch zeleně z výšek, "
