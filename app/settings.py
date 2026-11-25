@@ -8,7 +8,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "4.34.1"
+APP_VERSION = "4.35.0"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -382,6 +382,8 @@ DEFAULT_OPTIONS = {
     "contour_smooth": "auto",
     # Tvar hranic porostů: 0 (kostičky 1:1) až 3 (zjednodušit drobnosti do 12 m), výchozí 1.
     "veg_smooth": "1",
+    # Čistá verze les / MTBO (*_novege): big = otevřený terén z výšek od 0,3 ha, none = bez 401 / 403 z výšek.
+    "clean_open": "big",
     # Zdroj kresby (jedna volba „DTM“ v GUI): od 3.18.0 (Petr 2026-11-06) výchozí DTM všude, kde je
     # k dispozici (sprint, les i MTBO); volba „Podle presetu“ = jen sprint z DTM (2.43.0–3.17.x výchozí).
     "dtm_sprint": True,

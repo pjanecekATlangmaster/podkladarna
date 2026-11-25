@@ -64,6 +64,7 @@ from app.pipeline.job_options import (
     KP_VEGE_HEIGHT_CHOICES,
     CONTOUR_SMOOTH_LEVELS,
     VEG_SMOOTH_LEVELS,
+    CLEAN_OPEN_MODES,
     default_map_types,
     load_presets,
     parse_map_types,
@@ -1846,6 +1847,9 @@ async def api_create_job(request: Request):
     veg_smooth_raw = _form_str(form, "veg_smooth").strip().lower()
     if veg_smooth_raw.isdigit() and int(veg_smooth_raw) in VEG_SMOOTH_LEVELS:
         options["veg_smooth"] = veg_smooth_raw
+    clean_open_raw = _form_str(form, "clean_open").strip().lower()
+    if clean_open_raw in CLEAN_OPEN_MODES:
+        options["clean_open"] = clean_open_raw
     # Jedna volba `dtm` v GUI: 1 (DTM všude, výchozí od 3.18.0) | auto (podle presetu: jen sprint z DTM)
     # | 0 (jen OSM + ZABAGED). Starší klienti API mohou dál posílat `dtm_sprint` / `dtm_forest` zvlášť.
     dtm_all = _form_str(form, "dtm").strip().lower()

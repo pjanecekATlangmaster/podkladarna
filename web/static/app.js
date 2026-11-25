@@ -3124,6 +3124,7 @@ const SETTINGS_VALUE_NAMES = {
     off: t("web.js.settings.off"),
   },
   dtm: { 1: t("web.js.settings.dtm_all"), auto: t("web.js.settings.dtm_sprint"), 0: t("web.js.settings.off") },
+  clean_open: { big: t("web.js.settings.clean_open_big"), none: t("web.js.settings.clean_open_none") },
   kp_osm_objects: { auto: t("web.js.settings.osm_basic"), 1: t("web.js.settings.osm_all"), none: t("web.js.settings.osm_none") },
 };
 
@@ -3137,6 +3138,7 @@ const SETTINGS_CHIPS = [
   { id: "dtm", label: "DTM" },
   { id: "kp_osm_objects", label: t("web.js.settings.chip_osm") },
   { id: "output_georef", label: "GeoTIFF", bool: true },
+  { id: "clean_open", label: t("web.js.settings.chip_clean_open") },
   {
     id: "sprint_residual_paved",
     label: t("web.js.settings.chip_paved_gaps"),

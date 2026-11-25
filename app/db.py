@@ -23,6 +23,7 @@ from app.pipeline.job_options import (
     resolve_osm_objects_mode,
     resolve_use_dtm,
     resolve_veg_smooth,
+    resolve_clean_open,
 )
 from app.pipeline.zip_texts_en import zip_lang
 from app.settings import (
@@ -1213,6 +1214,7 @@ def find_duplicate_active_job(
             # připojit k běžícímu českému jobu. Starší joby bez jazyka = cs (jako zip_lang).
             zip_lang(opts),
             str(opts.get("site") or ""),
+            resolve_clean_open(opts),
         )
 
     want = _fp(options)

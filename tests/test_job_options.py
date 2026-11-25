@@ -21,3 +21,11 @@ def test_resolve_cliff_sensitivity():
     assert resolve_cliff_sensitivity({"kp_cliff_sensitivity": "nope"}) == "low"
     assert resolve_cliff_sensitivity({}) == "low"
     assert KP_CLIFF_SENSITIVITY["high"] == (1.4, 2.8)
+
+
+def test_resolve_clean_open():
+    from app.pipeline.job_options import resolve_clean_open
+
+    assert resolve_clean_open({"clean_open": "none"}) == "none"
+    assert resolve_clean_open({"clean_open": "x"}) == "big"
+    assert resolve_clean_open(None) == "big"  # API a starší joby beze změny

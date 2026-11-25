@@ -52,6 +52,7 @@ from app.pipeline.job_options import (
     resolve_use_dtm,
     resolve_veg_smooth,
     resolve_contour_smooth,
+    resolve_clean_open,
 )
 from app.pipeline.job_grid import DEFAULT_RESOLUTION_M, write_job_grid
 from app.pipeline import dtm_summary
@@ -1777,6 +1778,7 @@ def _package_output(
                                 max_residual_m2=max_residual_m2,
                                 certain_only=certain,
                                 clean_dest=clean_dest,
+                                clean_keep_open=resolve_clean_open(options) != "none",
                             ),
                         )
                     )

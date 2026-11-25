@@ -21,16 +21,17 @@ def _part(name: str, objs: list[str]) -> OomObjectPart:
 
 
 @pytest.mark.parametrize(
-    "objs, kept",
+    "objs, min_m2, kept",
     [
-        ([_square(0, 0, 40)], 0),  # osamělá louka 0,16 ha
-        ([_square(0, 0, 60)], 1),  # paseka 0,36 ha
-        ([_square(0, 0, 40), _square(40, 0, 40)], 2),  # kusy téže plochy (řez objektu) dohromady 0,32 ha
+        ([_square(0, 0, 40)], 3000.0, 0),  # osamělá louka 0,16 ha
+        ([_square(0, 0, 60)], 3000.0, 1),  # paseka 0,36 ha
+        ([_square(0, 0, 40), _square(40, 0, 40)], 3000.0, 2),  # kusy téže plochy (řez objektu) dohromady 0,32 ha
+        ([_square(0, 0, 60), _square(0, 100, 200)], None, 0),  # volba clean_open=none: bez žluté z výšek
     ],
 )
-def test_open_terrain_kept_only_as_big_area(objs, kept):
+def test_open_terrain_kept_only_as_big_area(objs, min_m2, kept):
     stats: dict = {}
-    out = clean_object_parts([_part("Otevřený terén", objs)], scale=10000, stats=stats)
+    out = clean_object_parts([_part("Otevřený terén", objs)], scale=10000, min_open_m2=min_m2, stats=stats)
     assert sum(p.count for p in out) == kept
     assert stats["open_kept"] == kept and stats["open_dropped"] == len(objs) - kept
 
