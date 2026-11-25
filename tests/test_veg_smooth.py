@@ -281,3 +281,31 @@ def test_chm_green_in_osm_orchard_is_open(tmp_path, monkeypatch, chm_source, cz,
     assert got.get("401", 0.0) - (want_green if code == "401" else 0.0) == pytest.approx(want_open, abs=1.0)
     assert {p.name for p in parts} >= ({vg._CLASS_NAMES["401"]} if want_open else set())
     vg._SHAPED_MEMO.clear()
+
+
+@pytest.mark.parametrize(
+    ("tags", "geom", "cz", "want"),
+    [
+        ({"landuse": "orchard"}, "way", False, ("orchard", "413")),
+        ({"landuse": "vineyard"}, "way", False, ("vineyard", "414")),
+        ({"landuse": "orchard"}, "node", False, None),
+        ({"landuse": "orchard"}, "way", True, None),  # Česko beze změny (sady a zahrady kreslí ZABAGED olivou)
+        ({"landuse": "vineyard"}, "way", True, None),
+    ],
+)
+def test_osm_orchard_vineyard_abroad(monkeypatch, tags, geom, cz, want):
+    from app.pipeline import osm_paths
+
+    monkeypatch.setattr(osm_paths, "_cz_process", lambda: cz)
+    assert osm_paths.classify_osm_feature(tags, geom=geom) == want
+
+
+@pytest.mark.parametrize("preset, scale", [("forest_10000", 10000), ("forest_15000", 15000), ("sprint_4000", 4000),
+                                           ("mtbo_10000", 10000), ("mtbo_15000", 15000)])
+@pytest.mark.parametrize("kind, code", [("orchard", "413"), ("vineyard", "414")])
+def test_osm_orchard_vineyard_symbol(preset, scale, kind, code):
+    from app.pipeline import osm_paths
+    from app.pipeline.oom_symbol_map import symbol_index_for_code
+
+    assert osm_paths.feature_oom_code(kind, preset, code) == code
+    assert symbol_index_for_code(preset, scale, code) is not None
