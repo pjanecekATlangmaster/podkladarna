@@ -3139,6 +3139,7 @@ const SETTINGS_CHIPS = [
   { id: "kp_osm_objects", label: t("web.js.settings.chip_osm") },
   { id: "output_georef", label: "GeoTIFF", bool: true },
   { id: "clean_open", label: t("web.js.settings.chip_clean_open") },
+  { id: "osm_tags", label: t("web.js.settings.chip_osm_tags"), bool: true },
   {
     id: "sprint_residual_paved",
     label: t("web.js.settings.chip_paved_gaps"),

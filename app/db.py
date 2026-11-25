@@ -24,6 +24,7 @@ from app.pipeline.job_options import (
     resolve_use_dtm,
     resolve_veg_smooth,
     resolve_clean_open,
+    resolve_osm_tags,
 )
 from app.pipeline.zip_texts_en import zip_lang
 from app.settings import (
@@ -1215,6 +1216,7 @@ def find_duplicate_active_job(
             zip_lang(opts),
             str(opts.get("site") or ""),
             resolve_clean_open(opts),
+            resolve_osm_tags(opts),
         )
 
     want = _fp(options)

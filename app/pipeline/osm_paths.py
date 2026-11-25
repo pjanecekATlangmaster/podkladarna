@@ -4134,6 +4134,7 @@ def prepare_osm_paths(
     force_refresh: bool = False,
     log=None,
     prefetched: OsmPrefetch | None = None,
+    keep_osm_tags: bool = False,
 ) -> None:
     highways = osm_highway_set(PATH_SOURCE_OSM)
     fetch_bbox = expand_bbox_wgs84(bbox_wgs84, VECTOR_FETCH_BUFFER_M)
@@ -4154,6 +4155,14 @@ def prepare_osm_paths(
             force_refresh=force_refresh,
             log=log,
         )
+    if keep_osm_tags:  # volba osm_tags: prvky s tagy pro párování nad hotovou mapou (osm_tags.attach_osm_tags)
+        try:
+            from app.pipeline.osm_tags import write_tagged_elements
+
+            write_tagged_elements(work_dir, elements)
+        except Exception as exc:
+            if log:
+                log(f"OSM tagy: prvky se neuložily ({exc})")
     osm_items: list[tuple[list[tuple[float, float]], str]] = []
     # Chodníky / pěšiny, po kterých smějí jezdit cyklisté (sdílený provoz) – pro MTBO koridor silnice.
     bike_lines: list[list[tuple[float, float]]] = []

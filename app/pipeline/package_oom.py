@@ -1009,6 +1009,7 @@ def _prepare_oom_map(
     veg_smooth: int = 0,
     clean_dest: Path | None = None,
     clean_keep_open: bool = True,
+    osm_tags: bool = False,
     log=None,
 ) -> Path | None:
     """``certain_only``: jen čistá data – bez vegetace, OSM polí a LiDAR/DEM výstupů.
@@ -1597,6 +1598,20 @@ def _prepare_oom_map(
             f"OOM: zjednodušení tvaru ({SIMPLIFY_TOLERANCE_MM:g} mm): "
             f"{simp_stats['before']} → {simp_stats['after']} souřadnic"
         )
+    # Volba osm_tags: tagy OSM k objektům částí „OSM …“ podle tvaru (kresbu nemění, viz osm_tags).
+    if osm_tags:
+        try:
+            from app.pipeline import osm_tags as _osm_tags
+
+            tag_stats: dict = {}
+            object_parts = _osm_tags.attach_osm_tags(
+                object_parts, kp_cwd, scale=scale, ref_x=ref_x, ref_y=ref_y, grivation_deg=grivation,
+                stats=tag_stats,
+            )
+            if log:
+                log(_osm_tags.log_line(tag_stats))
+        except Exception as exc:
+            log_issue(log, f"OSM tagy: přeskočeno ({exc})")
     # Kódy generátoru, které katalogová sada nezná (u starých sad vždy prázdné).
     unmapped_msg = unmapped_codes_message(drain_unmapped_codes())
     if unmapped_msg and log:

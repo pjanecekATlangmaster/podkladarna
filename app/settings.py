@@ -384,6 +384,8 @@ DEFAULT_OPTIONS = {
     "veg_smooth": "1",
     # Čistá verze les / MTBO (*_novege): big = otevřený terén z výšek od 0,3 ha, none = bez 401 / 403 z výšek.
     "clean_open": "big",
+    # Tagy OSM u objektů .omap (párování podle tvaru nad hotovou mapou, viz osm_tags) – výchozí vypnuto.
+    "osm_tags": False,
     # Zdroj kresby (jedna volba „DTM“ v GUI): od 3.18.0 (Petr 2026-11-06) výchozí DTM všude, kde je
     # k dispozici (sprint, les i MTBO); volba „Podle presetu“ = jen sprint z DTM (2.43.0–3.17.x výchozí).
     "dtm_sprint": True,

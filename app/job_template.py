@@ -20,6 +20,7 @@ from app.pipeline.job_options import (
     resolve_vege_height,
     resolve_veg_smooth,
     resolve_clean_open,
+    resolve_osm_tags,
 )
 from app.pipeline.package_oom import resolve_omap_job
 
@@ -118,6 +119,7 @@ def job_form_template(job: dict[str, Any], presets: dict | None = None) -> dict[
         "contour_smooth": contour_smooth_choice(opts),
         "veg_smooth": str(resolve_veg_smooth(opts)),
         "clean_open": resolve_clean_open(opts),
+        "osm_tags": resolve_osm_tags(opts),
         "kp_vege_height": str(int(vege)) if float(vege).is_integer() else str(vege),
         "kp_cliff_symbol": cliff,
         "kp_cliff_sensitivity": resolve_cliff_sensitivity(opts),
