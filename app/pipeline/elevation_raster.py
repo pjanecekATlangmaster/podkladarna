@@ -2089,6 +2089,10 @@ FR_GSD = 0.5
 FR_MAX_SIDE_M = 2000.0
 FR_BUFFER_M = 20.0
 FR_RETRIES = 3  # WMS-R občas vrátí 502 / přeruší spojení; další pokus obvykle projde
+# WMS-R IGN občas krátce odpoví 400 „Layer IGNF_LIDAR-HD_MN…LAMB93 unknown“, i když vrstvu GetCapabilities nabízí
+# (2026-11-24, dva joby Omapicu; uživatel dostal hlášku „výřez je nejspíš na moři“). Vrstvy jsou pevné, takže jde
+# o chybu služby: opakuje se a po vyčerpání pokusů se hlásí výpadek zdroje.
+FR_FAULT_RE = re.compile(r"\blayer\b.*\bunknown\b", re.I)
 
 
 # MapServer (GUGiK) při výpadku své databáze odpovídá 400 s ExceptionReportem „msPostGISLayerOpen(): … Database
@@ -2110,13 +2114,14 @@ def _ows_exception(exc) -> tuple[str, bool]:
 
 
 def _download_retry(url: str, dest: Path, *, retries: int = FR_RETRIES, log=None, wait_s: float = 3.0,
-                    retry_bare_400: bool = False) -> Path:
+                    retry_bare_400: bool = False, fault_re: re.Pattern | None = None) -> Path:
     """``_download`` s opakováním po přechodné chybě (5xx, 429, síť, výpadek databáze služby); jiná 4xx a odpověď
     bez GeoTIFFu hned dál.
 
     ``retry_bare_400``: HTTP 400 bez chybové zprávy OGC je chyba služby, ne dotazu (WMS-R IGN 2026-11-21, job
     ec7893e3175a: jedna dlaždice MNS 400 bez popisu, tentýž výřez MNT i opakovaný dotaz prošly). Skutečně chybný
     dotaz služba vrací se ``ServiceException`` (limit pixelů, neznámá vrstva, CRS, BBOX) a ten se neopakuje.
+    ``fault_re``: text chyby 4xx, který u dané služby znamená výpadek, ne chybný dotaz (IGN ``FR_FAULT_RE``).
     Hláška chyby 4xx nese text ze ``ServiceException`` / ``ExceptionText``, ne jen „Bad Request“.
     """
     import time
@@ -2129,7 +2134,7 @@ def _download_retry(url: str, dest: Path, *, retries: int = FR_RETRIES, log=None
             detail, ogc = _ows_exception(exc) if 400 <= exc.code < 500 else ("", False)
             server_fault = any(m in detail.lower() for m in SERVER_FAULT_MARKERS) or (
                 retry_bare_400 and exc.code == 400 and not ogc
-            )
+            ) or bool(fault_re and detail and fault_re.search(detail))
             if server_fault and attempt >= retries:
                 raise RuntimeError(
                     f"výšková služba má výpadek na své straně (HTTP {exc.code}: {detail or 'bez popisu chyby'}, "
@@ -2168,7 +2173,7 @@ def fr_lidarhd_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
     jobs = [(kind, k, url) for kind in FR_LAYERS for k, url in enumerate(fr_lidarhd_urls(kind, bounds_l93))]
     with ThreadPoolExecutor(max_workers=_workers("fr_lidarhd", 2), thread_name_prefix="fr-lidarhd") as ex:
         tiles = list(ex.map(lambda j: _download_retry(j[2], out_dir / f"fr_{j[0]}_{j[1]}.tif", log=log,
-                                                      retry_bare_400=True), jobs))
+                                                      retry_bare_400=True, fault_re=FR_FAULT_RE), jobs))
     out = {}
     for kind in FR_LAYERS:
         vrt = out_dir / f"fr_lidarhd_{kind}.vrt"
