@@ -75,6 +75,11 @@ def tuning_path() -> Path:
     return base_dir() / "tuning.yaml"
 
 
+def tuning_auto_path() -> Path:
+    """Ladění ze schváleného souboru v master (zapisuje hlídač ``app.source_fixes``); ``tuning.yaml`` má přednost."""
+    return base_dir() / "tuning_auto.yaml"
+
+
 def patches_dir() -> Path:
     return base_dir() / "patches"
 
@@ -139,16 +144,17 @@ def validate_tuning(data: Any) -> tuple[dict[str, dict], list[str]]:
     return ({} if errors else out), errors
 
 
-def load_tuning() -> tuple[dict[str, dict], list[str]]:
-    """Platné položky ladicího souboru (cache podle mtime) a chyby."""
-    path = tuning_path()
+def _load_tuning_file(path: Path) -> tuple[dict[str, dict], list[str]]:
+    """Platné položky jednoho ladicího souboru (cache podle mtime) a chyby."""
     try:
         stamp = path.stat().st_mtime_ns
     except OSError:
         return {}, []
+    key = str(path)
     with _lock:
-        if _tuning_cache.get("stamp") == (str(path), stamp):
-            return _tuning_cache["entries"], _tuning_cache["errors"]
+        cached = _tuning_cache.get(key)
+        if cached and cached[0] == stamp:
+            return cached[1], cached[2]
     try:
         import yaml
 
@@ -157,8 +163,18 @@ def load_tuning() -> tuple[dict[str, dict], list[str]]:
     except Exception as exc:  # noqa: BLE001 – rozbitý YAML = nic nepoužít
         entries, errors = {}, [f"soubor nejde přečíst: {exc}"]
     with _lock:
-        _tuning_cache.update(stamp=(str(path), stamp), entries=entries, errors=errors)
+        _tuning_cache[key] = (stamp, entries, errors)
     return entries, errors
+
+
+def load_tuning() -> tuple[dict[str, dict], list[str]]:
+    """Platné položky ladění a chyby ručního ``tuning.yaml``.
+
+    Ladění ze schváleného souboru v master (``tuning_auto.yaml``) platí, ruční soubor má u stejného zdroje přednost.
+    Neplatný ruční soubor se nepoužije celý (automatické ladění dál platí)."""
+    auto, _ = _load_tuning_file(tuning_auto_path())
+    manual, errors = _load_tuning_file(tuning_path())
+    return {**auto, **manual}, errors
 
 
 def tuning_for(source: str) -> dict:
@@ -409,11 +425,14 @@ def status_lines() -> list[str]:
     else:
         lines.append("Ladění (tuning.yaml): platné")
         lines += [f"  {k}: {json.dumps(v, ensure_ascii=False)}" for k, v in entries.items()]
+    if tuning_auto_path().is_file():
+        lines.append("Ladění ze souboru oprav v master (tuning_auto.yaml): platí, ruční tuning.yaml má přednost")
     patches = read_manifest()["patches"]
     lines.append(f"Opravy kódu: {len(patches) or 'žádné'}")
     for e in patches:
         use, reason = patch_state(e)
-        lines.append(f"  {e.get('source')}: commit {str(e.get('commit'))[:10]}, verze {e.get('version')} – {reason}")
+        lines.append(f"  {e.get('source')}: commit {str(e.get('commit'))[:10]}, verze {e.get('version')} – {reason}"
+                     + (" (hlídač z master)" if e.get("auto") else ""))
     return lines
 
 

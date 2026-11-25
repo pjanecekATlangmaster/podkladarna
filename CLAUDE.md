@@ -39,6 +39,7 @@ Podkladárna je webová služba pro generování orientačních podkladů z ČÚ
 - Měnit Dockerfile, `docker-compose*.yml`, deploy skripty ani GitHub Actions bez vysvětlení dopadu.
 - Publikovat novou Docker image bez úspěšných testů.
 - Měnit schéma SQLite databáze nebo formát uložených jobů bez migračního plánu.
+- Mergovat PR, který mění `configs/source_fixes.yaml` (merge = nasazení opravy na ostrou A hlídačem); merguje jen Petr, review agent ho jen zreviduje.
 
 ## Dělba práce (agenti)
 
@@ -582,6 +583,11 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   `install --source <klíč> --commit <sha>` = kopie `elevation_raster.py` z commitu v `master` (GitHub API: předek masteru, git blob,
   verze > image), načtená zvlášť jen pro uvedené zdroje v `resolve_provider`; po Promote s opravou neaktivní. Česko a vlastní data
   nikdy. Nový `max_workers` u providerů ber přes `_workers(<klíč>, výchozí)`.
+  Od 4.34.0 (Petr 2026-11-25, bez připojení na server) totéž nasazuje hlídač `app/source_fixes.py`: každých 10 min čte
+  `configs/source_fixes.yaml` z `master` (raw GitHub, jen čtení), `tuning` → `tuning_auto.yaml` (ruční má přednost), `patches`
+  (zdroje + celé SHA) přes `install` jen bez běžícího jobu, zmizelé vrátí, po selhání jobu s opravou (mimo `source_outage`) ji vrátí
+  a commit nezkouší znovu; e-mail na `FEEDBACK_TO`, stav `/api/health` → `source_fixes`, vypínač `SOURCE_FIXES_AUTO=0`.
+  Postup opravy: PR s opravou → review → merge; pak záznam do `source_fixes.yaml` (malý PR, nebo druhý commit v témže PR s SHA prvního), takový PR merguje Petr (i z telefonu).
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch
