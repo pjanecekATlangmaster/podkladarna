@@ -125,6 +125,8 @@ def test_api_rejects_job_without_counting(client, monkeypatch, gate):
     [
         ("PL", "HTTP Error 503: Service Unavailable", "{note}", [DOWN], "pl_elevation"),  # řádek startovní kontroly
         ("PL", "výšková služba má výpadek na své straně (HTTP 400: Database connection failed)", "", [UP], "pl_elevation"),
+        ("FR", "Výšková data (fr_lidarhd) nejsou k dispozici: výšková služba má výpadek na své straně (HTTP 400: "
+               "Layer IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93 unknown, 4 pokusy)", "", [UP], "fr_lidarhd"),
         ("PL", "HTTP Error 503: Service Unavailable", "", [DOWN, DOWN], "pl_elevation"),  # potvrzeno teď
         ("PL", "HTTP Error 503: Service Unavailable", "", [UP], None),  # zdroj běží: obecná chyba
         ("PL", "No space left on device", "{note}", [DOWN], None),  # disk není výpadek zdroje
