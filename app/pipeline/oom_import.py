@@ -1100,6 +1100,15 @@ def _zabaged_rail_tunnel_zones(zabaged_clean: Path, dest_dir: Path, *, use_ogr: 
     return {kod: unary_union(lines).buffer(ZABAGED_RAIL_TUNNEL_NEAR_M) for kod, lines in by_kod.items() if lines}
 
 
+ZABAGED_ORCHARD_LAYER = "OvocnySadZahrada"
+ZABAGED_ORCHARD_CODE = "413"
+
+
+def is_zabaged_orchard(layer_name: str, props: dict) -> bool:
+    """ZABAGED „Ovocný sad, zahrada“ s druhem pozemku ovocný sad (``typ_pudy_k`` OS), ne zahrada ani jiná kultura."""
+    return layer_name == ZABAGED_ORCHARD_LAYER and str((props or {}).get("typ_pudy_k") or "").strip().upper() == "OS"
+
+
 def build_zabaged_object_parts(zabaged_clean: Path, **kwargs) -> list[OomObjectPart]:
     """Objekty ZABAGED pro mapu; shp z ZIPu se rozbalují do vlastní dočasné složky volání
     (les a MTBO se mohou sestavovat souběžně v různých procesech), po návratu se smaže."""
@@ -1234,6 +1243,10 @@ def _build_zabaged_object_parts(
     )
     courtyard_objects: list[str] = []
     building_codes = frozenset({"521", "526"})
+    # Ovocný sad ZABAGED (``typ_pudy_k`` OS) má pod olivou i značku sadu 413 (Petr 2026-11-25: sad je sad, přes něj
+    # oliva, dokud nejde zjistit, že je přístupný); oliva je v sadě barev nad tečkami sadu, mapa vypadá jako dřív.
+    orchard_index = symbol_index_for_code(preset_id, scale, ZABAGED_ORCHARD_CODE)
+    orchard_objects: list[str] = []
 
     # OSM pěšiny/cesty mají přednost před ZABAGED na stejné střednici (všechny disciplíny).
     osm_first = bool(prefer_osm_path_lines)
@@ -1727,6 +1740,19 @@ def _build_zabaged_object_parts(
                                 ogr=ogr,
                             )
                         )
+                if orchard_index is not None and is_zabaged_orchard(layer_name, props):
+                    geom_parts, _ = _wkb_parts(bytes(geom.ExportToWkb()))
+                    orchard_objects.extend(
+                        _geom_parts_to_objects(
+                            geom_parts,
+                            orchard_index,
+                            ref_x=ref_x,
+                            ref_y=ref_y,
+                            scale=scale,
+                            grivation_deg=grivation_deg,
+                            clip_bounds=clip_bounds,
+                        )
+                    )
                 if fill_courtyards and olive_index is not None and code in building_codes:
                     # Budova s dírou = nepřístupný dvůr → plná oliva přes detaily uvnitř.
                     courtyard_objects.extend(
@@ -1877,6 +1903,19 @@ def _build_zabaged_object_parts(
                                 clip_bounds=clip_bounds,
                             )
                         )
+                if orchard_index is not None and is_zabaged_orchard(layer_name, props):
+                    geom_parts, _ = _wkb_parts(wkb)
+                    orchard_objects.extend(
+                        _geom_parts_to_objects(
+                            geom_parts,
+                            orchard_index,
+                            ref_x=ref_x,
+                            ref_y=ref_y,
+                            scale=scale,
+                            grivation_deg=grivation_deg,
+                            clip_bounds=clip_bounds,
+                        )
+                    )
                 if fill_courtyards and olive_index is not None and code in building_codes:
                     geom_parts, _ = _wkb_parts(wkb)
                     courtyard_objects.extend(
@@ -1900,6 +1939,14 @@ def _build_zabaged_object_parts(
             )
     if unreg_confirmer and log:
         log(unreg_confirmer[0].summary())
+    if orchard_objects:
+        parts.append(
+            OomObjectPart(
+                name="ZABAGED – ovocné sady (413)",
+                objects_xml="\n".join(orchard_objects),
+                count=len(orchard_objects),
+            )
+        )
     if courtyard_objects:
         parts.append(
             OomObjectPart(

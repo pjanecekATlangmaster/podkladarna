@@ -66,7 +66,8 @@ _LAYER_OOM_CODE: dict[str, str] = {
     "SkupinaBalvanu": "207",
     "LiniovaVegetace": "416",
     "ElektrickeVedeni": "510",
-    "OvocnySadZahrada": "520",  # KP oliva 527 → OOM 520 (ne 413 sad)
+    "OvocnySadZahrada": "520",  # KP oliva 527 → OOM 520; ovocný sad (OS) navíc 413 pod olivou (oom_import)
+    "Vinice": "414",  # ISOM / ISSprOM Vinice 414
     "VyznamnyStromLesik": "417",
     "MohylaPomnikNahrobek": "526",
     "KrizSloupKulturnihoVyznamu": "526",
@@ -80,6 +81,7 @@ _LAYER_OOM_CODE_MTBO: dict[str, str] = {
     "LiniovaVegetace": "416",
     "ElektrickeVedeni": "516",
     "OvocnySadZahrada": "527",
+    "Vinice": "414",  # ISMTBOM 2022 (česká sada) 414.0 Vinice přes katalog
     "VyznamnyStromLesik": "418",
     "MohylaPomnikNahrobek": "537",
     "KrizSloupKulturnihoVyznamu": "537",

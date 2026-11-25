@@ -309,3 +309,34 @@ def test_osm_orchard_vineyard_symbol(preset, scale, kind, code):
 
     assert osm_paths.feature_oom_code(kind, preset, code) == code
     assert symbol_index_for_code(preset, scale, code) is not None
+
+
+@pytest.mark.parametrize(
+    ("props", "want"),
+    [
+        ({"typ_pudy_k": "OS", "typ_pudy_p": "ovocný sad"}, True),
+        ({"typ_pudy_k": "ZA", "typ_pudy_p": "zahrada"}, False),  # zahrada zůstává jen olivou
+        ({"typ_pudy_k": "OTK"}, False),
+        ({}, False),
+    ],
+)
+def test_zabaged_orchard_props(props, want):
+    """Česko: ovocný sad ZABAGED má pod olivou i značku sadu 413 (Petr 2026-11-25)."""
+    from app.pipeline.oom_import import is_zabaged_orchard
+
+    assert is_zabaged_orchard("OvocnySadZahrada", props) is want
+    assert is_zabaged_orchard("TrvalyTravniPorost", props) is False
+
+
+@pytest.mark.parametrize("vectorconf", ["zabaged.txt", "zabaged_forest.txt"])
+@pytest.mark.parametrize("preset, scale", [("forest_10000", 10000), ("sprint_4000", 4000), ("mtbo_10000", 10000)])
+def test_zabaged_vineyard_symbol(vectorconf, preset, scale):
+    """Česko: vrstva ZABAGED Vinice se kreslí značkou vinice 414 (dřív se nestahovala)."""
+    from app.pipeline.oom_symbol_map import oom_code_for_vectorconf_rule, symbol_index_for_code
+    from app.pipeline.oom_vectorconf import load_vectorconf, match_feature
+
+    rule = match_feature({"vrstva": "Vinice"}, load_vectorconf(vectorconf))
+    assert rule is not None
+    code = oom_code_for_vectorconf_rule(rule.symbol_name, rule.kp_code, "Vinice", preset_id=preset, scale=scale)
+    assert code == "414"
+    assert symbol_index_for_code(preset, scale, code) is not None
