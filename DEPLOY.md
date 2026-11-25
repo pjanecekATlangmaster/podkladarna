@@ -432,7 +432,7 @@ pak joby seskupené podle značky IP (`IP <značka> (síť <značka>): N jobů`)
 (jen u jobů, které ještě úklid nesmazal). Víc IP se stejnou značkou sítě = nejspíš stejný
 poskytovatel nebo místo.
 
-## 10. Rychlá oprava zdrojů bez nového image (od 4.31.0)
+## 10. Rychlá oprava zdrojů bez nového image (od 4.32.0)
 
 Při výpadku nebo změně zahraničního zdroje výšek (429, přetížení, změněné API) jde opravu dostat na A
 bez buildu a Promote. Platí jen pro zdroj, který se opravuje (země se stejným klíčem `elevation`

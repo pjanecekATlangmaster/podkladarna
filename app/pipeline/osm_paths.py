@@ -400,6 +400,8 @@ PATH_SURFACES_NAME = "path_surfaces.geojson"
 # Pláž a písek (natural=beach / sand) jen mimo Česko: zpevněné plochy z ortofota (``open_paved``) je nesmějí vzít
 # za dlažbu (Scheveningen). Vlastní seznam, ne ``natural_cover`` – Česko beze změny.
 SAND_AREAS_NAME = "sand_areas.geojson"
+# Sad a vinice z OSM jako plocha (jen mimo Česko): kind → kód generátoru (ISOM / ISSprOM / ISMTBOM 2022 Sad 413, Vinice 414).
+OSM_ORCHARD_KINDS = {"orchard": "413", "vineyard": "414"}
 SAND_NATURAL = frozenset({"beach", "sand", "mud"})
 # Nezpevněný povrch čáry (surface=*) pro ``path_surface_class``.
 _UNPAVED_LINE_SURFACES = frozenset(
@@ -1184,6 +1186,8 @@ _CLOSED_AREA_KINDS = frozenset(
         "wetland",
         "wetland_indistinct",  # zamokřená půda z Maastotietokanta (jen Finsko, ``mtk_fi``)
         "sand",  # pláž, písek, bahno a přílivová zóna (jen mimo Česko)
+        "orchard",  # sad (jen mimo Česko)
+        "vineyard",  # vinice (jen mimo Česko)
         "water_body",
         "fountain",
         "farmland",
@@ -1812,6 +1816,12 @@ def classify_osm_feature(
         if is_node:
             return None
         return "water_body", "301"
+    # Sad a vinice mimo Česko (ISOM 413 / 414, Lagnes 2026-11-25): řady stromů a révy jsou v CHM porost, zeleň
+    # z výšek v nich kreslí ``vegetation_gdal`` jako 401. V Česku beze změny (ZABAGED OvocnySadZahrada = oliva).
+    if landuse in OSM_ORCHARD_KINDS and not _cz_process():
+        if is_node:
+            return None
+        return landuse, OSM_ORCHARD_KINDS[landuse]
     # Obdělávaná půda (ISOM 412) – kreslí se z OSM, pod KP vegetací.
     if landuse == "farmland":
         if is_node:
@@ -2078,6 +2088,9 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         return "313" if mtbo else "312"
     if kind == "wetland":
         return "310" if mtbo else "308"
+    if kind in OSM_ORCHARD_KINDS:
+        # ISOM 413 Orchard / 414 Vineyard; ISSprOM a ISMTBOM 2022 (česká sada) 413.0 Sad / 414.0 Vinice.
+        return OSM_ORCHARD_KINDS[kind]
     if kind == "sand":
         # ISOM 213 Sandy ground, ISSprOM i ISMTBOM 2022 213 Open sandy ground (katalog symbolů).
         return "213"
@@ -2136,6 +2149,8 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         "landmark_tree": "417",
         "wetland": "308",
         "sand": "213",
+        "orchard": "413",
+        "vineyard": "414",
         "water_body": "301",
         "waterway": OSM_WATERWAY_CODE,
         "fountain": "301.1",
@@ -4734,6 +4749,8 @@ OSM_MANUAL_LAYER_SPECS: dict[str, tuple[str, str, str]] = {
     "tram_line": ("OSM_tramvaje", "tramvaje", "509"),
     "fountain": ("OSM_kasny", "kašny (301.1)", "301.1"),
     "farmland": ("OSM_orna", "obdělávaná půda", "412"),
+    "orchard": ("OSM_sady", "sady (413)", "413"),
+    "vineyard": ("OSM_vinice", "vinice (414)", "414"),
     "garden": ("OSM_zahrady", "zahrady (oliva)", "520"),
     "playground": ("OSM_hriste", "hřiště (zpevněná)", "501"),
     "pitch": ("OSM_sport", "sportoviště (zpevněná)", "501"),
@@ -9023,6 +9040,8 @@ def build_osm_feature_parts(
         "tram_line": "OSM tramvaje",
         "fountain": "OSM kašny (301.1)",
         "farmland": "OSM obdělávaná půda (412)",
+        "orchard": "OSM sady (413)",
+        "vineyard": "OSM vinice (414)",
         "garden": "OSM zahrady (520 oliva)",
         "water_well": "OSM studny",
         "spring": "OSM prameny",
@@ -9070,6 +9089,8 @@ def build_osm_feature_parts(
         "tram_line",
         "fountain",
         "farmland",
+        "orchard",
+        "vineyard",
         "pitch_open",
         "garden",
         "playground",

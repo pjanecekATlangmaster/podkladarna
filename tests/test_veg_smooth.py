@@ -233,3 +233,79 @@ def test_chm_vegetation_veto_abroad(tmp_path, monkeypatch, chm_source, cz, code,
     assert parts and len(seen) == 1
     assert from_wkb(seen[0]).area == pytest.approx(want_area, abs=1.0)
     vg._SHAPED_MEMO.clear()
+
+
+@pytest.mark.parametrize(
+    ("chm_source", "cz", "code", "want_green", "want_open"),
+    [
+        (True, False, "408", 450.0, 450.0),  # zahraničí, porost z CHM: v sadu / vinici otevřený terén 401
+        (True, False, "401", 900.0, 0.0),  # otevřený terén zůstává, jak je
+        (True, True, "408", 900.0, 0.0),  # Česko beze změny (sady kreslí ZABAGED)
+        (False, False, "408", 900.0, 0.0),  # porost z hustoty bodů beze změny
+    ],
+)
+def test_chm_green_in_osm_orchard_is_open(tmp_path, monkeypatch, chm_source, cz, code, want_green, want_open):
+    """Mimo Česko jsou řady stromů v OSM sadu a vinici v CHM porostem 1–6 m (Lagnes, Vaucluse); kreslí se 401."""
+    import json
+
+    from shapely import from_wkb
+
+    import app.pipeline.vegetation_gdal as vg
+    from app.pipeline import country_profile
+    from app.pipeline.vegetation_chm import CHM_SOURCE_MARK
+
+    monkeypatch.setattr(country_profile, "process_uses_cz_sources", lambda: cz)
+    vg._SHAPED_MEMO.clear()
+    rows = [({"code": code}, Polygon([(0, 0), (30, 0), (30, 30), (0, 30)]).wkb)]
+    monkeypatch.setattr(vg, "_iter_vege_rows", lambda _shp: rows)
+    seen = []
+    real = vg._shaped_parts
+    monkeypatch.setattr(vg, "_shaped_parts", lambda wkb, c, *a: seen.append((c, from_wkb(wkb).area)) or real(wkb, c, *a))
+    (tmp_path / "vegetation").mkdir()
+    (tmp_path / "vegetation" / "vegetation.shp").write_bytes(b"placeholder")
+    if chm_source:
+        (tmp_path / "vegetation" / CHM_SOURCE_MARK).write_text("chm\n", encoding="utf-8")
+    (tmp_path / "osm_paths").mkdir()
+    orchard = [[[15, -5], [40, -5], [40, 35], [15, 35], [15, -5]]]
+    (tmp_path / "osm_paths" / "natural_cover.geojson").write_text(json.dumps({
+        "type": "FeatureCollection",
+        "features": [{"type": "Feature", "properties": {"cover": "orchard"},
+                      "geometry": {"type": "Polygon", "coordinates": orchard}},
+                     {"type": "Feature", "properties": {"cover": "forest"},
+                      "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [15, 0], [15, 30], [0, 30], [0, 0]]]}}],
+    }), encoding="utf-8")
+    parts = vg.build_vegetation_parts(tmp_path, preset_id="forest_10000", scale=10000, ref_x=0.0, ref_y=0.0,
+                                      grivation_deg=0.0, smooth_level=0)
+    got = {c: a for c, a in seen}
+    assert got.get(code) == pytest.approx(want_green, abs=1.0)
+    assert got.get("401", 0.0) - (want_green if code == "401" else 0.0) == pytest.approx(want_open, abs=1.0)
+    assert {p.name for p in parts} >= ({vg._CLASS_NAMES["401"]} if want_open else set())
+    vg._SHAPED_MEMO.clear()
+
+
+@pytest.mark.parametrize(
+    ("tags", "geom", "cz", "want"),
+    [
+        ({"landuse": "orchard"}, "way", False, ("orchard", "413")),
+        ({"landuse": "vineyard"}, "way", False, ("vineyard", "414")),
+        ({"landuse": "orchard"}, "node", False, None),
+        ({"landuse": "orchard"}, "way", True, None),  # Česko beze změny (sady a zahrady kreslí ZABAGED olivou)
+        ({"landuse": "vineyard"}, "way", True, None),
+    ],
+)
+def test_osm_orchard_vineyard_abroad(monkeypatch, tags, geom, cz, want):
+    from app.pipeline import osm_paths
+
+    monkeypatch.setattr(osm_paths, "_cz_process", lambda: cz)
+    assert osm_paths.classify_osm_feature(tags, geom=geom) == want
+
+
+@pytest.mark.parametrize("preset, scale", [("forest_10000", 10000), ("forest_15000", 15000), ("sprint_4000", 4000),
+                                           ("mtbo_10000", 10000), ("mtbo_15000", 15000)])
+@pytest.mark.parametrize("kind, code", [("orchard", "413"), ("vineyard", "414")])
+def test_osm_orchard_vineyard_symbol(preset, scale, kind, code):
+    from app.pipeline import osm_paths
+    from app.pipeline.oom_symbol_map import symbol_index_for_code
+
+    assert osm_paths.feature_oom_code(kind, preset, code) == code
+    assert symbol_index_for_code(preset, scale, code) is not None

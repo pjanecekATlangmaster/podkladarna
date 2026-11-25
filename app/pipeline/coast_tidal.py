@@ -28,7 +28,7 @@ HOLE_MIN_M2 = 200.0
 # jako písek a souvisle by přes ulice zaplavily i nízké město. Vyloučí se a přeruší i napojení na moře.
 BUILT_KINDS = frozenset(
     {"building", "residential", "parking", "pedestrian_area", "platform", "pitch", "pitch_open", "playground",
-     "garden", "farmland", "water_well_building", "shelter"}
+     "garden", "farmland", "orchard", "vineyard", "water_well_building", "shelter"}
 )
 ROAD_HIGHWAYS = frozenset(
     {"motorway", "trunk", "primary", "secondary", "tertiary", "unclassified", "residential", "service",

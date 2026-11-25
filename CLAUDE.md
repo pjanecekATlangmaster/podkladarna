@@ -577,7 +577,7 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   `dtm_fences.private_enclosure_rings`; zeď se kreslí dál jako zeď (`dtm_import.osm_enclosure_wall_lines`, features.geojson nese u zdí
   `barrier` / `wall`, starší joby nic). Sprint bez technické mapy dřív nevyplňoval ani ploty; teď vyplní oplocení z OSM plotů i zdí
   (`with_osm_enclosure_fills`). Česko beze změny, vypínač `WALL_ENCLOSURES`. Výřezy `/mnt/project-files/oliva-zdi/`.
-- **Rychlá oprava zdrojů bez image** (4.31.0, Petr 2026-11-25, varianta B, `app/source_overrides.py`, DEPLOY.md §10):
+- **Rychlá oprava zdrojů bez image** (4.32.0, Petr 2026-11-25, varianta B, `app/source_overrides.py`, DEPLOY.md §10):
   `data/source_overrides/tuning.yaml` (`workers` 1–8, `disabled`, `note` pro klíč `elevation`; neplatný soubor = nic) a oprava kódu
   `install --source <klíč> --commit <sha>` = kopie `elevation_raster.py` z commitu v `master` (GitHub API: předek masteru, git blob,
   verze > image), načtená zvlášť jen pro uvedené zdroje v `resolve_provider`; po Promote s opravou neaktivní. Česko a vlastní data
