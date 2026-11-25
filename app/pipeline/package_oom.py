@@ -1609,8 +1609,8 @@ def _prepare_oom_map(
             from app.pipeline import oom_symbols as _oom_symbols
 
             tag_stats: dict = {}
-            # Prvky DTM (jen v Česku s daty DTM pro tuto mapu) se párují spolu s OSM a slučují na jednom objektu.
-            extra = _source_tags.dtm_records(
+            # Prvky DTM (v Česku s atributy, v cizině obdoba DTM podle tříd) se párují spolu s OSM a slučují na objektu.
+            extra = _source_tags.source_records(
                 kp_cwd, _fo.crop_bounds_5514(*bbox_wgs84, buffer_m=_fo.VECTOR_FETCH_BUFFER_M)
             )
             codes = {

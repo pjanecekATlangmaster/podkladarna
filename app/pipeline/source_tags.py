@@ -176,3 +176,58 @@ def dtm_records(work_dir: Path, bounds: tuple[float, float, float, float] | None
                 seen.add(rec["id"])
                 out.append(rec)
     return out
+
+
+# Obdoby DTM v cizině (``technical_maps``: BGT, AV, ALKIS, BD TOPO, BDOT10k …) zapisují do ``work_dir/dtm`` roztříděné
+# plochy bez atributů (``bgt_nl.write_dtm_files``). Tagy jsou proto jen podle třídy souboru: sjednocený klíč ve slovníku
+# OSM + ``<zdroj>:typ`` (např. ``de_alkis:typ=sidewalks``); ID prvků zdroje se nepíšou (soubory je nenesou).
+TECH_POLYGON_FILES: dict[str, dict] = {
+    "buildings": {"building": "yes"},
+    "roads": {"area:highway": "road"},
+    "sidewalks": {"area:highway": "footway"},
+    "stairs": {"area:highway": "steps"},
+    "parking": {"amenity": "parking"},
+    "small_paved": {},
+    "green": {"landuse": "grass"},
+    "other_cover": {},
+    "garden_cover": {"landuse": "orchard"},
+}
+TECH_FENCE_TAGS = {"416": {"barrier": "hedge"}}
+
+
+def technical_map_records(work_dir: Path) -> list[dict]:
+    """Prvky obdoby DTM z ``work_dir/dtm`` (jen když ``fences.json`` nese ``source`` cizí technické mapy)."""
+    from app.pipeline.dtm_import import dtm_dir, fences_path
+
+    meta_path = fences_path(Path(work_dir))
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    source = str((meta or {}).get("source") or "").strip().lower() if isinstance(meta, dict) else ""
+    if not source or source == SOURCE:
+        return []
+    typ_key = f"{source}:typ"
+    out: list[dict] = []
+    for i, fence in enumerate(meta.get("fences") or []):
+        coords = [[float(p[0]), float(p[1])] for p in fence.get("coords") or []]
+        if len(coords) >= 2:
+            tags = {**TECH_FENCE_TAGS.get(str(fence.get("code")), {"barrier": "fence"}), typ_key: "fences"}
+            out.append({"id": f"{source}/fences#{i}", "src": source, "noid": True, "tags": tags, "lines": [coords]})
+    folder = dtm_dir(Path(work_dir))
+    for name, base in TECH_POLYGON_FILES.items():
+        try:
+            polys = json.loads((folder / f"{name}.json").read_text(encoding="utf-8")).get("polygons") or []
+        except (OSError, ValueError, AttributeError):
+            continue
+        for i, poly in enumerate(polys):
+            lines = [[[float(p[0]), float(p[1])] for p in ring] for ring in poly if len(ring) >= 2]
+            if lines:
+                out.append({"id": f"{source}/{name}#{i}", "src": source, "noid": True,
+                            "tags": {**base, typ_key: name}, "lines": lines})
+    return out
+
+
+def source_records(work_dir: Path, bounds: tuple[float, float, float, float] | None = None) -> list[dict]:
+    """Prvky technické mapy jobu: DTM ČÚZK s atributy (``dtm_records``), jinde obdoba DTM podle tříd."""
+    return dtm_records(work_dir, bounds) or technical_map_records(work_dir)

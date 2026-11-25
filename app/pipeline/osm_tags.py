@@ -145,7 +145,7 @@ def tags_xml(tags: dict) -> str:
 
 # Zdroje tagů v pořadí přednosti: při sloučení objektu z více zdrojů vyhrává u sjednoceného klíče (``surface``,
 # ``barrier`` …) hodnota dřívějšího zdroje (OSM je základ kresby), rozdíl se počítá jako konflikt.
-SOURCE_PRIORITY = ("osm", "dtm")
+SOURCE_PRIORITY = ("osm", "dtm")  # obdoby DTM v cizině (``de_alkis`` …) až za nimi
 ID_KEYS = {"osm": "osm_id", "dtm": "dtm:id"}
 # Obecná hodnota (``building=yes``) ustoupí upřesnění z jiného zdroje bez konfliktu.
 GENERIC_VALUE = "yes"
@@ -223,8 +223,9 @@ def merge_sources(by_src: dict[str, list[dict]]) -> tuple[dict, set[str], Counte
     for src in order:
         recs = by_src[src]
         id_key = ID_KEYS.get(src, f"{src}:id")
-        ids = [r["id"] if src == "osm" else (r["tags"].get(id_key) or r["id"]) for r in recs]
-        head[id_key] = ";".join(ids[:MAX_IDS]) + (";…" if len(ids) > MAX_IDS else "")
+        ids = [r["id"] if src == "osm" else (r["tags"].get(id_key) or r["id"]) for r in recs if not r.get("noid")]
+        if ids:  # obdoby DTM v cizině ID prvků nenesou
+            head[id_key] = ";".join(ids[:MAX_IDS]) + (";…" if len(ids) > MAX_IDS else "")
         kept, drop = merge_tags([{k: v for k, v in r["tags"].items() if k != id_key} for r in recs])
         dropped.update(drop)
         for k, v in kept.items():
@@ -342,7 +343,7 @@ def attach_osm_tags(
                     score[line_ids[int(j)]] += int(near.sum())
             if total and score:
                 fam = tag_family(rec["tags"])
-                token = PART_TOKENS.get(_src(rec), "")
+                token = PART_TOKENS.get(_src(rec), "DTM")  # obdoby DTM kreslí části „… (DTM + OSM)“
                 cands = [
                     (hits, bool(token) and token in objs[oi][5], -oi)
                     for oi, hits in score.items()

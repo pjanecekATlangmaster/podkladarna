@@ -8,6 +8,10 @@
 #   (Petr 2026-11-23); test_whats_new.py hlídá, že nejnovější záznam není o víc než 8 minor verzí za APP_VERSION.
 milestones:
   - date: "2026-11-25"
+    scope: intl
+    title: "Verze 4.37 – volba „Tagy zdrojů“ zapíše k objektům i druh plochy z národní technické mapy (ALKIS, BGT, BD TOPO, BDOT10k …: budova, vozovka, chodník, parkoviště, plot); objekt z OpenStreetMap i technické mapy nese tagy obou"
+    title_en: "Version 4.37 – the “Source tags” option also stores the area type from the national technical map (ALKIS, BGT, BD TOPO, BDOT10k …: building, roadway, sidewalk, parking, fence); an object from both OpenStreetMap and the technical map carries the tags of both"
+  - date: "2026-11-25"
     scope: cz
     title: "Verze 4.36 – volba „Tagy zdrojů“ (dřív Tagy OSM) zapíše k objektům i tagy z technické mapy DTM (druh plotu, povrch, typ plochy, ID objektu); objekt z OpenStreetMap i DTM nese tagy obou zdrojů a stejné objekty mají stejné klíče"
     title_en: "Version 4.36 – the “Source tags” option (formerly OSM tags) also stores tags from the Czech DTM technical map (fence kind, surface, area type, object ID); an object from both OpenStreetMap and DTM carries the tags of both, and the same objects share the same keys"
