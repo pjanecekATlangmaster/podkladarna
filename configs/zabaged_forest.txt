@@ -1,3 +1,4 @@
+farm|401|vrstva=Vinice
 building|526|druhbud!=
 building|526|podtypob_p=kůlna
 building|526|podtypob_p=skleník, fóliovník

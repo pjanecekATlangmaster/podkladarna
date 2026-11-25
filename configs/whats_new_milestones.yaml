@@ -8,6 +8,10 @@
 #   (Petr 2026-11-23); test_whats_new.py hlídá, že nejnovější záznam není o víc než 8 minor verzí za APP_VERSION.
 milestones:
   - date: "2026-11-25"
+    scope: cz
+    title: "Verze 4.33 – vinice ze ZABAGED se kreslí značkou vinice (414); ovocné sady mají pod olivou značku sadu (413), zahrady zůstávají olivou"
+    title_en: "Version 4.33 – vineyards from ZABAGED are drawn with the vineyard symbol (414); orchards carry the orchard symbol (413) under the olive green, gardens stay olive"
+  - date: "2026-11-25"
     scope: intl
     title: "Verze 4.31 – mimo Česko: ovocné sady, olivové háje a vinice z OpenStreetMap se kreslí značkou sadu (413) a vinice (414), už ne jako hustý les"
     title_en: "Version 4.31 – outside Czechia: orchards, olive groves and vineyards from OpenStreetMap are drawn with the orchard (413) and vineyard (414) symbols instead of dense forest"
