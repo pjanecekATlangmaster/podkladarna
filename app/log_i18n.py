@@ -674,6 +674,8 @@ RULES: tuple[tuple[str, str], ...] = (
     ("OSM tagy: chybí prvky OSM z přípravy, tagy se nezapsaly",
      "OSM tags: OSM elements from preparation are missing, no tags written"),
     ("OSM tagy: přeskočeno ({rest})", "OSM tags: skipped ({rest})"),
+    ("Tagy zdrojů: {a} z {b} objektů s tagy, z více zdrojů {c}; spárované prvky {d}; konflikty (přednost OSM): {e}; nespárované: {rest}",
+     "Source tags: {a} of {b} objects tagged, {c} from several sources; paired features {d}; conflicts (OSM wins): {e}; unpaired: {rest}"),
     ("OOM: čistá verze – vynecháno {a} ploch zeleně z výšek, všech {b} ploch otevřeného terénu z výšek, {e} objektů z DEM",
      "OOM: clean version – omitted {a} green areas from heights, all {b} open-land areas from heights, {e} objects from DEM"),
     ("OOM OCD: přeskočeno ({f}) – není PODKLADARNA_MAPPER_CONVERT / Mapper CLI",

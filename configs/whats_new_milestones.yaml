@@ -8,6 +8,10 @@
 #   (Petr 2026-11-23); test_whats_new.py hlídá, že nejnovější záznam není o víc než 8 minor verzí za APP_VERSION.
 milestones:
   - date: "2026-11-25"
+    scope: cz
+    title: "Verze 4.36 – volba „Tagy zdrojů“ (dřív Tagy OSM) zapíše k objektům i tagy z technické mapy DTM (druh plotu, povrch, typ plochy, ID objektu); objekt z OpenStreetMap i DTM nese tagy obou zdrojů a stejné objekty mají stejné klíče"
+    title_en: "Version 4.36 – the “Source tags” option (formerly OSM tags) also stores tags from the Czech DTM technical map (fence kind, surface, area type, object ID); an object from both OpenStreetMap and DTM carries the tags of both, and the same objects share the same keys"
+  - date: "2026-11-25"
     title: "Verze 4.35 – les a MTBO: verze bez vegetace (_novege) může vynechat i žlutou, tj. všechny louky a paseky z výšek; nová volba „Tagy OSM“ zapíše k objektům nakresleným z OpenStreetMap jejich tagy pro třídění v Mapperu (obě volby ve Výstupu, výchozí beze změny)"
     title_en: "Version 4.35 – forest and MTBO: the version without vegetation (_novege) can also drop the yellow, i.e. all open land from elevation; the new “OSM tags” option stores OpenStreetMap tags on objects drawn from it for sorting in Mapper (both under Output, defaults unchanged)"
   - date: "2026-11-25"
