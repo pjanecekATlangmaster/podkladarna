@@ -7,6 +7,10 @@
 # Nadpis začíná „Verze X.Y – “ (anglicky „Version X.Y – “). PR s viditelnou změnou pro uživatele přidá záznam
 #   (Petr 2026-11-23); test_whats_new.py hlídá, že nejnovější záznam není o víc než 8 minor verzí za APP_VERSION.
 milestones:
+  - date: "2026-11-25"
+    scope: intl
+    title: "Verze 4.30 – mimo Česko: ovocné sady, olivové háje a vinice z OpenStreetMap už nevycházejí jako hustý les, kreslí se jako otevřený terén"
+    title_en: "Version 4.30 – outside Czechia: orchards, olive groves and vineyards from OpenStreetMap no longer come out as dense forest; they are drawn as open land"
   - date: "2026-11-24"
     scope: intl
     title: "Verze 4.30 – Slovinsko: novější výšky CLSS 2023–2025 se stahují spolehlivě i u větších výřezů (dřív při přetížení serveru mapa spadla na starší data 2011–2015); technický log na anglické stránce je anglicky celý"

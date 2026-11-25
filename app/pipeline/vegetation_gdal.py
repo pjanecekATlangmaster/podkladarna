@@ -174,6 +174,12 @@ RAIL_VETO_HALF_M = 1.5
 VETO_CODES = frozenset({"406", "408", "410"})
 # Menší budova (kůlna v lese, les a MTBO ji kreslí bodem) porost nevyřízne – nevznikne díra v zeleni.
 BUILDING_VETO_MIN_M2 = 25.0
+# Sad a vinice z OSM (``natural_cover.geojson``) mimo Česko: řady ovocných stromů, oliv a révy vycházejí v CHM jako
+# porost 1–6 m a kreslily se sytou zelenou (Lagnes, Vaucluse, Petr 2026-11-25). Zeleň z rastru je v nich otevřený
+# terén 401 (mapař kreslí sad 413 = žlutá s tečkami); bílý les by z řad udělal díry. Česko beze změny (ZABAGED sady).
+ORCHARD_COVERS = frozenset({"orchard", "vineyard"})
+ORCHARD_OPEN_CODE = "401"
+ORCHARD_KEY_OFFSET = 1 << 30  # klíč v memo pro část řádku v sadu (vedle indexu řádku)
 
 
 def _raster_veto_mask(work_dir: Path, shp: Path, sprint: bool):
@@ -278,6 +284,59 @@ def _veto_parts(work_dir: Path, *, roads: bool = True) -> list:
     return out
 
 
+def _orchard_mask(work_dir: Path, shp: Path):
+    """Sady a vinice z OSM (``ORCHARD_COVERS``), kde je zeleň z CHM otevřený terén; None = nic (Česko, hustota bodů)."""
+    import json
+
+    from app.pipeline.country_profile import process_uses_cz_sources
+    from app.pipeline.osm_paths import NATURAL_COVER_NAME
+    from app.pipeline.vegetation_chm import CHM_SOURCE_MARK
+
+    if process_uses_cz_sources() or not (shp.parent / CHM_SOURCE_MARK).is_file():
+        return None
+    gj = Path(work_dir) / "osm_paths" / NATURAL_COVER_NAME
+    try:
+        import shapely
+        from shapely.geometry import Polygon
+
+        feats = json.loads(gj.read_text(encoding="utf-8")).get("features") or [] if gj.is_file() else []
+        parts = []
+        for f in feats:
+            geom = f.get("geometry") or {}
+            rings = geom.get("coordinates") or []
+            if (f.get("properties") or {}).get("cover") not in ORCHARD_COVERS or geom.get("type") != "Polygon":
+                continue
+            if rings and len(rings[0]) >= 4:
+                poly = Polygon(rings[0], rings[1:])
+                poly = poly if poly.is_valid else poly.buffer(0)
+                if not poly.is_empty:
+                    parts.append(poly)
+    except Exception:
+        return None
+    return (parts, shapely.STRtree(parts)) if parts else None
+
+
+def _split_wkb(wkb: bytes, mask) -> tuple[bytes | None, bytes | None]:
+    """(porost mimo masku, porost v masce) – části pod 1 m² jsou None; bez průniku (wkb, None)."""
+    from shapely import from_wkb, to_wkb, union_all
+
+    parts, tree = mask
+    try:
+        geom = from_wkb(bytes(wkb))
+        idx = tree.query(geom, predicate="intersects")
+        if len(idx) == 0:
+            return wkb, None
+        zone = union_all([parts[i] for i in idx])
+        inside, rest = geom.intersection(zone), geom.difference(zone)
+    except Exception:
+        return wkb, None
+
+    def _out(g):
+        return None if g.is_empty or g.area < 1.0 else bytes(to_wkb(g))
+
+    return _out(rest), _out(inside)
+
+
 def _clip_wkb(wkb: bytes, mask) -> bytes | None:
     """Porost bez ploch veta (``_raster_veto_mask``); None = nic nezbylo."""
     from shapely import from_wkb, to_wkb, union_all
@@ -317,6 +376,7 @@ def _shaped_memo(work_dir: Path, shp: Path, smooth_level: int, sprint: bool) -> 
         _file_stamp(osm_dir / "bridge_decks.geojson"),
         _file_stamp(Path(work_dir) / "dtm" / "roads.json"),
         _file_stamp(Path(work_dir) / "dtm" / "buildings.json"),
+        _file_stamp(osm_dir / "natural_cover.geojson"),
         _file_stamp(shp.parent / CHM_SOURCE_MARK),
         smooth_level,
         sprint,
@@ -352,6 +412,8 @@ def build_vegetation_parts(
     shaped_rows = _shaped_memo(work_dir, shp, smooth_level, sprint)
     barriers = None  # načtou se až u prvního řádku, který memo ještě nemá
     veto_mask: object = False  # False = ještě nenačteno; None = bez ořezu
+    orchard_mask: object = False
+    orchard_index = symbol_index_for_code(preset_id, scale, ORCHARD_OPEN_CODE)
 
     grouped: dict[str, list[str]] = {code: [] for code in _CLASS_TO_CODE.values()}
     for row, (props, wkb) in enumerate(_iter_vege_rows(shp)):
@@ -376,29 +438,42 @@ def build_vegetation_parts(
                 barriers = load_smooth_barriers(work_dir)
             if veto_mask is False:
                 veto_mask = _raster_veto_mask(work_dir, shp, sprint)
+            if orchard_mask is False:
+                orchard_mask = _orchard_mask(work_dir, shp)  # memo sdílí les i MTBO: nezávisle na sadě
+            orchard_wkb = None
             if veto_mask is not None and code in VETO_CODES:
                 wkb = _clip_wkb(wkb, veto_mask)
+            if orchard_mask is not None and code in VETO_CODES and wkb is not None:
+                wkb, orchard_wkb = _split_wkb(wkb, orchard_mask)
             hit = shaped_rows[row] = (
                 ([], False) if wkb is None else _shaped_parts(wkb, code, smooth_level, barriers, sprint)
             )
-        geom_parts, curves = hit
-        if VEG_SIMPLIFY and curves and not sprint:
-            # Až po memo (les a MTBO mají jiné měřítko, memo drží neupravený tvar).
-            geom_parts = _simplified_geom_parts(geom_parts, scale)
-        grouped[code].extend(
-            _geom_parts_to_objects(
-                geom_parts,
-                symbol_index,
-                ref_x=ref_x,
-                ref_y=ref_y,
-                scale=scale,
-                grivation_deg=grivation_deg,
-                as_area=True,
-                max_area_vertices=VEG_MAX_AREA_VERTICES,
-                max_area_m2=None if code in _NO_AREA_SPLIT_CODES else VEG_MAX_AREA_M2,
-                area_as_curves=curves,
+            shaped_rows[ORCHARD_KEY_OFFSET + row] = (
+                ([], False) if orchard_wkb is None
+                else _shaped_parts(orchard_wkb, ORCHARD_OPEN_CODE, smooth_level, barriers, sprint)
             )
-        )
+        pieces = [(code, symbol_index, hit)]
+        orchard_hit = shaped_rows.get(ORCHARD_KEY_OFFSET + row)
+        if orchard_hit and orchard_hit[0] and orchard_index is not None:
+            pieces.append((ORCHARD_OPEN_CODE, orchard_index, orchard_hit))
+        for piece_code, piece_index, (geom_parts, curves) in pieces:
+            if VEG_SIMPLIFY and curves and not sprint:
+                # Až po memo (les a MTBO mají jiné měřítko, memo drží neupravený tvar).
+                geom_parts = _simplified_geom_parts(geom_parts, scale)
+            grouped[piece_code].extend(
+                _geom_parts_to_objects(
+                    geom_parts,
+                    piece_index,
+                    ref_x=ref_x,
+                    ref_y=ref_y,
+                    scale=scale,
+                    grivation_deg=grivation_deg,
+                    as_area=True,
+                    max_area_vertices=VEG_MAX_AREA_VERTICES,
+                    max_area_m2=None if piece_code in _NO_AREA_SPLIT_CODES else VEG_MAX_AREA_M2,
+                    area_as_curves=curves,
+                )
+            )
 
     parts: list[OomObjectPart] = []
     for code in ("401", "403", "406", "408", "410"):
