@@ -57,6 +57,10 @@ Kresba: z OSM (technická mapa pro toto území není).
 [BGT] BGT chodníky (voetpad): 40 ploch
 [BGT] BGT ploty: 12 úseků → 9 napojených čar, 3 oplocení k vyplnění; soukromé pozemky (erf) jako oliva: 2
 [BGT] Na pozadí: Data BGT (PDOK) · hotovo za 0:12
+[BD TOPO] BD TOPO: 1055 budov a 250 úseků silnic (2.2 MB, 0 s)
+[BD TOPO] BD TOPO vozovky ze šířky silnic: 3 ploch
+[BD TOPO] BD TOPO ploty: 0 úseků → 0 napojených čar, 0 oplocení k vyplnění; zahrady (v BD TOPO nejsou) jako oliva: 0
+[BDOT10k] BDOT10k ploty: 4 úseků → 2 napojených čar, 1 oplocení k vyplnění; zahrady (v BDOT10k nejsou) jako oliva: 1
 Kresba z GRB: ano – GRB (budovy, uliční prostor, vozovky a chodníky (Brusel z UrbIS, i parkování v ulici)) se stahuje na pozadí, do mapy jde při sestavení.
   OOM: typ mapy – jen les (vybráno v GUI)
   Silnice: napojení v křižovatkách 100.0 % (3 z 3 kreslených ramen, 0 děr, 0 končí na ploše, 0 z 1 ústí proti pravidlu, 4 křižovatek OSM)
