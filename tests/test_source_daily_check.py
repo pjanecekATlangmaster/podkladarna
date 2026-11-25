@@ -48,3 +48,29 @@ def test_classify_today(cloud, prod, expected):
 def test_classify_history(today, past_down, expected):
     history = [{"down": {"x": {"cls": "prechodne"}} if d else {}} for d in past_down]
     assert sdc.classify(today, "x", history) == expected
+
+
+@pytest.mark.parametrize(
+    "job, cat",
+    [
+        ({"traceback": "Traceback\nRuntimeError: Výšková data (fr_lidarhd) nejsou k dispozici: HTTP Error 400"}, "chyba"),
+        ({"source_outage": "fr_lidarhd", "error": "výpadek"}, "vypadek_zdroje"),
+        ({"user_sources": True, "error": "neplatný soubor"}, "vlastni_data"),
+        ({"traceback": "Traceback\nMemoryError"}, "pamet"),
+        ({"log": ["CHYBA: [Errno 28] No space left on device"]}, "disk"),
+    ],
+)
+def test_build_signature_category(job, cat):
+    assert sdc.build_signature(job)[0] == cat
+
+
+def test_group_builds_merges_same_cause_and_marks_new():
+    jobs = [
+        {"id": "a1", "status": "failed", "country": "FR", "traceback": "T\nRuntimeError: HTTP Error 400 job 123"},
+        {"id": "a2", "status": "failed", "country": "FR", "traceback": "T\nRuntimeError: HTTP Error 400 job 456"},
+        {"id": "w1", "status": "done_with_errors", "log": ["⚠ chybí ortofoto"]},
+    ]
+    groups = sdc.group_builds(jobs, [])
+    assert len(groups) == 1 and groups[0]["jobs"] == ["a1", "a2"] and groups[0]["new"]
+    again = sdc.group_builds(jobs, [{"groups": {groups[0]["id"]: {}}}])
+    assert not again[0]["new"] and again[0]["days_seen"] == 1
