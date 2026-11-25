@@ -10,7 +10,7 @@ import pytest
 from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_import import OomObjectPart
 from app.pipeline.osm_tags import attach_osm_tags, merge_tags
-from app.pipeline.source_tags import dtm_records, dtm_tags
+from app.pipeline.source_tags import dtm_records, dtm_tags, source_records
 
 SCALE = 10000
 REF = (1000.0, 2000.0)
@@ -191,3 +191,29 @@ def test_prepare_oom_map_runs_source_tags_step(tmp_path):
     assert out is not None
     assert any(ln.startswith("OSM tagy: chybí") for ln in lines)
     assert not any("tagy: přeskočeno" in ln.lower() for ln in lines)
+
+
+def test_foreign_technical_map_tags_by_class(tmp_path):
+    """Obdoba DTM v cizině (ALKIS …): tagy podle třídy souboru, sloučené s OSM, bez ID prvků zdroje."""
+    dtm = tmp_path / "dtm"
+    dtm.mkdir()
+    ring = [[1000, 2000], [1020, 2000], [1020, 2010], [1000, 2010], [1000, 2000]]
+    (dtm / "buildings.json").write_text(json.dumps({"polygons": [[ring]]}), encoding="utf-8")
+    (dtm / "fences.json").write_text(
+        json.dumps({"source": "de_alkis", "opl_files": [], "fences": [{"code": "416", "coords": [[1000, 2100], [1050, 2100]]}]}),
+        encoding="utf-8",
+    )
+    recs = source_records(tmp_path)
+    assert {r["tags"]["de_alkis:typ"] for r in recs} == {"buildings", "fences"}
+    (tmp_path / "osm_paths").mkdir()
+    osm = [{"id": "way/9", "tags": {"building": "house"}, "lines": [[tuple(p) for p in ring]]}]
+    (tmp_path / "osm_paths" / "osm_tagged.json").write_text(json.dumps(osm), encoding="utf-8")
+    parts = [OomObjectPart("OSM budovy", _line([tuple(p) for p in ring], symbol=1), 1)]
+    st: dict = {}
+    out = attach_osm_tags(
+        parts, tmp_path, scale=SCALE, ref_x=REF[0], ref_y=REF[1], grivation_deg=0.0, stats=st,
+        symbol_codes={1: "521"}, extra_records=recs,
+    )
+    tags = _tags(out[0].objects_xml)
+    assert tags == {"src": "osm;de_alkis", "osm_id": "way/9", "building": "house", "de_alkis:typ": "buildings"}
+    assert st["unpaired"] == {"de_alkis:fences": 1} and not st["conflicts"]
