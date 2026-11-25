@@ -34,11 +34,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ.setdefault("PODKLADARNA_DATA", tempfile.mkdtemp(prefix="pkd-srccheck-"))
 
-from app import source_status  # noqa: E402
+import hashlib  # noqa: E402
+import re  # noqa: E402
+
+from app import failed_jobs, source_status  # noqa: E402
 
 PROD_BASE = os.environ.get("SOURCE_CHECK_PROD", "https://map.ulvi.app")
 WORKERS = 6  # souběh dotazů z cloudu (různé servery, jeden dotaz na zdroj)
 TRVALE_DAYS = 3
+SIT_A_DAYS = 2
 OPAK_DAYS, OPAK_WINDOW = 3, 7
 HISTORY_KEEP_DAYS = 60
 REPORT_HISTORY_DAYS = 14
@@ -116,6 +120,106 @@ def prod_events() -> dict | None:
     return _get_json(f"{PROD_BASE}/api/source_events?days=7", {"Authorization": f"Bearer {token}"})
 
 
+# --- nepovedené buildy (Petr 2026-11-25) ------------------------------------
+
+BUILD_HOURS = 24
+BUILD_SEEN_DAYS = 30
+BUILD_HISTORY = "buildy-historie.jsonl"
+BUILD_ACTION = {
+    "chyba": "prověřit traceback; malá oprava = opravné vlákno (junior se zadáním od seniora), jinak senior",
+    "pamet": "senior: paměť / velikost výřezu (strop území, dělení na bloky)",
+    "cas": "senior: časový limit jobu (pomalý krok nebo zdroj; odhad a strop výřezu)",
+    "disk": "ostrá A: místo na disku (úklid cache, viz app/disk_space.py); mazání jen se souhlasem Petra",
+}
+BUILD_LABEL = {
+    "chyba": "chyba v kódu / datech", "pamet": "paměť", "cas": "časový limit", "disk": "disk",
+    "vypadek_zdroje": "výpadek zdroje (řeší kontrola zdrojů)", "vlastni_data": "vlastní data uživatele",
+    "restart": "restart serveru",
+}
+_SIG_NUM = re.compile(r"\d+")
+_SIG_HEX = re.compile(r"\b[0-9a-f]{10,}\b")
+
+
+def fetch_failed_jobs() -> tuple[list[dict], str]:
+    """Selhané joby za 24 h: s tokenem všechny (i privátní), jinak jen veřejné joby domény ``PROD_BASE``."""
+    token = os.environ.get("SOURCE_EVENTS_TOKEN")
+    if token:
+        data = _get_json(f"{PROD_BASE}/api/ops/failed_jobs?hours={BUILD_HOURS}", {"Authorization": f"Bearer {token}"})
+        if data is not None:
+            return data.get("jobs") or [], "všechny joby ostré A (token)"
+    data = _get_json(f"{PROD_BASE}/api/jobs")
+    if data is None:
+        return [], "nedostupné"
+    since = datetime.now(timezone.utc) - timedelta(hours=BUILD_HOURS)
+    out = []
+    for job in data.get("jobs") or []:
+        if job.get("status") not in failed_jobs.FAILED_STATUSES:
+            continue
+        when = failed_jobs._parse(job.get("updated_at") or job.get("created_at"))
+        if when is None or when < since:
+            continue
+        log = _get_json(f"{PROD_BASE}/api/jobs/{job['id']}/log") or {}
+        lines = [str(x.get("src") or x.get("line") or "") for x in log.get("lines") or []]
+        picked, tb = failed_jobs.extract(lines, str(job.get("name") or ""))
+        opts = job.get("options") or {}
+        out.append({"id": job["id"], "status": job.get("status"), "country": opts.get("country") or "CZ",
+                    "preset_id": job.get("preset_id"), "source_outage": opts.get("source_outage"),
+                    "user_sources": bool(opts.get("user_sources")), "sample": bool(opts.get("sample")),
+                    "area_km2": job.get("area_km2"), "error": str(job.get("error") or "")[:600],
+                    "log": picked, "traceback": tb})
+    return out, "jen veřejné joby Omapicu (bez tokenu nejsou vidět privátní joby ani Podkladárna)"
+
+
+def build_signature(job: dict) -> tuple[str, str]:
+    """(kategorie, podpis příčiny): poslední řádek tracebacku, jinak první chybový řádek logu, jinak hláška."""
+    tb = (job.get("traceback") or "").strip()
+    sig = tb.splitlines()[-1] if tb else ""
+    if not sig:
+        sig = next((x for x in job.get("log") or [] if x.startswith(("CHYBA", "ERROR"))), "") or job.get("error") or "?"
+    sig = _SIG_NUM.sub("#", _SIG_HEX.sub("‹id›", sig.strip()))[:220]
+    text = " ".join([sig, job.get("error") or "", *(job.get("log") or [])[-5:]]).lower()
+    if job.get("source_outage"):
+        cat = "vypadek_zdroje"
+    elif job.get("user_sources"):
+        cat = "vlastni_data"
+    elif "memoryerror" in text or "killed" in text or "paměť" in text or "paměti" in text:
+        cat = "pamet"
+    elif "no space left" in text or "místo na disku" in text:
+        cat = "disk"
+    elif "timeout" in text and "časový limit" in text or "překročil časový limit" in text:
+        cat = "cas"
+    elif "restart" in text and not tb:
+        cat = "restart"
+    else:
+        cat = "chyba"
+    return cat, sig
+
+
+def group_builds(jobs: list[dict], history: list[dict]) -> list[dict]:
+    seen: dict[str, int] = {}
+    for day in history[-BUILD_SEEN_DAYS:]:
+        for gid in (day.get("groups") or {}):
+            seen[gid] = seen.get(gid, 0) + 1
+    groups: dict[str, dict] = {}
+    for job in jobs:
+        cat, sig = build_signature(job)
+        if cat == "chyba" and job.get("status") == "done_with_errors" and not job.get("traceback") \
+                and not any(x.startswith(("CHYBA", "ERROR")) for x in job.get("log") or []):
+            continue  # hotová mapa jen s varováním
+        gid = "b-" + hashlib.sha1(f"{cat}|{sig}".encode("utf-8")).hexdigest()[:8]
+        g = groups.setdefault(gid, {"id": gid, "cat": cat, "sig": sig, "jobs": [], "countries": set(),
+                                    "presets": set(), "days_seen": seen.get(gid, 0), "example": job})
+        g["jobs"].append(job["id"])
+        g["countries"].add(job.get("country") or "?")
+        g["presets"].add(job.get("preset_id") or "?")
+    out = []
+    for g in groups.values():
+        g["countries"], g["presets"] = sorted(g["countries"]), sorted(g["presets"])
+        g["new"] = g["days_seen"] == 0
+        out.append(g)
+    return sorted(out, key=lambda g: (g["cat"] not in BUILD_ACTION, -len(g["jobs"]), g["id"]))
+
+
 def _has(text: str | None, markers) -> bool:
     return bool(text) and any(m in text for m in markers)
 
@@ -157,6 +261,8 @@ def classify(today: str, key: str, history: list[dict]) -> tuple[str, int]:
         else:
             break
     recent = sum(1 for day in history[-(OPAK_WINDOW - 1):] if key in day.get("down", {})) + 1
+    if today == "sit_a" and streak < SIT_A_DAYS:
+        return "prechodne", streak  # jeden timeout z ostré A je náhoda; blokace až druhý den za sebou
     if today in ("prechodne", "planovane", "cert") and streak >= TRVALE_DAYS:
         return "trvale", streak
     if today == "prechodne" and recent >= OPAK_DAYS:
@@ -204,6 +310,13 @@ def run(out_dir: Path, dry: bool = False) -> dict:
     cloud = check_cloud()
     prod, prod_checked = check_prod()
     events = prod_events()
+    build_hist_path = state_dir / BUILD_HISTORY
+    build_history = [h for h in _load_history(build_hist_path) if h.get("date") != today]
+    bjobs, bsource = fetch_failed_jobs()
+    bgroups = group_builds(bjobs, build_history)
+    for g in bgroups:
+        g["known"] = known.get(g["id"])
+    baction = [g for g in bgroups if g["cat"] in BUILD_ACTION and not g["known"]]
     probes = {p.key: p for p in source_status.PROBES}
 
     rows = []
@@ -227,18 +340,48 @@ def run(out_dir: Path, dry: bool = False) -> dict:
     history.append(entry)
     cutoff = (date.today() - timedelta(days=HISTORY_KEEP_DAYS)).isoformat()
     history = [h for h in history if h.get("date", "") >= cutoff]
+    build_history.append({"date": today, "source": bsource, "jobs": len(bjobs), "groups": {
+        g["id"]: {"cat": g["cat"], "sig": g["sig"], "jobs": g["jobs"], "countries": g["countries"]} for g in bgroups}})
+    build_history = [h for h in build_history if h.get("date", "") >= cutoff]
     report = build_report(entry, rows, history, events, known)
+    report = report.replace("## Postup pro koordinátora", build_section(bgroups, bjobs, bsource) + "\n## Postup pro koordinátora", 1)
     if not dry:
         state_dir.mkdir(parents=True, exist_ok=True)
         hist_path.write_text("".join(json.dumps(h, ensure_ascii=False) + "\n" for h in history), encoding="utf-8")
+        build_hist_path.write_text("".join(json.dumps(h, ensure_ascii=False) + "\n" for h in build_history), encoding="utf-8")
         (out_dir / REPORT_NAME).write_text(report, encoding="utf-8")
     return {"date": today, "prod_ok": bool(prod), "action": entry["action"], "new_action": entry["new_action"],
             "known_down": [r["key"] for r in rows if r["known"] and r["cls"] not in ("ok", "jen_cloud", "nezname")],
+            "build_jobs": len(bjobs), "build_source": bsource,
+            "build_action": [g["id"] for g in baction], "build_new": [g["id"] for g in baction if g["new"]],
             "report": report if dry else str(out_dir / REPORT_NAME)}
 
 
 def _countries(r: dict) -> str:
     return ", ".join(r["countries"])
+
+
+def build_section(groups: list[dict], jobs: list[dict], source: str) -> str:
+    L = [f"## Nepovedené buildy ({BUILD_HOURS} h)", "", f"Zdroj: {source}; selhaných jobů {len(jobs)}.", ""]
+    action = [g for g in groups if g["cat"] in BUILD_ACTION and not g.get("known")]
+    other = [g for g in groups if g not in action]
+    if not action:
+        L += ["K opravě nic.", ""]
+    else:
+        L += ["| Skupina | Příčina (podpis) | Kategorie | Jobů | Země | Joby | Co udělat |", "|---|---|---|---|---|---|---|"]
+        for g in action:
+            new = " 🆕" if g["new"] else f" (viděno {g['days_seen']} d)"
+            sig = g["sig"].replace("|", "/")
+            L.append(f"| `{g['id']}`{new} | {sig} | {BUILD_LABEL[g['cat']]} | {len(g['jobs'])} | "
+                     f"{', '.join(g['countries'])} | {', '.join(g['jobs'][:3])} | {BUILD_ACTION[g['cat']]} |")
+        L.append("")
+        L.append("Detail jobu: `GET /api/jobs/<id>/log` na ostré A (privátní joby jen s tokenem přes `/api/ops/failed_jobs`).")
+        L.append("")
+    if other:
+        L.append("Bez zásahu: " + "; ".join(
+            f"{BUILD_LABEL.get(g['cat'], g['cat'])} {len(g['jobs'])}×" + (" (známé)" if g.get("known") else "") for g in other))
+        L.append("")
+    return "\n".join(L)
 
 
 def build_report(entry: dict, rows: list[dict], history: list[dict], events: dict | None, known: dict) -> str:
@@ -303,12 +446,15 @@ def build_report(entry: dict, rows: list[dict], history: list[dict], events: dic
         "  (junior / senior podle sloupce „Co udělat“), do zadání dej klíč zdroje, třídu, výstup cloud vs. ostrá A",
         "  a odkaz na tento soubor. Po opravě nebo rozhodnutí přidej zdroj do `zdroje-kontrola/zname.json`",
         "  s poznámkou (a `until`, když jde o dočasnou výjimku).",
+        "- Totéž pro „Nepovedené buildy“: u skupiny 🆕 nebo opakované navrhni příčinu z tracebacku a kódu; malou opravu",
+        "  dej opravnému vláknu, vyřízenou skupinu (`b-…`) zapiš do `zname.json`. Uživatelské chyby, limity a výpadky",
+        "  zdrojů se tu neřeší.",
         "- Petra oslov jen u věcí, které vyžadují jeho účet, e-mail, klíč, síť ostré A nebo rozhodnutí (vypnutí země).",
         "- Přechodné, plánované a „jen síť cloudu“ nehlásit. Trvalou změnu (nová URL, licence, konec služby) zapiš",
         "  do `evropa-data-prehled.md` ve stejném kroku jako opravu.",
         "",
         "Třídy: přechodný = 5xx / timeout méně než 3 dny; trvalý = 3 dny za sebou; opakované = 3 dny ze 7;",
-        "blokace sítě ostré A = z cloudu běží, z ostré A ne; jen síť cloudu = z ostré A běží (ignorovat).",
+        "blokace sítě ostré A = z cloudu běží, z ostré A ne 2 dny za sebou; jen síť cloudu = z ostré A běží (ignorovat).",
         "",
     ]
     return "\n".join(L)
