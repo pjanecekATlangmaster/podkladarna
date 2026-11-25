@@ -431,3 +431,61 @@ pak joby seskupené podle značky IP (`IP <značka> (síť <značka>): N jobů`)
 čas, id, stav, preset, typy map, druh, značka e-mailu, střed území (lat,lon) a název
 (jen u jobů, které ještě úklid nesmazal). Víc IP se stejnou značkou sítě = nejspíš stejný
 poskytovatel nebo místo.
+
+## 10. Rychlá oprava zdrojů bez nového image (od 4.31.0)
+
+Při výpadku nebo změně zahraničního zdroje výšek (429, přetížení, změněné API) jde opravu dostat na A
+bez buildu a Promote. Platí jen pro zdroj, který se opravuje (země se stejným klíčem `elevation`
+v `configs/countries.yaml`); Česko a ostatní země jedou dál kódem image. Kód `app/source_overrides.py`.
+
+- **Ladění** `data/source_overrides/tuning.yaml`: jen `workers` (souběžná stahování 1–8), `disabled`
+  (zdroj dočasně vypnutý: nový job se odmítne s hláškou „dočasně vypnutý kvůli opravě“) a `note`.
+  Neplatný soubor se nepoužije celý.
+- **Oprava kódu**: kopie `app/pipeline/elevation_raster.py` z commitu, který už je v `master` (po review
+  a mergi). `install` ověří přes GitHub API, že commit je v `master`, otisk souboru, že verze opravy je
+  novější než image a že se s image načte. Job ji použije jen pro uvedené zdroje a zapíše do logu
+  „Oprava zdroje …: kód z commitu …“. Po Promote image s opravou se sama přestane používat.
+- Každý job běží ve vlastním procesu, změna platí od dalšího jobu, restart není potřeba.
+  `install` a `remove` při běžícím jobu odmítnou.
+
+Postup na ostré A, ve VM (`ssh root@<VM>`, pak přepni se na roota příkazem `su -`, bez sudo):
+
+```bash
+# 1. kontrola: stav oprav a zda neběží job (čeká se "busy": false)
+cd /opt/podkladarna
+docker exec podkladarna python -m app.source_overrides status
+curl -s http://127.0.0.1:8672/api/health
+```
+
+```bash
+# 2a. ladění (např. Slovinsko CLSS po 429 jen jedno stahování)
+mkdir -p data/source_overrides
+cat > data/source_overrides/tuning.yaml <<'YAML'
+si_clss:
+  workers: 1
+  note: "429 od 24. 11."
+YAML
+docker exec podkladarna python -m app.source_overrides check   # má vyjít „v pořádku“
+```
+
+```bash
+# 2b. oprava kódu z mergnutého commitu (SHA pošle Claude po mergi PR)
+docker exec podkladarna python -m app.source_overrides install --source si_clss --commit <sha>
+docker exec podkladarna python -m app.source_overrides status   # u zdroje „aktivní“
+```
+
+```bash
+# 3. ověření: další job té země má v logu řádek „Oprava zdroje si_clss: kód z commitu …“
+#    nebo „Ladění zdrojů: si_clss – souběžnost 1“
+```
+
+Návrat ke kódu image (rollback):
+
+```bash
+docker exec podkladarna python -m app.source_overrides remove --source si_clss   # nebo --all
+# ladění vypnout přejmenováním (bezpečnější než rm, jde vrátit zpět):
+mv data/source_overrides/tuning.yaml data/source_overrides/tuning.yaml.off
+```
+
+Test B na NAS stejně, jen `sudo docker exec podkladarna-test …` a složka `data-test/source_overrides`.
+Kontejner potřebuje pro `install` přístup na `api.github.com` (veřejné repo, bez tokenu).

@@ -134,12 +134,39 @@ def _label(probe: source_status.Probe) -> Any:
     return i18n.Msg(key) if key in i18n.catalog("en") and key in i18n.catalog("cs") else probe.label
 
 
+def _switched_off(country_code: str | None) -> dict | None:
+    """Zdroj výšek země vypnutý v ``tuning.yaml`` (``app.source_overrides``) → odmítnutí, jinak None."""
+    from app import source_overrides
+
+    code = (country_code or countries.DEFAULT_COUNTRY).strip().upper()
+    country = countries.load_countries().get(code)
+    if country is None:
+        return None
+    note = source_overrides.off_note(country.elevation)
+    if note is None:
+        return None
+    logger.warning("Job odmítnut: zdroj %s (%s) vypnutý v tuning.yaml – %s", country.elevation, code, note)
+    return {
+        "key": country.elevation,
+        "label": country.elevation,
+        "country": code,
+        "detail": note,
+        "planned": True,
+        "message": i18n.Msg("api.job.source_off", source=country.elevation),
+    }
+
+
 def check(country_code: str | None, *, has_fallback: bool = False) -> dict | None:
     """Potvrzený výpadek kritického zdroje → ``{key, label, detail, planned, message}``, jinak None.
 
     ``has_fallback``: job má výšky jinak (vlastní data zadavatele, převzatý LAZ předchozího jobu).
     """
-    if has_fallback or not enabled():
+    if has_fallback:
+        return None
+    off = _switched_off(country_code)
+    if off is not None:
+        return off
+    if not enabled():
         return None
     for probe in critical_probes(country_code):
         result = _status(probe)

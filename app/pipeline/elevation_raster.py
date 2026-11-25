@@ -691,7 +691,7 @@ def de_nrw_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 
     def fetch(kind: str) -> list[Path]:
         urls = de_nw_tile_urls(kind, bounds_utm)
-        with ThreadPoolExecutor(max_workers=2, thread_name_prefix=f"nrw-{kind}") as ex:
+        with ThreadPoolExecutor(max_workers=_workers("de_nrw", 2), thread_name_prefix=f"nrw-{kind}") as ex:
             return list(ex.map(lambda j: _download_retry(j[1], out_dir / f"nrw_{kind}_{j[0]}.tif", log=log),
                                enumerate(urls)))
 
@@ -758,7 +758,7 @@ def de_wcs_provider(key: str) -> Provider:
 
         def fetch(kind: str) -> Path:
             urls = de_wcs_tile_urls(key, kind, bounds_utm)
-            with ThreadPoolExecutor(max_workers=2, thread_name_prefix=f"{key}-{kind}") as ex:
+            with ThreadPoolExecutor(max_workers=_workers(key, 2), thread_name_prefix=f"{key}-{kind}") as ex:
                 tiles = list(ex.map(lambda j: _download_retry(j[1], out_dir / f"{key}_{kind}_{j[0]}.tif", log=log),
                                     enumerate(urls)))
             vrt = out_dir / f"{key}_{kind}.vrt"
@@ -843,7 +843,7 @@ def de_meta4_provider(key: str) -> Provider:
             urls = [index[t] for t in need if t in index]
             if not urls:
                 return None
-            with ThreadPoolExecutor(max_workers=4, thread_name_prefix=f"{key}-{kind}") as ex:
+            with ThreadPoolExecutor(max_workers=_workers(key, 4), thread_name_prefix=f"{key}-{kind}") as ex:
                 tiles = list(ex.map(lambda j: _download_retry(j[1], out_dir / f"{key}_{kind}_{j[0]}.tif", log=log),
                                     enumerate(urls)))
             vrt = out_dir / f"{key}_{kind}.vrt"
@@ -998,7 +998,7 @@ def de_bw_provider(key: str) -> Provider:
 
         st = DE_WCS_STATES[key]
         window = _buffered(bounds, st.crs, DE_WCS_BUFFER_M)
-        with ThreadPoolExecutor(max_workers=2, thread_name_prefix=key) as ex:
+        with ThreadPoolExecutor(max_workers=_workers(key, 2), thread_name_prefix=key) as ex:
             folders = [f for f in ex.map(lambda t: _bw_tile(key, t[0], t[1], log=log), bw_tiles(window)) if f]
         dtms: list[Path] = []
         surfs: list[Path] = []
@@ -1483,7 +1483,7 @@ def _folder_tiles_provider(key: str, tiles_fn, tile_fn) -> Provider:
 
         st = DE_WCS_STATES[key]
         window = _buffered(bounds, st.crs, DE_WCS_BUFFER_M)
-        with ThreadPoolExecutor(max_workers=2, thread_name_prefix=key) as ex:
+        with ThreadPoolExecutor(max_workers=_workers(key, 2), thread_name_prefix=key) as ex:
             folders = [f for f in ex.map(lambda t: tile_fn(t[0], t[1], log), tiles_fn(window)) if f]
         if not folders:
             raise ElevationUnavailable(f"výřez je mimo dlaždice DGM1 ({st.name})")
@@ -1736,7 +1736,7 @@ def pl_sheet_rasters(kind: str, bounds_pl: tuple[float, float, float, float], ou
             asc.unlink(missing_ok=True)  # ASCII listu je velké, drží se jen ořez
 
     # statické soubory opendata: dva listy naráz (z cloudu ~1 MB/s na spojení)
-    with ThreadPoolExecutor(max_workers=PL_SHEET_WORKERS, thread_name_prefix=f"pl-{kind}") as ex:
+    with ThreadPoolExecutor(max_workers=_workers("pl_gugik", PL_SHEET_WORKERS), thread_name_prefix=f"pl-{kind}") as ex:
         out = [p for p in ex.map(lambda a: one(*a), enumerate(sheets)) if p is not None]
     if not out:
         raise RuntimeError(f"GUGiK: listy {kind.upper()} výřez nepokrývají")
@@ -1950,7 +1950,7 @@ def gb_ea_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
             f"výřez zasahuje do {len(tiles)} dlaždic 5 km Environment Agency (strop {GB_EA_MAX_TILES}); zmenšete nebo posuňte výřez"
         )
     out: dict[str, Path | None] = {}
-    with ThreadPoolExecutor(max_workers=2) as ex:
+    with ThreadPoolExecutor(max_workers=_workers("gb_ea", 2)) as ex:
         found = {kind: ex.map(lambda t, k=kind: _gb_ea_tile(k, t, log=log), tiles) for kind in GB_EA_PRODUCTS}
         found = {kind: [t for t in paths if t is not None] for kind, paths in found.items()}
     for kind, paths in found.items():
@@ -2166,7 +2166,7 @@ def fr_lidarhd_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 
     bounds_l93 = _bounds_in(bounds, CRS_WKT, FR_CRS)
     jobs = [(kind, k, url) for kind in FR_LAYERS for k, url in enumerate(fr_lidarhd_urls(kind, bounds_l93))]
-    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="fr-lidarhd") as ex:
+    with ThreadPoolExecutor(max_workers=_workers("fr_lidarhd", 2), thread_name_prefix="fr-lidarhd") as ex:
         tiles = list(ex.map(lambda j: _download_retry(j[2], out_dir / f"fr_{j[0]}_{j[1]}.tif", log=log,
                                                       retry_bare_400=True), jobs))
     out = {}
@@ -2478,7 +2478,7 @@ def be_dhmv_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 
     bounds_lb72 = _bounds_in(bounds, CRS_WKT, BE_CRS)
     jobs = [(kind, k, url) for kind in BE_COVERAGES for k, url in enumerate(be_dhmv_urls(kind, bounds_lb72))]
-    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="be-dhmv") as ex:
+    with ThreadPoolExecutor(max_workers=_workers("be_dhmv", 2), thread_name_prefix="be-dhmv") as ex:
         tiles = list(ex.map(lambda j: _download_retry(j[2], out_dir / f"be_{j[0]}_{j[1]}.tif", log=log), jobs))
     out = {}
     for kind in BE_COVERAGES:
@@ -2522,7 +2522,7 @@ def no_hoyde_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 
     bounds_utm = _bounds_in(bounds, CRS_WKT, NO_CRS)
     jobs = [(kind, k, url) for kind in NO_COVERAGES for k, url in enumerate(no_hoyde_urls(kind, bounds_utm))]
-    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="no-hoyde") as ex:
+    with ThreadPoolExecutor(max_workers=_workers("no_hoyde", 2), thread_name_prefix="no-hoyde") as ex:
         tiles = list(ex.map(lambda j: _download_retry(j[2], out_dir / f"no_{j[0]}_{j[1]}.tif", log=log), jobs))
     out = {}
     for kind in NO_COVERAGES:
@@ -2718,7 +2718,7 @@ def si_arso_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
     from app.pipeline.reference_si import SI_CRS
 
     window = _buffered(bounds, SI_CRS, SI_BUFFER_M)
-    with ThreadPoolExecutor(max_workers=3, thread_name_prefix="si-gkot") as ex:
+    with ThreadPoolExecutor(max_workers=_workers("si_arso", 3), thread_name_prefix="si-gkot") as ex:
         folders = [f for f in ex.map(lambda t: _si_tile(t[0], t[1], log=log), si_tiles(window)) if f]
     if not folders:
         raise ElevationUnavailable("výřez je mimo pokrytí LiDAR ARSO (Slovinsko)")
@@ -2956,7 +2956,7 @@ def si_clss_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
     window = _buffered(bounds, SI_CRS, SI_BUFFER_M)
     try:
         index = si_clss_index(window)
-        with ThreadPoolExecutor(max_workers=SI_CLSS_WORKERS, thread_name_prefix="si-clss") as ex:
+        with ThreadPoolExecutor(max_workers=_workers("si_clss", SI_CLSS_WORKERS), thread_name_prefix="si-clss") as ex:
             folders = [f for f in ex.map(
                 lambda t: _si_clss_tile(t[0], t[1], index.get(f"{t[0]}_{t[1]}") or [], log=log), si_tiles(window)) if f]
     except Exception as exc:  # noqa: BLE001 – výpadek CLSS nesmí shodit job, záloha ARSO
@@ -3185,7 +3185,7 @@ def es_laz_provider(key: str) -> Callable[..., SourceRasters]:
         tiles = es_tiles(key, window, index)
         if not tiles:
             raise ElevationUnavailable(f"výřez je mimo pokrytí mračna {region.label}")
-        with ThreadPoolExecutor(max_workers=region.workers, thread_name_prefix=f"{key}-laz") as ex:
+        with ThreadPoolExecutor(max_workers=_workers(key, region.workers), thread_name_prefix=f"{key}-laz") as ex:
             folders = list(ex.map(lambda t: _es_tile(key, t[0], t[1], index[t], log=log), tiles))
         out: dict[str, Path] = {}
         for kind in ("dtm", "dsm"):
@@ -3367,7 +3367,7 @@ def us_ept_grids(base: str, window_job: tuple[float, float, float, float], *, fe
         raw = fetch(f"{base}/ept-data/{key}.laz")
         return len(raw), _las_arrays(raw)
 
-    with ThreadPoolExecutor(max_workers=US_FETCH_WORKERS, thread_name_prefix="us-ept") as ex:
+    with ThreadPoolExecutor(max_workers=_workers("us_3dep", US_FETCH_WORKERS), thread_name_prefix="us-ept") as ex:
         for nbytes, (x, y, z, cls, withheld) in ex.map(load, [k for k, _c in nodes]):
             size += nbytes
             m = (x >= window[0]) & (x <= window[2]) & (y >= window[1]) & (y <= window[3])
@@ -3923,7 +3923,7 @@ def dk_dhm_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 
     bounds_utm = _bounds_in(bounds, CRS_WKT, DK_CRS)
     jobs = [(kind, k, url) for kind in DK_COVERAGES for k, url in enumerate(dk_dhm_urls(kind, bounds_utm))]
-    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="dk-dhm") as ex:
+    with ThreadPoolExecutor(max_workers=_workers("dk_dhm", 2), thread_name_prefix="dk-dhm") as ex:
         tiles = list(ex.map(lambda j: _dk_download(j[2], out_dir / f"dk_{j[0]}_{j[1]}.tif", log=log), jobs))
     out = {}
     for kind in DK_COVERAGES:
@@ -4048,7 +4048,7 @@ def pt_dgt_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
     if log:
         total = sum(map(len, wanted.values()))
         log(f"  Portugalsko: {total} dlaždic MDT/MDS (z mezipaměti {total - len(jobs)})")
-    with ThreadPoolExecutor(max_workers=PT_WORKERS, thread_name_prefix="pt-dgt") as ex:
+    with ThreadPoolExecutor(max_workers=_workers("pt_dgt", PT_WORKERS), thread_name_prefix="pt-dgt") as ex:
         list(ex.map(lambda j: _pt_fetch_tile(session, j[0], j[1], j[2], log=log), jobs))
     out: dict[str, Path | None] = {}
     for kind, pairs in wanted.items():
@@ -4458,12 +4458,34 @@ def coverage_pending(source: str, bbox_wgs84) -> list[str]:
         return []
 
 
-def resolve_provider(source: str) -> Provider:
+def resolve_provider(source: str, log=None) -> Provider:
     if source.startswith("local:"):
         return local_provider(source)
+    if source in PROVIDERS and source != USER_UPLOAD:
+        # Rychlá oprava na serveru bez image (``app.source_overrides``): vypnutí / ladění / kód z masteru.
+        import sys
+
+        from app import source_overrides
+
+        note = source_overrides.off_note(source)
+        if note is not None:
+            raise ElevationUnavailable(f"zdroj výšek „{source}“ je dočasně vypnutý{f' ({note})' if note else ''}")
+        if log:
+            for line in source_overrides.tuning_log_lines(source):
+                log(line)
+        patched = source_overrides.patched_provider(source, sys.modules[__name__], log=log)
+        if patched is not None:
+            return patched
     if source in PROVIDERS:
         return PROVIDERS[source]
     raise ElevationUnavailable(f"zdroj výšek „{source}“ není k dispozici")
+
+
+def _workers(source: str, default: int) -> int:
+    """Souběžnost stahování zdroje (``tuning.yaml`` v ``app.source_overrides``, jinak ``default``)."""
+    from app import source_overrides
+
+    return source_overrides.workers(source, default)
 
 
 def _is_krovak(src: Path) -> bool:
@@ -4609,7 +4631,7 @@ def prepare_raster_surfaces(
 ) -> DemPrepResult:
     """DTM + DSM zdroje → ``work/dem`` na mřížce mapy (stejné soubory jako ``dem_prep``)."""
     del force_refresh  # cache zdrojů řeší provider
-    provider = resolve_provider(source)
+    provider = resolve_provider(source, log=log)
     dem_dir = dem_work_dir(Path(work_dir))
     src_dir = dem_dir / "src"
     src_dir.mkdir(parents=True, exist_ok=True)
