@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import area_probe, countries, db, donations, i18n, log_i18n, paid_flow, prefetch, samples_refresh, settings as app_settings, source_events, source_gate, source_status, user_sources, worker
+from app import area_probe, countries, db, donations, failed_jobs, i18n, log_i18n, paid_flow, prefetch, samples_refresh, settings as app_settings, source_events, source_gate, source_status, user_sources, worker
 from app.cleanup import maybe_purge_old_jobs, prune_caches, purge_old_jobs, start_cleanup_scheduler
 from app.client_ip import client_ip
 from app.feedback import (
@@ -778,6 +778,12 @@ def api_source_events(request: Request, days: float = 7):
     """Deník problémů zdrojů dat pro provozovatele (souhrn a události, bez osobních údajů).
 
     Jen s hlavičkou ``Authorization: Bearer <SOURCE_EVENTS_TOKEN>``; bez nastaveného tokenu 404."""
+    _require_ops_token(request, "/api/source_events")
+    return source_events.report(days)
+
+
+def _require_ops_token(request: Request, path: str) -> None:
+    """Provozní výpisy jen s ``Authorization: Bearer <SOURCE_EVENTS_TOKEN>``; bez nastaveného tokenu 404."""
     expected = app_settings.SOURCE_EVENTS_TOKEN
     if not expected:
         raise HTTPException(404)
@@ -786,9 +792,15 @@ def api_source_events(request: Request, days: float = 7):
     if scheme.lower() != "bearer" or not hmac.compare_digest(
         token.strip().encode("utf-8"), expected.encode("utf-8")
     ):
-        logger.warning("GET /api/source_events – neplatný token z %s", client_ip(request))
+        logger.warning("GET %s – neplatný token z %s", path, client_ip(request))
         raise HTTPException(401)
-    return source_events.report(days)
+
+
+@app.get("/api/ops/failed_jobs")
+def api_ops_failed_jobs(request: Request, hours: float = 24):
+    """Nepovedené joby za ``hours`` hodin pro denní kontrolu (i privátní, bez osobních údajů; ``app.failed_jobs``)."""
+    _require_ops_token(request, "/api/ops/failed_jobs")
+    return failed_jobs.report(hours)
 
 
 @app.get("/api/presets")
