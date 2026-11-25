@@ -489,3 +489,31 @@ mv data/source_overrides/tuning.yaml data/source_overrides/tuning.yaml.off
 
 Test B na NAS stejně, jen `sudo docker exec podkladarna-test …` a složka `data-test/source_overrides`.
 Kontejner potřebuje pro `install` přístup na `api.github.com` (veřejné repo, bez tokenu).
+
+### 10.1 Bez připojení na server: hlídač oprav z master (od 4.34.0)
+
+Petr 2026-11-25: opravy zdrojů se na ostrou A nasazují samy, bez připojování na server. Webový proces
+(`app/source_fixes.py`) každých 10 minut přečte z GitHubu `configs/source_fixes.yaml` z větve `master`
+(jen čtení, veřejné repo, žádný příchozí přístup ani klíč) a nasadí, co v něm je:
+
+- `tuning:` (stejná pole jako ruční `tuning.yaml`) → `data/source_overrides/tuning_auto.yaml`, ruční `tuning.yaml` má přednost;
+- `patches:` (zdroje + celé SHA commitu z master) → stejné kontroly jako ruční `install`, jen když neběží job;
+- řádek, který ze souboru zmizí, hlídač vrátí (jen to, co sám nasadil; ruční opravy nechá);
+- job, který s opravou selže (mimo potvrzený výpadek zdroje), opravu vrátí a týž commit se už nezkouší;
+- o každé změně přijde e-mail na `FEEDBACK_TO`; stav je v `GET /api/health` → `source_fixes` (i přes Omapic).
+
+**Schválení = merge PR**, který mění `configs/source_fixes.yaml`. Ten merguje jen Petr (jde to z telefonu
+v aplikaci GitHub); agenti ani review agent takový PR nemergují. Do 10–15 minut po merge (cache GitHubu
+až 5 min + interval hlídače) je oprava na A, pokud zrovna neběží job.
+
+Vypnutí: z telefonu smazat řádky v souboru (PR + merge) = návrat ke kódu image. Úplně vypnout hlídač:
+`SOURCE_FIXES_AUTO=0` v `data/.env` a `docker restart podkladarna` (při `busy: false`).
+Ručně (jako root, `su -`, ve VM v `/opt/podkladarna`):
+
+```bash
+docker exec podkladarna python -m app.source_fixes status   # stav, poslední kolo, nasazené opravy
+docker exec podkladarna python -m app.source_fixes sync     # jedno kolo hned
+```
+
+Hlídač běží i na testu B (`:latest`); opravy kódu tam přeskočí, protože image je už obsahuje, ladění platí stejně.
+Restart ani nový kód mimo `elevation_raster.py` touto cestou nejdou – to je dál Promote celého image.

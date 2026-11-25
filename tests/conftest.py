@@ -17,6 +17,7 @@ os.environ["DISK_JOB_BASE_GB"] = "0"
 os.environ["DISK_JOB_GB_PER_KM2"] = "0"
 # Přegenerování ukázek (app.samples_refresh) v testech nepouštět – vlákno by zakládalo joby.
 os.environ["SAMPLES_REFRESH"] = "0"
+os.environ["SOURCE_FIXES_AUTO"] = "0"
 
 
 @pytest.fixture()

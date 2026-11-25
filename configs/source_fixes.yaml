@@ -1,0 +1,20 @@
+# Schválené opravy zdrojů výšek pro server (hlídač app/source_fixes.py, DEPLOY.md §10).
+# Ostrá A si tento soubor z master sama čte každých 10 minut a změny nasadí bez připojování na server.
+# PR, který tento soubor mění, merguje JEN Petr (to je jeho schválení nasazení do produkce).
+#
+# tuning:   stejná pole jako ruční tuning.yaml – workers (1–8), disabled (true/false), note
+# patches:  oprava kódu zdroje = celé SHA commitu, který už je v master a zvedá APP_VERSION;
+#           bere se z něj jen app/pipeline/elevation_raster.py a jen pro uvedené zdroje.
+# Smazání řádku = návrat ke kódu / nastavení image. Česko a vlastní data sem nepatří.
+#
+# Příklad:
+# tuning:
+#   si_clss:
+#     workers: 1
+#     note: "429 od 24. 11."
+# patches:
+#   - sources: [si_clss]
+#     commit: 0123456789abcdef0123456789abcdef01234567
+#     note: "nová adresa WCS"
+tuning: {}
+patches: []

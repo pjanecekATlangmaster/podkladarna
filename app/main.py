@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import area_probe, countries, db, donations, failed_jobs, i18n, log_i18n, paid_flow, prefetch, samples_refresh, settings as app_settings, source_events, source_gate, source_status, user_sources, worker
+from app import area_probe, countries, db, donations, failed_jobs, i18n, log_i18n, paid_flow, prefetch, samples_refresh, settings as app_settings, source_events, source_fixes, source_gate, source_status, user_sources, worker
 from app.cleanup import maybe_purge_old_jobs, prune_caches, purge_old_jobs, start_cleanup_scheduler
 from app.client_ip import client_ip
 from app.feedback import (
@@ -173,6 +173,7 @@ def startup() -> None:
     threading.Thread(target=prune_caches, name="cache-cleanup", daemon=True).start()
     start_cleanup_scheduler(CLEANUP_INTERVAL_HOURS)
     samples_refresh.start_scheduler()
+    source_fixes.start_scheduler()
     tools = tool_status()
     missing = [name for name, path in tools.items() if not path]
     logger.info("Nástroje: %s", tools)
@@ -1388,6 +1389,8 @@ def api_health():
         "pipeline_ready": all(tools.values()),
         # Bez hesel: jen zda feedback / privátní mail vůbec zkusí SMTP.
         "mail_configured": mail_ok,
+        # Hlídač schválených oprav zdrojů (configs/source_fixes.yaml v master): co je na serveru nasazené.
+        "source_fixes": source_fixes.health(),
     }
 
 
