@@ -42,6 +42,7 @@ from app import failed_jobs, source_status  # noqa: E402
 PROD_BASE = os.environ.get("SOURCE_CHECK_PROD", "https://map.ulvi.app")
 WORKERS = 6  # souběh dotazů z cloudu (různé servery, jeden dotaz na zdroj)
 TRVALE_DAYS = 3
+SIT_A_DAYS = 2
 OPAK_DAYS, OPAK_WINDOW = 3, 7
 HISTORY_KEEP_DAYS = 60
 REPORT_HISTORY_DAYS = 14
@@ -260,6 +261,8 @@ def classify(today: str, key: str, history: list[dict]) -> tuple[str, int]:
         else:
             break
     recent = sum(1 for day in history[-(OPAK_WINDOW - 1):] if key in day.get("down", {})) + 1
+    if today == "sit_a" and streak < SIT_A_DAYS:
+        return "prechodne", streak  # jeden timeout z ostré A je náhoda; blokace až druhý den za sebou
     if today in ("prechodne", "planovane", "cert") and streak >= TRVALE_DAYS:
         return "trvale", streak
     if today == "prechodne" and recent >= OPAK_DAYS:
@@ -451,7 +454,7 @@ def build_report(entry: dict, rows: list[dict], history: list[dict], events: dic
         "  do `evropa-data-prehled.md` ve stejném kroku jako opravu.",
         "",
         "Třídy: přechodný = 5xx / timeout méně než 3 dny; trvalý = 3 dny za sebou; opakované = 3 dny ze 7;",
-        "blokace sítě ostré A = z cloudu běží, z ostré A ne; jen síť cloudu = z ostré A běží (ignorovat).",
+        "blokace sítě ostré A = z cloudu běží, z ostré A ne 2 dny za sebou; jen síť cloudu = z ostré A běží (ignorovat).",
         "",
     ]
     return "\n".join(L)

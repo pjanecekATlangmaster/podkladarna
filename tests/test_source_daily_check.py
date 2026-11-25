@@ -43,6 +43,8 @@ def test_classify_today(cloud, prod, expected):
         ("prechodne", [True, False, True, False], ("opakovane", 1)),
         ("ok", [True, True], ("ok", 0)),
         ("url", [True], ("url", 2)),
+        ("sit_a", [False], ("prechodne", 1)),
+        ("sit_a", [True], ("sit_a", 2)),
     ],
 )
 def test_classify_history(today, past_down, expected):
