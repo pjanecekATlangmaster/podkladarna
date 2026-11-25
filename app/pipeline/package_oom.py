@@ -1598,15 +1598,27 @@ def _prepare_oom_map(
             f"OOM: zjednodušení tvaru ({SIMPLIFY_TOLERANCE_MM:g} mm): "
             f"{simp_stats['before']} → {simp_stats['after']} souřadnic"
         )
-    # Volba osm_tags: tagy OSM k objektům částí „OSM …“ podle tvaru (kresbu nemění, viz osm_tags).
+    # Volba osm_tags: tagy zdrojů (OSM, DTM) k objektům mapy podle tvaru (kresbu nemění, viz osm_tags).
     if osm_tags:
         try:
             from app.pipeline import osm_tags as _osm_tags
 
+            from app.pipeline import source_tags as _source_tags
+            from app.pipeline import fetch_openzu as _fo
+            from app.pipeline import oom_symbol_map as _osm_map
+            from app.pipeline import oom_symbols as _oom_symbols
+
             tag_stats: dict = {}
+            # Prvky DTM (jen v Česku s daty DTM pro tuto mapu) se párují spolu s OSM a slučují na jednom objektu.
+            extra = _source_tags.dtm_records(
+                kp_cwd, _fo.crop_bounds_5514(*bbox_wgs84, buffer_m=_fo.VECTOR_FETCH_BUFFER_M)
+            )
+            codes = {
+                i: c for c, i in _osm_map._code_to_index(_oom_symbols.symbol_set_path(preset_id, scale)).items()
+            }
             object_parts = _osm_tags.attach_osm_tags(
                 object_parts, kp_cwd, scale=scale, ref_x=ref_x, ref_y=ref_y, grivation_deg=grivation,
-                stats=tag_stats,
+                stats=tag_stats, symbol_codes=codes, extra_records=extra,
             )
             if log:
                 log(_osm_tags.log_line(tag_stats))
