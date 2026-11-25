@@ -536,7 +536,7 @@ isom:
     review: false
   - ocad_code: "413.0"
     cz_name: "Sad"
-    generator_codes: []
+    generator_codes: ["413"]
     geom: area
     review: false
   - ocad_code: "413.1"
@@ -546,7 +546,7 @@ isom:
     review: false
   - ocad_code: "414.0"
     cz_name: "Vinice nebo podobné kultury"
-    generator_codes: []
+    generator_codes: ["414"]
     geom: area
     review: false
   - ocad_code: "415.0"
@@ -1447,7 +1447,7 @@ sprint:
     review: false
   - ocad_code: "413.0"
     cz_name: "Sad"
-    generator_codes: []
+    generator_codes: ["413"]
     geom: area
     review: false
   - ocad_code: "413.1"
@@ -1462,7 +1462,7 @@ sprint:
     review: false
   - ocad_code: "414.0"
     cz_name: "Vinice nebo podobné kultury"
-    generator_codes: []
+    generator_codes: ["414"]
     geom: area
     review: false
   - ocad_code: "414.100"
@@ -2465,7 +2465,7 @@ mtbo:
     review: false
   - ocad_code: "413.0"
     cz_name: "Sad"
-    generator_codes: []
+    generator_codes: ["413"]
     geom: area
     review: false
   - ocad_code: "413.1"
@@ -2475,7 +2475,7 @@ mtbo:
     review: false
   - ocad_code: "414.0"
     cz_name: "Vinice"
-    generator_codes: []
+    generator_codes: ["414"]
     geom: area
     review: false
   - ocad_code: "416.1"

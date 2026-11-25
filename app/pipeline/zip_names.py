@@ -50,6 +50,8 @@ EN_STEMS: dict[str, str] = {
     "OSM_parkoviste": "OSM_parking",
     "OSM_pesi_zony": "OSM_pedestrian_areas",
     "OSM_pisek": "OSM_sand",
+    "OSM_sady": "OSM_orchards",
+    "OSM_vinice": "OSM_vineyards",
     "OSM_ploty": "OSM_fences",
     "OSM_pomniky": "OSM_memorials",
     "OSM_posedy": "OSM_hunting_stands",
