@@ -63,6 +63,11 @@ RELIEF_MAX_POINTS = 8_000
 DXF_KNOLLS = "dotknolls.dxf"
 DXF_DEPRESSIONS = "dotdepressions.dxf"
 DXF_PITS = "dotpits.dxf"
+DEPRESSION_DXFS = frozenset({DXF_DEPRESSIONS, DXF_PITS})
+# Ďolík / jáma do této vzdálenosti od osy cesty, vodního toku nebo trati se nekreslí: v DMR 5G jsou to „korálky“
+# v příkopu, zářezu cesty nebo u propustku. Petr 2026-11-26, srovnání s mapaři: Lesná 21 → 8 bodů (správný zůstal),
+# Bohuliby „Klondike“ (plno jam) 141 → 139. Výzkum /mnt/project-files/prohlubne/.
+DEPRESSION_LINE_CLEAR_M = 4.0
 
 
 def _ring(radius_px: float, n: int):
@@ -324,3 +329,31 @@ def generate_job_knolls(
             return None
         dem = alt
     return generate_knolls_from_dem(dem, work_dir / "temp", log=log)
+
+
+def filter_depressions_near_lines(
+    points: list[tuple[float, float]],
+    lines: list[list[tuple[float, float]]],
+    *,
+    clear_m: float = DEPRESSION_LINE_CLEAR_M,
+) -> tuple[list[tuple[float, float]], int]:
+    """Zahodí ďolíky / jámy blíž než ``clear_m`` k některé čáře (cesta, vodní tok, trať); vrací (zbylé, počet zahozených)."""
+    if not points or not lines:
+        return list(points), 0
+    try:
+        from shapely import STRtree
+        from shapely.geometry import LineString, Point
+    except ImportError:
+        return list(points), 0
+    geoms = [LineString(ln) for ln in lines if len(ln) >= 2]
+    if not geoms:
+        return list(points), 0
+    tree = STRtree(geoms)
+    kept = []
+    for x, y in points:
+        pt = Point(x, y)
+        near = tree.query(pt, predicate="dwithin", distance=clear_m)
+        if len(near):
+            continue
+        kept.append((x, y))
+    return kept, len(points) - len(kept)

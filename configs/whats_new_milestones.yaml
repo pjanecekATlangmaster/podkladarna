@@ -7,6 +7,9 @@
 # Nadpis začíná „Verze X.Y – “ (anglicky „Version X.Y – “). PR s viditelnou změnou pro uživatele přidá záznam
 #   (Petr 2026-11-23); test_whats_new.py hlídá, že nejnovější záznam není o víc než 8 minor verzí za APP_VERSION.
 milestones:
+  - date: "2026-11-26"
+    title: "Verze 4.38 – ďolíky a jámy z výšek se nekreslí do 4 m od cesty, vodního toku nebo trati (v příkopech a zářezech cest to byly falešné nálezy)"
+    title_en: "Version 4.38 – small depressions and pits from elevation data are no longer drawn within 4 m of a path, stream or railway (in ditches and road cuts they were false finds)"
   - date: "2026-11-25"
     scope: intl
     title: "Verze 4.37 – volba „Tagy zdrojů“ zapíše k objektům i druh plochy z národní technické mapy (ALKIS, BGT, BD TOPO, BDOT10k …: budova, vozovka, chodník, parkoviště, plot); objekt z OpenStreetMap i technické mapy nese tagy obou"
