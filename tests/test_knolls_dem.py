@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from pathlib import Path
 
 import numpy as np
@@ -123,3 +125,19 @@ def test_resolve_want_zip_always_true():
     want, note = resolve_want_zip({"output_zip": True})
     assert want is True
     assert note is None
+
+
+@pytest.mark.parametrize(
+    "point, kept",
+    [
+        ((0.0, 3.0), False),  # korálek v příkopu u cesty
+        ((0.0, 4.5), True),  # jáma kousek vedle cesty zůstane
+        ((50.0, 50.0), True),
+    ],
+)
+def test_depressions_near_lines_dropped(point, kept):
+    from app.pipeline.knolls_dem import filter_depressions_near_lines
+
+    out, dropped = filter_depressions_near_lines([point], [[(-20.0, 0.0), (20.0, 0.0)]])
+    assert (out == [point]) is kept
+    assert dropped == (0 if kept else 1)

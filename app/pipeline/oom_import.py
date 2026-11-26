@@ -30,6 +30,7 @@ from app.pipeline.cliff_merge import (
     shapely_available,
 )
 from app.pipeline.boulders_dem import DXF_BOULDERS, filter_boulder_points, parse_point_dxf
+from app.pipeline.knolls_dem import DEPRESSION_DXFS, filter_depressions_near_lines
 from app.pipeline.dxf_products import collect_dxf_for_zip
 from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_symbol_map import (
@@ -2223,6 +2224,47 @@ def _load_rock_occupancy_blockers(
     return polys, lines
 
 
+_DEPRESSION_LINE_LAYERS = frozenset(
+    {"VodniTok", "SilniceDalnice", "Cesta", "Ulice", "Pesina", "TramvajovaDraha", "ZeleznicniTrat", "ZeleznicniVlecka"}
+)
+_DEPRESSION_OSM_LINE_KINDS = frozenset({"waterway", "rail_line", "tram_line"})
+
+
+def _load_depression_blocker_lines(
+    *, zabaged_clean: Path | None, work_dir: Path | None
+) -> list[list[tuple[float, float]]]:
+    """Osy cest, vodních toků a tratí (OSM + ZABAGED), u kterých se ďolík / jáma z DEM nekreslí."""
+    lines: list[list[tuple[float, float]]] = []
+    if zabaged_clean is not None and zabaged_clean.is_file():
+        try:
+            lines.extend(_load_zabaged_line_parts(zabaged_clean, layers=_DEPRESSION_LINE_LAYERS))
+        except Exception:
+            pass
+    if work_dir is None:
+        return lines
+    try:
+        from app.pipeline.osm_paths import load_osm_path_lines
+
+        lines.extend(load_osm_path_lines(work_dir))
+    except Exception:
+        pass
+    feat_gj = work_dir / "osm_paths" / "features.geojson"
+    if feat_gj.is_file():
+        try:
+            import json
+
+            data = json.loads(feat_gj.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = None
+        for feat in (data or {}).get("features") or []:
+            props = feat.get("properties") or {}
+            geom = feat.get("geometry") or {}
+            coords = geom.get("coordinates") or []
+            if str(props.get("kind") or "").lower() in _DEPRESSION_OSM_LINE_KINDS and geom.get("type") == "LineString" and len(coords) >= 2:
+                lines.append([(float(c[0]), float(c[1])) for c in coords])
+    return lines
+
+
 def _osm_boulder_points(work_dir: Path | None) -> list[tuple[float, float]]:
     """Balvany z OSM (``kind == "boulder"``, jen mimo Česko): balvan z DEM u nich se nekreslí podruhé."""
     if work_dir is None:
@@ -2297,6 +2339,7 @@ def build_dxf_object_part(
     dense_contour_drop = 0
     boulder_pts: list[tuple[float, float]] = []
     boulder_index: int | None = None
+    depression_pts: list[tuple[int, list[tuple[float, float]]]] = []
     for zip_name, path in sorted(dxf_map.items()):
         code = oom_code_for_dxf(
             zip_name, preset_id=preset_id, cliff_symbol=cliff_symbol
@@ -2309,6 +2352,9 @@ def build_dxf_object_part(
         if zip_name == DXF_BOULDERS:
             boulder_index = symbol_index
             boulder_pts = parse_point_dxf(path)
+            continue
+        if zip_name in DEPRESSION_DXFS:
+            depression_pts.append((symbol_index, parse_point_dxf(path)))
             continue
         if zip_name in _CLIFF_DXF_NAMES:
             group = cliff_groups.setdefault(code, [])
@@ -2360,6 +2406,22 @@ def build_dxf_object_part(
                             clip_bounds=clip_bounds,
                         )
                     )
+
+    if any(pts for _i, pts in depression_pts):
+        dep_lines = _load_depression_blocker_lines(zabaged_clean=zabaged_clean, work_dir=kp_cwd)
+        for dep_index, pts in depression_pts:
+            pts, _dropped = filter_depressions_near_lines(pts, dep_lines)
+            objects.extend(
+                _geom_parts_to_objects(
+                    [("point", x, y) for x, y in pts],
+                    dep_index,
+                    ref_x=ref_x,
+                    ref_y=ref_y,
+                    scale=scale,
+                    grivation_deg=grivation_deg,
+                    clip_bounds=clip_bounds,
+                )
+            )
 
     # Nejdřív sloučit po kódech, pak společné filtry (budovy, překryv skála×104).
     pending_earth: list[list[tuple[float, float]]] = []
