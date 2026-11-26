@@ -27,6 +27,20 @@ SLOPE_LINES = True
 SLOPE_MIN_PERIMETER_MM = 2.0  # menší kroužky (pod ~0,6 mm průměr) bez spádnice
 SLOPE_PER_MM = 40.0  # každých 40 mm obvodu jedna spádnice navíc
 SLOPE_MAX_PER_RING = 3
+# Malý kroužek → bodová značka minimální velikosti: kupa / prohlubeň (Petr 2026-11-26, Písková
+# ohrada). Kroužek s obvodem pod MIN_SIZE_PERIMETER_MM (≈ obvod oválku značky 101.2 / 101.3) se
+# nahradí značkou; kroužek kratší než min. délka vrstevnice (dřív zahozený) se vrátí jako značka,
+# je-li kupa / prohlubeň vysoká aspoň MIN_SIZE_RESCUE_RELIEF_M. False = kroužky čárou jako dřív.
+MIN_SIZE_RINGS = True
+MIN_SIZE_PERIMETER_MM = 3.0
+MIN_SIZE_RESCUE = True  # False = kroužky pod min. délkou dál zahodit
+MIN_SIZE_RESCUE_RELIEF_M = 0.5
+MIN_SIZE_RESCUE_CLEAR_MM = 1.0  # vrácená značka (oválek ~0,8 × 1,5 mm) se nesmí dotknout jiné vrstevnice
+# kód vrstevnice → (kupa, prohlubeň) v ISOM / ISMTBOM; sprint je nemá (kroužek zůstane čárou)
+MIN_SIZE_CODES: dict[str, tuple[str, str]] = {
+    "101": ("101.2", "101.3"),
+    "102": ("102.1", "102.2"),
+}
 _DEPRESSION_MIN_DROP_M = 0.05  # medián uvnitř aspoň o tolik pod výškou kroužku
 _DEM_MAX_SAMPLES = 4000
 
@@ -113,6 +127,23 @@ class _Dem:
 
     def inside_median(self, poly) -> float | None:
         import numpy as np
+
+        vals = self._inside_values(poly)
+        return None if vals is None else float(np.median(vals))
+
+    def inside_relief(self, poly, elev: float) -> float | None:
+        """Převýšení uvnitř kroužku od jeho výšky: kupa max − výška, prohlubeň výška − min."""
+        import numpy as np
+
+        vals = self._inside_values(poly)
+        if vals is None:
+            return None
+        if float(np.median(vals)) < float(elev):
+            return float(elev) - float(np.min(vals))
+        return float(np.max(vals)) - float(elev)
+
+    def _inside_values(self, poly):
+        import numpy as np
         from shapely import contains_xy
 
         gt = self.gt
@@ -148,7 +179,7 @@ class _Dem:
         vals = vals[np.isfinite(vals)]
         if not len(vals):
             return None
-        return float(np.median(vals))
+        return vals
 
 
 def load_dem(contours_dir: Path) -> _Dem | None:
@@ -210,6 +241,34 @@ def slope_ticks(
             j += 1
         acc += length
     return out
+
+
+def is_min_size_ring(pts: list[tuple[float, float]], *, scale: int) -> bool:
+    """Uzavřený kroužek menší než značka minimální velikosti (obvod pod MIN_SIZE_PERIMETER_MM)."""
+    if not _closed(pts):
+        return False
+    perimeter = sum(
+        math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]) for i in range(len(pts) - 1)
+    )
+    return 0 < perimeter * 1000.0 / float(scale) < MIN_SIZE_PERIMETER_MM
+
+
+def ring_axis(pts: list[tuple[float, float]]) -> tuple[float, float, float, float] | None:
+    """Střed kroužku a jednotkový směr jeho delší osy (x, y, dx, dy) – natočení oválku značky."""
+    from shapely.geometry import Polygon
+
+    poly = Polygon(pts)
+    if poly.is_empty or poly.area <= 0:
+        return None
+    c = poly.centroid
+    rect = list(poly.minimum_rotated_rectangle.exterior.coords)
+    best = (0.0, 0.0, 1.0)
+    for i in range(min(2, len(rect) - 1)):
+        dx, dy = rect[i + 1][0] - rect[i][0], rect[i + 1][1] - rect[i][1]
+        length = math.hypot(dx, dy)
+        if length > best[0]:
+            best = (length, dx / length, dy / length)
+    return c.x, c.y, best[1], best[2]
 
 
 def ocad_rotation(to_map, x: float, y: float, dx: float, dy: float) -> float:

@@ -1019,10 +1019,19 @@ def _contour_geometry(
     simplify_tol = contour_simplify_tol_m(scale)
     smoothed_by_key: list[tuple[str, list]] = []
     rings_by_key: list[tuple[str, float, list]] = []
+    short_rings: list[tuple[str, float, list]] = []
     for (code, _elev), lines in by_key.items():
         refined = refine_contour_polylines(
             lines, min_length_m=min_len, stitch_gap_m=stitch_gap
         )
+        if _elev is not None:
+            # Kroužky kratší než min. délka: vrstevnice je zahodí, malé kupy / prohlubně se
+            # vrátí jako značka minimální velikosti (_min_size_ring_objects).
+            short_rings.extend(
+                (code, _elev, pts)
+                for pts in lines
+                if len(pts) >= 4 and is_closed_polyline(pts) and polyline_length_m(pts) < min_len
+            )
         smoothed: list = []
         for pts in refined:
             pts = chaikin(pts, iterations=chaikin_iters)
@@ -1038,6 +1047,7 @@ def _contour_geometry(
         "by_key": by_key,
         "smoothed": smoothed_by_key,
         "rings": rings_by_key,
+        "short_rings": short_rings,
         "simplify_tol": simplify_tol,
         "chaikin_iters": chaikin_iters,
         "formlines": {},
@@ -1244,7 +1254,18 @@ def build_gdal_contour_parts(
     water = contour_water_mask(work_dir)
     min_len, _gap = contour_line_params(scalefactor, interval_m)
     n_water = 0
-    for code, smoothed in entry["smoothed"]:
+    smoothed_by_key, min_size = _min_size_ring_objects(
+        work_dir,
+        entry,
+        water,
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation_deg,
+        log=log,
+    )
+    for code, smoothed in smoothed_by_key:
         if water is not None:
             smoothed, hit = clip_lines_outside_water(smoothed, water, min_length_m=min_len)
             n_water += hit
@@ -1331,7 +1352,120 @@ def build_gdal_contour_parts(
         parts.append(
             OomObjectPart(name="Spádnice (GDAL)", objects_xml="\n".join(slope), count=len(slope))
         )
+    if min_size:
+        parts.append(
+            OomObjectPart(
+                name="Malé kroužky vrstevnic (GDAL)", objects_xml="\n".join(min_size), count=len(min_size)
+            )
+        )
     return parts
+
+
+def _min_size_ring_objects(
+    work_dir: Path,
+    entry: dict,
+    water,
+    *,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+    log=None,
+) -> tuple[list[tuple[str, list]], list[str]]:
+    """Malé uzavřené kroužky 101 / 102 → bodová značka minimální velikosti (contour_shapes).
+
+    Kupa 101.2 / 102.1, prohlubeň 101.3 / 102.2 (se spádnicí), natočená po delší ose kroužku.
+    Kroužek se z čar vyjme; bez značky v sadě (sprint), bez DEM nebo u vody zůstane čárou.
+    Cache geometrie (``entry``) se nemění – vrací nové seznamy čar.
+    """
+    from app.pipeline import contour_shapes as cs
+
+    smoothed_by_key = entry["smoothed"]
+    if not cs.MIN_SIZE_RINGS:
+        return smoothed_by_key, []
+    sym: dict[str, tuple[int | None, int | None]] = {}
+    for code, (knoll, dep) in cs.MIN_SIZE_CODES.items():
+        k = symbol_index_for_code(preset_id, scale, knoll) if _has_symbol(preset_id, scale, knoll) else None
+        d = symbol_index_for_code(preset_id, scale, dep) if _has_symbol(preset_id, scale, dep) else None
+        if k is not None and d is not None:
+            sym[code] = (k, d)
+    if not sym:
+        return smoothed_by_key, []
+    elev_of = {id(pts): elev for code, elev, pts in entry.get("rings", []) if code in sym}
+    from app.pipeline.oom_import import projected_to_map_coord
+
+    def to_map(x: float, y: float) -> tuple[int, int]:
+        return projected_to_map_coord(
+            x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg
+        )
+
+    out_lines: list[tuple[str, list]] = []
+    objects: list[str] = []
+    counts = [0, 0]  # kupy, prohlubně
+    dem_box: list = []
+
+    def emit(code: str, elev: float, pts, *, min_relief: float | None = None) -> bool:
+        """Značka místo kroužku; False = kroužek zůstane (u vody, bez DEM, mělký vrácený)."""
+        from shapely.geometry import Polygon
+
+        if water is not None and _ring_hits(water, pts):
+            return False
+        if not dem_box:
+            dem_box.append(cs.load_dem(work_dir / "contours"))
+        dem = dem_box[0]
+        axis = cs.ring_axis(pts) if dem is not None else None
+        if axis is None:
+            return False
+        if min_relief is not None:
+            relief = dem.inside_relief(Polygon(pts), elev)
+            if relief is None or relief < min_relief:
+                return False
+        depression = cs.is_depression(dem, pts, elev)
+        x, y, dx, dy = axis
+        mx, my = to_map(x, y)
+        rot = cs.ocad_rotation(to_map, x, y, dx, dy)
+        objects.append(
+            f'            <object type="0" symbol="{sym[code][1 if depression else 0]}" rotation="{rot:.6f}">\n'
+            f'                <coords count="1">{mx} {my};</coords>\n'
+            f"            </object>"
+        )
+        counts[1 if depression else 0] += 1
+        return True
+    for code, smoothed in smoothed_by_key:
+        if code not in sym:
+            out_lines.append((code, smoothed))
+            continue
+        kept = []
+        for part in smoothed:
+            pts = part[1]
+            elev = elev_of.get(id(pts))
+            if elev is None or not cs.is_min_size_ring(pts, scale=scale) or not emit(code, elev, pts):
+                kept.append(part)
+        out_lines.append((code, kept))
+    n_rescued = 0
+    short = [r for r in entry.get("short_rings", []) if r[0] in sym] if cs.MIN_SIZE_RESCUE else []
+    if short:
+        from shapely import STRtree
+        from shapely.geometry import LineString, Point
+
+        drawn = [LineString(part[1]) for _c, lines in out_lines for part in lines if len(part[1]) >= 2]
+        tree = STRtree(drawn) if drawn else None
+        clear_m = cs.MIN_SIZE_RESCUE_CLEAR_MM * float(scale) / 1000.0
+        for code, elev, pts in short:
+            axis = cs.ring_axis(pts)
+            if axis is None:
+                continue
+            if tree is not None and len(tree.query(Point(axis[0], axis[1]), predicate="dwithin", distance=clear_m)):
+                continue
+            if emit(code, elev, pts, min_relief=cs.MIN_SIZE_RESCUE_RELIEF_M):
+                n_rescued += 1
+    if log and objects:
+        log(
+            f"Malé kroužky vrstevnic: {counts[0]} kup a {counts[1]} prohlubní značkou minimální velikosti"
+            f" (z toho {n_rescued} vrácených kroužků kratších než min. délka vrstevnice)"
+        )
+    return out_lines, objects
 
 
 def _ring_hits(water, pts) -> bool:

@@ -15,12 +15,12 @@ isom:
     review: false
   - ocad_code: "101.2"
     cz_name: "Základní vrstevnice (kupa, minimální velikost)"
-    generator_codes: []
+    generator_codes: ["101.2"]
     geom: point
     review: false
   - ocad_code: "101.3"
     cz_name: "Základní vrstevnice (prohlubeň, minimální velikost)"
-    generator_codes: []
+    generator_codes: ["101.3"]
     geom: point
     review: false
   - ocad_code: "102.0"
@@ -30,12 +30,12 @@ isom:
     review: false
   - ocad_code: "102.1"
     cz_name: "Zdůrazněná vrstevnice (kupa, minimální velikost)"
-    generator_codes: []
+    generator_codes: ["102.1"]
     geom: point
     review: false
   - ocad_code: "102.2"
     cz_name: "Zdůrazněná vrstevnice (prohlubeň, minimální velikost)"
-    generator_codes: []
+    generator_codes: ["102.2"]
     geom: point
     review: false
   - ocad_code: "102.3"
@@ -2154,12 +2154,12 @@ mtbo:
     review: false
   - ocad_code: "101.2"
     cz_name: "Základní vrstevnice (kupa, minimální velikost)"
-    generator_codes: []
+    generator_codes: ["101.2"]
     geom: point
     review: false
   - ocad_code: "101.3"
     cz_name: "Základní vrstevnice (prohlubeň, minimální velikost)"
-    generator_codes: []
+    generator_codes: ["101.3"]
     geom: point
     review: false
   - ocad_code: "102.0"
@@ -2169,12 +2169,12 @@ mtbo:
     review: false
   - ocad_code: "102.1"
     cz_name: "Zdůrazněná vrstevnice (kupa, minimální velikost)"
-    generator_codes: []
+    generator_codes: ["102.1"]
     geom: point
     review: false
   - ocad_code: "102.2"
     cz_name: "Zdůrazněná vrstevnice (prohlubeň, minimální velikost)"
-    generator_codes: []
+    generator_codes: ["102.2"]
     geom: point
     review: false
   - ocad_code: "102.3"
