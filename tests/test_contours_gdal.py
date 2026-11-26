@@ -570,3 +570,43 @@ def test_min_size_symbol_yields_to_dem_point(monkeypatch, dem_xy, dem_symbol, ex
     assert sum(p.count for p in kept) == expect_kept + 1 and odd in kept[0].objects_xml
     assert dropped == ([] if expect_kept else [ring.strip()])
     assert parts[-1].objects_xml == dem
+
+
+# Bod z DEM uvnitř malé uzavřené vrstevnice téhož tvaru se nekreslí (Petr 2026-11-26): ďolík / jáma v prohlubni
+# (kroužek se spádnicí), kupka na kupě; jiný druh, větší kroužek (≥ 6 mm obvodu) nebo bod mimo kroužek zůstane.
+@pytest.mark.parametrize(
+    "radius_um, tick, dem_symbol, dem_xy, expect_kept",
+    [
+        (800, True, 11, (0, 0), 0),  # ďolík v malé prohlubni
+        (800, True, 12, (100, 0), 0),  # jáma v malé prohlubni
+        (800, False, 10, (0, 0), 0),  # kupka na malé kupě
+        (800, False, 11, (0, 0), 1),  # ďolík v kupě – jiný tvar
+        (800, True, 10, (0, 0), 1),  # kupka v prohlubni – jiný tvar
+        (1200, True, 11, (0, 0), 1),  # větší prohlubeň (obvod ~7,5 mm) – jáma uvnitř zůstane
+        (800, True, 11, (2000, 0), 1),  # bod mimo kroužek
+    ],
+)
+def test_dem_point_inside_small_ring_dropped(monkeypatch, radius_um, tick, dem_symbol, dem_xy, expect_kept):
+    import math
+
+    from app.pipeline import contours_gdal as cg
+    from app.pipeline.oom_import import OomObjectPart
+
+    monkeypatch.setattr(cg, "_has_symbol", lambda _p, _s, code: code in ("109", "111", "112"))
+    monkeypatch.setattr(cg, "symbol_index_for_code", lambda _p, _s, code: {"109": 10, "111": 11, "112": 12}.get(code))
+    n = 24
+    ring = [(round(radius_um * math.cos(2 * math.pi * i / n)), round(radius_um * math.sin(2 * math.pi * i / n))) for i in range(n)]
+    ring.append(ring[0])
+    coords = "".join(f"{x} {y};" for x, y in ring)
+    line = f'<object type="1" symbol="0">\n<coords count="{len(ring)}">{coords}</coords>\n</object>'
+    pt = lambda sym, x, y: f'<object type="0" symbol="{sym}">\n<coords count="1">{x} {y};</coords>\n</object>'  # noqa: E731
+    parts = [
+        OomObjectPart(name="Vrstevnice (GDAL)", objects_xml=line, count=1),
+        OomObjectPart(name="DEM kandidáti – vektory (x)", objects_xml=pt(dem_symbol, *dem_xy) + "\n" + pt(99, 0, 0), count=2),
+    ]
+    if tick:
+        parts.append(OomObjectPart(name="Spádnice (GDAL)", objects_xml=pt(1, radius_um, 0), count=1))
+    cg.drop_dem_points_in_small_rings(parts, preset_id="forest_10000", scale=10000)
+    dem = parts[1]
+    assert dem.count == expect_kept + 1 and f'symbol="99"' in dem.objects_xml
+    assert (f'symbol="{dem_symbol}"' in dem.objects_xml) == bool(expect_kept)
