@@ -1372,11 +1372,16 @@ _POINT_OBJ_RE = re.compile(
 )
 
 
-def drop_min_size_near_dem_points(parts: list, *, preset_id: str, scale: int, log=None) -> int:
+def drop_min_size_near_dem_points(
+    parts: list, *, preset_id: str, scale: int, log=None, dropped_out: list[str] | None = None
+) -> int:
     """Značka malého kroužku (101.2 / 101.3 …) do 1 mm od kupky / ďolíku / jámy z DEM se nekreslí.
 
     Tentýž tvar terénu by byl dvakrát (Petr 2026-11-26, job b4465cdf3698: 101.3 přes 111).
-    Přednost má bod z DEM (už prošel filtry u cest a vody). Mění ``parts`` na místě, vrací počet.
+    Přednost má bod z DEM (už prošel všemi filtry včetně zástavby ve sprintu). Volá se nad hotovými
+    objekty, před tagy (``osm_tags`` vkládá ``<tags>`` do objektu). Vynechané objekty se přidají do
+    ``dropped_out`` – čistá verze body z DEM nemá a značky kroužků do ní vrací. Objekt, který
+    neodpovídá tvaru bodu, zůstane. Mění ``parts`` na místě, vrací počet.
     """
     idx = next((i for i, p in enumerate(parts) if p.name == MIN_SIZE_PART_NAME), None)
     if idx is None:
@@ -1400,19 +1405,27 @@ def drop_min_size_near_dem_points(parts: list, *, preset_id: str, scale: int, lo
     if not dem_pts:
         return 0
     gap = MIN_SIZE_DEM_POINT_GAP_MM * 1000.0  # souřadnice mapy v 1/1000 mm
-    kept: list[str] = []
-    dropped = 0
-    for m in _POINT_OBJ_RE.finditer(parts[idx].objects_xml):
+    removed: list[str] = []
+
+    def _sub(m: re.Match) -> str:
         x, y = int(m.group(2)), int(m.group(3))
         if any(math.hypot(x - px, y - py) <= gap for px, py in dem_pts):
-            dropped += 1
-        else:
-            kept.append(m.group(0))
+            removed.append(m.group(0))
+            return ""
+        return m.group(0)
+
+    part = parts[idx]
+    xml = _POINT_OBJ_RE.sub(_sub, part.objects_xml)
+    dropped = len(removed)
     if dropped:
-        if kept:
-            parts[idx] = OomObjectPart(name=MIN_SIZE_PART_NAME, objects_xml="\n".join(kept), count=len(kept))
+        left = part.count - dropped
+        if left > 0:
+            xml = "\n".join(line for line in xml.split("\n") if line.strip())
+            parts[idx] = OomObjectPart(name=MIN_SIZE_PART_NAME, objects_xml=xml, count=left)
         else:
             del parts[idx]
+        if dropped_out is not None:
+            dropped_out.extend(removed)
         if log:
             log(f"Malé kroužky vrstevnic: {dropped} značek vynecháno u kupky / ďolíku / jámy z DEM")
     return dropped

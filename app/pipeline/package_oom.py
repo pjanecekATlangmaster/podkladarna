@@ -1254,8 +1254,6 @@ def _prepare_oom_map(
         )
         if dxf_part:
             object_parts.append(dxf_part)
-            # Kupka / ďolík z DEM a značka malého kroužku vrstevnice na témže místě – jen jedno.
-            drop_min_size_near_dem_points(object_parts, preset_id=preset_id, scale=scale, log=log)
     object_parts.extend(zabaged_rest)
     map_phase("silnice a cesty")
     # Chodníky z DTM kraje sjednocené s OSM / ZABAGED (jen sprint; bez DTM prázdné, chodníky pak kreslí OSM cesty).
@@ -1600,6 +1598,12 @@ def _prepare_oom_map(
             f"OOM: zjednodušení tvaru ({SIMPLIFY_TOLERANCE_MM:g} mm): "
             f"{simp_stats['before']} → {simp_stats['after']} souřadnic"
         )
+    # Kupka / ďolík z DEM a značka malého kroužku vrstevnice na témže místě – jen jedno (bod z DEM).
+    # Nad hotovými objekty (po filtru zástavby ve sprintu), před tagy; čistá verze značky vrátí.
+    min_size_near_dem: list[str] = []
+    drop_min_size_near_dem_points(
+        object_parts, preset_id=preset_id, scale=scale, log=log, dropped_out=min_size_near_dem
+    )
     # Volba osm_tags: tagy zdrojů (OSM, DTM) k objektům mapy podle tvaru (kresbu nemění, viz osm_tags).
     if osm_tags:
         try:
@@ -1663,6 +1667,15 @@ def _prepare_oom_map(
             clean_parts = clean_map.clean_object_parts(
                 object_parts, scale=scale, min_open_m2=clean_min_open, stats=clean_stats
             )
+            if min_size_near_dem and clean_map.CLEAN_DROP_DEM:
+                # Čistá verze nemá body z DEM → značky kroužků, které jim v plné ustoupily, zpět.
+                clean_parts.append(
+                    OomObjectPart(
+                        name="Malé kroužky vrstevnic u DEM bodů (GDAL)",
+                        objects_xml="\n".join(min_size_near_dem),
+                        count=len(min_size_near_dem),
+                    )
+                )
             write_oom_map(
                 clean_dest,
                 map_name=map_name,

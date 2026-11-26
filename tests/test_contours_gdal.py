@@ -561,7 +561,12 @@ def test_min_size_symbol_yields_to_dem_point(monkeypatch, dem_xy, dem_symbol, ex
         OomObjectPart(name=cg.MIN_SIZE_PART_NAME, objects_xml=ring, count=1),
         OomObjectPart(name="DXF", objects_xml=dem, count=1),
     ]
-    cg.drop_min_size_near_dem_points(parts, preset_id="forest_10000", scale=10000)
+    odd = '            <object type="0" symbol="2"><coords count="1">50 50 0;</coords><tags/></object>'
+    parts[0] = OomObjectPart(name=cg.MIN_SIZE_PART_NAME, objects_xml=ring + "\n" + odd, count=2)
+    dropped: list[str] = []
+    cg.drop_min_size_near_dem_points(parts, preset_id="forest_10000", scale=10000, dropped_out=dropped)
     kept = [p for p in parts if p.name == cg.MIN_SIZE_PART_NAME]
-    assert sum(p.count for p in kept) == expect_kept
+    # objekt mimo tvar bodu (tagy) zůstane vždy; vynechaná značka jde do dropped_out (čistá verze ji vrátí)
+    assert sum(p.count for p in kept) == expect_kept + 1 and odd in kept[0].objects_xml
+    assert dropped == ([] if expect_kept else [ring.strip()])
     assert parts[-1].objects_xml == dem
