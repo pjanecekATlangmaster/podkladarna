@@ -8,6 +8,9 @@
 #   (Petr 2026-11-23); test_whats_new.py hlídá, že nejnovější záznam není o víc než 8 minor verzí za APP_VERSION.
 milestones:
   - date: "2026-11-26"
+    title: "Verze 4.39 – malé uzavřené vrstevnice se kreslí značkou minimální velikosti: kupa 101.2, prohlubeň 101.3 se spádnicí (dřív drobný kroužek, u kterého nebylo poznat, jestli jde nahoru, nebo dolů); malá kupa nebo prohlubeň aspoň 0,5 m, kterou vrstevnice dřív vynechala, se vrátí jako značka"
+    title_en: "Version 4.39 – small closed contours are drawn with the minimum-size symbol: knoll 101.2, depression 101.3 with a slope line (previously a tiny ring where you couldn't tell up from down); a small knoll or depression of at least 0.5 m that the contours used to omit comes back as the symbol"
+  - date: "2026-11-26"
     title: "Verze 4.38 – ďolíky a jámy z výšek se nekreslí do 4 m od cesty, vodního toku nebo trati (v příkopech a zářezech cest to byly falešné nálezy)"
     title_en: "Version 4.38 – small depressions and pits from elevation data are no longer drawn within 4 m of a path, stream or railway (in ditches and road cuts they were false finds)"
   - date: "2026-11-25"

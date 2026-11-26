@@ -484,3 +484,49 @@ def test_contour_water_mask_off_in_czechia(tmp_path, monkeypatch):
     assert contours_gdal.contour_water_mask(tmp_path) is None
     monkeypatch.setenv(country_profile.JOB_COUNTRY_ENV, "FR")
     assert contours_gdal.contour_water_mask(tmp_path).area == pytest.approx(10000.0)
+
+
+# Malý kroužek (spádnice se nevejde) → značka minimální velikosti: kupa 101.2 / prohlubeň 101.3;
+# větší kroužek a sada bez značek (sprint) zůstanou čárou (Petr 2026-11-26, Písková ohrada).
+@pytest.mark.parametrize(
+    "radius, inside, codes, expect_symbol",
+    [
+        (2.0, 99.0, {"101.2": 12, "101.3": 13}, 13),  # malá prohlubeň
+        (2.0, 101.0, {"101.2": 12, "101.3": 13}, 12),  # malá kupa
+        (30.0, 99.0, {"101.2": 12, "101.3": 13}, None),  # velký kroužek – čárou se spádnicí
+        (2.0, 99.0, {}, None),  # sprint bez značek minimální velikosti
+        ("short", 99.0, {"101.2": 12, "101.3": 13}, 13),  # kroužek pod min. délkou, 1 m hluboký – vrátí se
+        ("short", 99.8, {"101.2": 12, "101.3": 13}, None),  # pod min. délkou a mělký (0,2 m) – ne
+    ],
+)
+def test_min_size_rings_as_points(monkeypatch, tmp_path, radius, inside, codes, expect_symbol):
+    from app.pipeline import contour_shapes as cs
+    from app.pipeline import contours_gdal as cg
+
+    if radius == "short":
+        ring = _ring_at(100.0, 100.0, 1.5)
+        entry = {"smoothed": [("101", [])], "rings": [], "short_rings": [("101", 100.0, ring)]}
+    else:
+        ring = _ring_at(100.0, 100.0, radius)
+        entry = {"smoothed": [("101", [("line", ring, True)])], "rings": [("101", 100.0, ring)]}
+
+    class _FakeDem:
+        def inside_median(self, _poly):
+            return inside
+
+        def inside_relief(self, _poly, elev):
+            return abs(inside - elev)
+
+    monkeypatch.setattr(cs, "load_dem", lambda _d: _FakeDem())
+    monkeypatch.setattr(cg, "_has_symbol", lambda _p, _s, code: code in codes)
+    monkeypatch.setattr(cg, "symbol_index_for_code", lambda _p, _s, code: codes.get(code))
+    lines, objects = cg._min_size_ring_objects(
+        tmp_path, entry, None, preset_id="forest_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0
+    )
+    drawn = len(entry["smoothed"][0][1])
+    if expect_symbol is None:
+        assert objects == [] and len(lines[0][1]) == drawn
+    else:
+        assert len(objects) == 1 and f'symbol="{expect_symbol}"' in objects[0]
+        assert lines[0][1] == []
+    assert len(entry["smoothed"][0][1]) == drawn  # cache geometrie beze změny
