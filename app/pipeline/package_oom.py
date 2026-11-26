@@ -14,7 +14,7 @@ from app.pipeline.dxf_products import (
 )
 from app.guide_text import CZ_ATTRIBUTION, zip_about_txt
 from app.pipeline.aopk_trees import build_aopk_tree_parts, load_aopk_tree_points
-from app.pipeline.contours_gdal import build_gdal_contour_parts
+from app.pipeline.contours_gdal import build_gdal_contour_parts, drop_min_size_near_dem_points
 from app.pipeline.osm_paths import (
     PATH_SOURCE_MIXED,
     PATH_SOURCE_OSM,
@@ -1254,6 +1254,8 @@ def _prepare_oom_map(
         )
         if dxf_part:
             object_parts.append(dxf_part)
+            # Kupka / ďolík z DEM a značka malého kroužku vrstevnice na témže místě – jen jedno.
+            drop_min_size_near_dem_points(object_parts, preset_id=preset_id, scale=scale, log=log)
     object_parts.extend(zabaged_rest)
     map_phase("silnice a cesty")
     # Chodníky z DTM kraje sjednocené s OSM / ZABAGED (jen sprint; bez DTM prázdné, chodníky pak kreslí OSM cesty).

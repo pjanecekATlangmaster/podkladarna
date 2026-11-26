@@ -530,3 +530,38 @@ def test_min_size_rings_as_points(monkeypatch, tmp_path, radius, inside, codes, 
         assert len(objects) == 1 and f'symbol="{expect_symbol}"' in objects[0]
         assert lines[0][1] == []
     assert len(entry["smoothed"][0][1]) == drawn  # cache geometrie beze změny
+
+
+# Značka malého kroužku a kupka / ďolík z DEM na témže místě: zůstane jen bod z DEM
+# (Petr 2026-11-26, job b4465cdf3698: 101.3 přes 111).
+@pytest.mark.parametrize(
+    "dem_xy, dem_symbol, expect_kept",
+    [
+        ((300, -200), 11, 0),  # ďolík 111 uvnitř oválku 101.3 – značka kroužku pryč
+        ((900, 0), 11, 0),  # do 1 mm
+        ((1600, 0), 11, 1),  # dál než 1 mm – obojí
+        ((0, 0), 99, 1),  # jiný bod (např. balvan) – beze změny
+    ],
+)
+def test_min_size_symbol_yields_to_dem_point(monkeypatch, dem_xy, dem_symbol, expect_kept):
+    from app.pipeline import contours_gdal as cg
+    from app.pipeline.oom_import import OomObjectPart, _geom_parts_to_objects
+
+    monkeypatch.setattr(cg, "_has_symbol", lambda _p, _s, code: code in ("109", "111", "112"))
+    monkeypatch.setattr(cg, "symbol_index_for_code", lambda _p, _s, code: {"109": 10, "111": 11, "112": 12}.get(code))
+    ring = (
+        '            <object type="0" symbol="3" rotation="0.5">\n'
+        '                <coords count="1">0 0;</coords>\n            </object>'
+    )
+    dem = (
+        f'            <object type="0" symbol="{dem_symbol}">\n'
+        f'                <coords count="1">{dem_xy[0]} {dem_xy[1]};</coords>\n            </object>'
+    )
+    parts = [
+        OomObjectPart(name=cg.MIN_SIZE_PART_NAME, objects_xml=ring, count=1),
+        OomObjectPart(name="DXF", objects_xml=dem, count=1),
+    ]
+    cg.drop_min_size_near_dem_points(parts, preset_id="forest_10000", scale=10000)
+    kept = [p for p in parts if p.name == cg.MIN_SIZE_PART_NAME]
+    assert sum(p.count for p in kept) == expect_kept
+    assert parts[-1].objects_xml == dem

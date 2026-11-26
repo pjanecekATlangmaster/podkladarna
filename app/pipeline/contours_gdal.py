@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from pathlib import Path
 
 from app.pipeline.cliff_merge import _point_seg_dist
@@ -1355,10 +1356,66 @@ def build_gdal_contour_parts(
     if min_size:
         parts.append(
             OomObjectPart(
-                name="Malé kroužky vrstevnic (GDAL)", objects_xml="\n".join(min_size), count=len(min_size)
+                name=MIN_SIZE_PART_NAME, objects_xml="\n".join(min_size), count=len(min_size)
             )
         )
     return parts
+
+
+MIN_SIZE_PART_NAME = "Malé kroužky vrstevnic (GDAL)"
+# Kupka / ďolík / jáma z DEM (dotknolls / dotdepressions / dotpits): značka kroužku v jejich dosahu ustoupí.
+DEM_POINT_CODES = ("109", "110", "111", "112")
+MIN_SIZE_DEM_POINT_GAP_MM = 1.0  # půl délky oválku 101.3 (~0,75 mm) + polovina bodové značky
+
+_POINT_OBJ_RE = re.compile(
+    r'<object type="0" symbol="(\d+)"[^>]*>\s*<coords count="1">(-?\d+) (-?\d+)[^<]*</coords>\s*</object>'
+)
+
+
+def drop_min_size_near_dem_points(parts: list, *, preset_id: str, scale: int, log=None) -> int:
+    """Značka malého kroužku (101.2 / 101.3 …) do 1 mm od kupky / ďolíku / jámy z DEM se nekreslí.
+
+    Tentýž tvar terénu by byl dvakrát (Petr 2026-11-26, job b4465cdf3698: 101.3 přes 111).
+    Přednost má bod z DEM (už prošel filtry u cest a vody). Mění ``parts`` na místě, vrací počet.
+    """
+    idx = next((i for i, p in enumerate(parts) if p.name == MIN_SIZE_PART_NAME), None)
+    if idx is None:
+        return 0
+    dem_syms = {
+        str(i)
+        for code in DEM_POINT_CODES
+        if _has_symbol(preset_id, scale, code)
+        for i in [symbol_index_for_code(preset_id, scale, code)]
+        if i is not None
+    }
+    if not dem_syms:
+        return 0
+    dem_pts = [
+        (int(m.group(2)), int(m.group(3)))
+        for j, p in enumerate(parts)
+        if j != idx
+        for m in _POINT_OBJ_RE.finditer(p.objects_xml)
+        if m.group(1) in dem_syms
+    ]
+    if not dem_pts:
+        return 0
+    gap = MIN_SIZE_DEM_POINT_GAP_MM * 1000.0  # souřadnice mapy v 1/1000 mm
+    kept: list[str] = []
+    dropped = 0
+    for m in _POINT_OBJ_RE.finditer(parts[idx].objects_xml):
+        x, y = int(m.group(2)), int(m.group(3))
+        if any(math.hypot(x - px, y - py) <= gap for px, py in dem_pts):
+            dropped += 1
+        else:
+            kept.append(m.group(0))
+    if dropped:
+        if kept:
+            parts[idx] = OomObjectPart(name=MIN_SIZE_PART_NAME, objects_xml="\n".join(kept), count=len(kept))
+        else:
+            del parts[idx]
+        if log:
+            log(f"Malé kroužky vrstevnic: {dropped} značek vynecháno u kupky / ďolíku / jámy z DEM")
+    return dropped
 
 
 def _min_size_ring_objects(
