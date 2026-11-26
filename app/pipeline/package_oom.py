@@ -14,7 +14,11 @@ from app.pipeline.dxf_products import (
 )
 from app.guide_text import CZ_ATTRIBUTION, zip_about_txt
 from app.pipeline.aopk_trees import build_aopk_tree_parts, load_aopk_tree_points
-from app.pipeline.contours_gdal import build_gdal_contour_parts, drop_min_size_near_dem_points
+from app.pipeline.contours_gdal import (
+    build_gdal_contour_parts,
+    drop_dem_points_in_small_rings,
+    drop_min_size_near_dem_points,
+)
 from app.pipeline.osm_paths import (
     PATH_SOURCE_MIXED,
     PATH_SOURCE_OSM,
@@ -1604,6 +1608,8 @@ def _prepare_oom_map(
     drop_min_size_near_dem_points(
         object_parts, preset_id=preset_id, scale=scale, log=log, dropped_out=min_size_near_dem
     )
+    # Kupka / ďolík z DEM uvnitř malé uzavřené vrstevnice téhož tvaru – tvar už ukazuje vrstevnice.
+    drop_dem_points_in_small_rings(object_parts, preset_id=preset_id, scale=scale, log=log)
     # Volba osm_tags: tagy zdrojů (OSM, DTM) k objektům mapy podle tvaru (kresbu nemění, viz osm_tags).
     if osm_tags:
         try:

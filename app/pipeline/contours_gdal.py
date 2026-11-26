@@ -1431,6 +1431,124 @@ def drop_min_size_near_dem_points(
     return dropped
 
 
+# Bod z DEM uvnitř malé uzavřené vrstevnice téhož druhu (ďolík / jáma v prohlubni, kupka na kupě) je
+# tentýž tvar dvakrát; ISOM 109 / 111 / 112 jsou pro tvary, které vrstevnice nezobrazí (Petr 2026-11-26).
+# Ve větší prohlubni (obvod od RING_DEM_POINT_MAX_PERIMETER_MM) jáma zůstane – samostatný tvar uvnitř.
+RING_DEM_POINT_MAX_PERIMETER_MM = 6.0
+_CONTOUR_PART_NAMES = ("Vrstevnice (GDAL)", "Indexové vrstevnice (GDAL)")
+_SLOPE_PART_NAME = "Spádnice (GDAL)"
+_LINE_OBJ_RE = re.compile(r'<object type="1" symbol="\d+"[^>]*>\s*<coords count="\d+">([^<]*)</coords>', re.S)
+
+
+def _flatten_oom_coords(text: str) -> list[tuple[float, float]]:
+    """Souřadnice objektu OOM (s příznakem křivky 1 = Bézier ze 4 bodů) → lomená čára."""
+    pts: list[tuple[int, int]] = []
+    flags: list[int] = []
+    for tok in text.strip().strip(";").split(";"):
+        a = tok.split()
+        if len(a) >= 2:
+            pts.append((int(a[0]), int(a[1])))
+            flags.append(int(a[2]) if len(a) > 2 else 0)
+    if not pts:
+        return []
+    out: list[tuple[float, float]] = [pts[0]]
+    i = 0
+    while i < len(pts) - 1:
+        if flags[i] & 1 and i + 3 < len(pts):
+            p0, p1, p2, p3 = pts[i : i + 4]
+            for k in range(1, 9):
+                u = k / 8.0
+                v = 1.0 - u
+                out.append(
+                    (
+                        v**3 * p0[0] + 3 * v * v * u * p1[0] + 3 * v * u * u * p2[0] + u**3 * p3[0],
+                        v**3 * p0[1] + 3 * v * v * u * p1[1] + 3 * v * u * u * p2[1] + u**3 * p3[1],
+                    )
+                )
+            i += 3
+        else:
+            out.append(pts[i + 1])
+            i += 1
+    return out
+
+
+def drop_dem_points_in_small_rings(parts: list, *, preset_id: str, scale: int, log=None) -> int:
+    """Kupka 109 uvnitř malé uzavřené vrstevnice kupy, ďolík 111 / jáma 112 uvnitř malé vrstevnice
+    prohlubně (obvod pod RING_DEM_POINT_MAX_PERIMETER_MM) se nekreslí – tvar už ukazuje vrstevnice.
+
+    Prohlubeň = kroužek se spádnicí (každá prohlubeň od 2 mm obvodu ji má, kupa nikdy).
+    Volá se nad hotovými objekty jako ``drop_min_size_near_dem_points``. Mění ``parts``, vrací počet.
+    """
+    from shapely import STRtree
+    from shapely.geometry import Point, Polygon
+
+    codes = {}
+    for code in DEM_POINT_CODES:
+        if _has_symbol(preset_id, scale, code):
+            i = symbol_index_for_code(preset_id, scale, code)
+            if i is not None:
+                codes[str(i)] = code
+    if not codes:
+        return 0
+    ticks = [
+        Point(int(m.group(2)), int(m.group(3)))
+        for p in parts
+        if p.name == _SLOPE_PART_NAME
+        for m in _POINT_OBJ_RE.finditer(p.objects_xml)
+    ]
+    tick_tree = STRtree(ticks) if ticks else None
+    max_len = RING_DEM_POINT_MAX_PERIMETER_MM * 1000.0  # souřadnice mapy v 1/1000 mm
+    rings: list[tuple[Polygon, bool]] = []
+    for p in parts:
+        if p.name not in _CONTOUR_PART_NAMES:
+            continue
+        for m in _LINE_OBJ_RE.finditer(p.objects_xml):
+            pts = _flatten_oom_coords(m.group(1))
+            if len(pts) < 4 or math.hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1]) > 5:
+                continue
+            poly = Polygon(pts)
+            if not poly.is_valid or poly.length >= max_len or poly.area <= 0:
+                continue
+            depression = tick_tree is not None and len(
+                tick_tree.query(poly.exterior, predicate="dwithin", distance=150.0)  # tvar po zjednodušení (0,1 mm)
+            ) > 0
+            rings.append((poly, depression))
+    if not rings:
+        return 0
+    ring_tree = STRtree([r[0] for r in rings])
+    dropped = {"109": 0, "dep": 0}
+
+    def _sub(m: re.Match) -> str:
+        code = codes.get(m.group(1))
+        if code is None or code == "110":
+            return m.group(0)
+        pt = Point(int(m.group(2)), int(m.group(3)))
+        want_dep = code in ("111", "112")
+        for j in ring_tree.query(pt, predicate="within"):
+            if rings[j][1] == want_dep:
+                dropped["dep" if want_dep else "109"] += 1
+                return ""
+        return m.group(0)
+
+    total = 0
+    for k, p in enumerate(parts):
+        if p.name in _CONTOUR_PART_NAMES or p.name == _SLOPE_PART_NAME or p.name == MIN_SIZE_PART_NAME:
+            continue
+        before = sum(dropped.values())
+        xml = _POINT_OBJ_RE.sub(_sub, p.objects_xml)
+        n = sum(dropped.values()) - before
+        if n:
+            total += n
+            xml = "\n".join(line for line in xml.split("\n") if line.strip())
+            parts[k] = OomObjectPart(name=p.name, objects_xml=xml, count=p.count - n)
+    if log and total:
+        log(
+            f"Kupky / ďolíky z DEM uvnitř malé uzavřené vrstevnice téhož tvaru: {dropped['109']} kupek"
+            f" a {dropped['dep']} ďolíků / jam nekresleno (tvar ukazuje vrstevnice)"
+        )
+    return total
+
+
 def _min_size_ring_objects(
     work_dir: Path,
     entry: dict,
