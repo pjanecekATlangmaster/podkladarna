@@ -8,6 +8,10 @@
 #   (Petr 2026-11-23); test_whats_new.py hlídá, že nejnovější záznam není o víc než 8 minor verzí za APP_VERSION.
 milestones:
   - date: "2026-11-26"
+    scope: cz
+    title: "Verze 4.39 – oprava: v Praze a ve Středočeském kraji se znovu stahuje DTM pro obce, které server dřív nestahoval (po přechodu ČÚZK na novou verzi DTM přestaly platit staré odkazy na balíky a mapa se kreslila bez DTM); stav OpenStreetMap už nehlásí výpadek, když data vydá záložní server"
+    title_en: "Version 4.39 – fix: DTM data are downloaded again in Prague and the Central Bohemian Region for municipalities not cached before (after ČÚZK switched to the new DTM version the old package links stopped working and maps were drawn without DTM); the OpenStreetMap status no longer reports an outage when a backup server delivers the data"
+  - date: "2026-11-26"
     title: "Verze 4.39 – malé uzavřené vrstevnice se kreslí značkou minimální velikosti: kupa 101.2, prohlubeň 101.3 se spádnicí (dřív drobný kroužek, u kterého nebylo poznat, jestli jde nahoru, nebo dolů); malá kupa nebo prohlubeň aspoň 0,5 m, kterou vrstevnice dřív vynechala, se vrátí jako značka"
     title_en: "Version 4.39 – small closed contours are drawn with the minimum-size symbol: knoll 101.2, depression 101.3 with a slope line (previously a tiny ring where you couldn't tell up from down); a small knoll or depression of at least 0.5 m that the contours used to omit comes back as the symbol"
   - date: "2026-11-26"

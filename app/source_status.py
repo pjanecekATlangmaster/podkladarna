@@ -28,7 +28,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -86,8 +86,12 @@ logger = logging.getLogger(__name__)
 
 PROBE_TIMEOUT_S = 15
 PROBE_RETRY_WAIT_S = 3.0
-# Overpass: stačí, když odpoví některé z prvních zrcadel (pipeline zkouší další).
-OSM_PROBE_MIRRORS = 3
+# Overpass: stačí, když odpoví některé zrcadlo (pipeline zkouší všechna). overpass.openstreetmap.fr
+# odpovídá na prázdný dotaz za 9–16 s, takže s 15 s padal na timeout a sonda hlásila výpadek
+# (HTTP 502 posledního zrcadla), i když job pak data ze zrcadla dostal (Jílové 2026-11-26).
+# Zrcadla se proto ptají souběžně a s delším limitem.
+OSM_PROBE_MIRRORS = len(OVERPASS_URLS)
+OSM_PROBE_TIMEOUT_S = 30
 # List SM5 v Praze, který na OpenZU určitě je (HEAD bez stahování).
 LIDAR_PROBE_SHEET = "PRAH77"
 # Text odpovědi 5xx, podle kterého se výpadek pozná jako plánovaná odstávka.
@@ -114,6 +118,10 @@ class Probe:
     any_4xx_ok: bool = False
     # Země výřezu, pro které se zdroj používá (``*`` = všude); web ukáže jen zdroje vybrané země.
     countries: tuple[str, ...] = ("CZ",)
+    # Vlastní limit odpovědi (s); None = ``PROBE_TIMEOUT_S``.
+    timeout_s: float | None = None
+    # URL jsou zrcadla téhož zdroje: ptát se souběžně, stačí první, které odpoví.
+    parallel: bool = False
 
 
 PROBES: tuple[Probe, ...] = (
@@ -141,6 +149,8 @@ PROBES: tuple[Probe, ...] = (
         fatal=True,
         any_4xx_ok=True,
         countries=("*",),
+        timeout_s=OSM_PROBE_TIMEOUT_S,
+        parallel=True,
     ),
     Probe(
         "zabaged",
@@ -852,7 +862,7 @@ def ttl_s() -> float:
     return max(0.0, float(settings.SOURCE_CHECK_TTL_MIN)) * 60
 
 
-def _probe_url(url: str, method: str) -> tuple[int | None, str | None, str]:
+def _probe_url(url: str, method: str, timeout_s: float | None = None) -> tuple[int | None, str | None, str]:
     """HTTP kód (nebo None), krátký popis chyby sítě a začátek textu chybové odpovědi."""
     try:
         url = dk_with_key(url)  # zástupný klíč Datafordeleru; chyby níž URL neobsahují
@@ -860,7 +870,7 @@ def _probe_url(url: str, method: str) -> tuple[int | None, str | None, str]:
         return None, str(exc)[:200], ""
     req = urllib.request.Request(url, method=method, headers={"User-Agent": USER_AGENT})
     try:
-        with urllib.request.urlopen(req, timeout=PROBE_TIMEOUT_S) as resp:
+        with urllib.request.urlopen(req, timeout=timeout_s or PROBE_TIMEOUT_S) as resp:
             if method != "HEAD":
                 resp.read(64 * 1024)
             return resp.status, None, ""
@@ -889,6 +899,21 @@ def _is_up(code: int | None, probe: Probe) -> bool:
     return probe.any_4xx_ok and 400 <= code < 500
 
 
+def _probe_answers(probe: Probe):
+    """Odpovědi URL zdroje: postupně, u zrcadel (``parallel``) souběžně v pořadí, jak dorazí."""
+    if not probe.parallel or len(probe.urls) < 2:
+        for url in probe.urls:
+            yield _probe_url(url, probe.method, probe.timeout_s)
+        return
+    pool = ThreadPoolExecutor(max_workers=len(probe.urls), thread_name_prefix="src-mirror")
+    try:
+        futures = [pool.submit(_probe_url, url, probe.method, probe.timeout_s) for url in probe.urls]
+        for fut in as_completed(futures):
+            yield fut.result()
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
 def check_probe(probe: Probe) -> dict:
     """Jeden zdroj: běží, když odpoví aspoň jedna URL (po chybě jeden opakovaný pokus)."""
     t0 = time.monotonic()
@@ -898,8 +923,7 @@ def check_probe(probe: Probe) -> dict:
     planned = False
     for attempt in range(2):
         planned = False
-        for url in probe.urls:
-            code, error, text = _probe_url(url, probe.method)
+        for code, error, text in _probe_answers(probe):
             if _is_up(code, probe):
                 ok = True
                 break

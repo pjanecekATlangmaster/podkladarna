@@ -50,7 +50,7 @@ def test_events_logged_and_one_digest_per_period(fresh, monkeypatch):
     state = {"dtm": 503}
     monkeypatch.setattr(
         ss, "_probe_url",
-        lambda url, method: (state["dtm"], None, "") if state["dtm"] and "dmvs" in url else (200, None, ""),
+        lambda url, method, timeout_s=None: (state["dtm"], None, "") if state["dtm"] and "dmvs" in url else (200, None, ""),
     )
     ss.check_all()  # první běh založí období, nic neposílá
     assert sent == [] and (data_dir / "source_digest.json").is_file()
@@ -73,7 +73,7 @@ def test_events_logged_and_one_digest_per_period(fresh, monkeypatch):
 
 def test_digest_silent_when_nothing_to_report(fresh, monkeypatch):
     data_dir, sent = fresh
-    monkeypatch.setattr(ss, "_probe_url", lambda url, method: (200, None, ""))
+    monkeypatch.setattr(ss, "_probe_url", lambda url, method, timeout_s=None: (200, None, ""))
     ss.check_all()
     _set_last(data_dir, 25)
     assert se.maybe_send_digest() is False and sent == []
@@ -89,7 +89,7 @@ def test_summary_orders_persistent_first():
 
 
 def test_endpoint_requires_token(fresh, monkeypatch, client):
-    monkeypatch.setattr(ss, "_probe_url", lambda url, method: (404, None, "") if "dmvs" in url else (200, None, ""))
+    monkeypatch.setattr(ss, "_probe_url", lambda url, method, timeout_s=None: (404, None, "") if "dmvs" in url else (200, None, ""))
     ss.check_all()
     monkeypatch.setattr(se.settings, "SOURCE_EVENTS_TOKEN", "")
     assert client.get("/api/source_events").status_code == 404
