@@ -372,6 +372,10 @@ def test_download_falls_back_to_older_release_on_404(downloads, monkeypatch, mis
 
     monkeypatch.setattr(ds, "download_package", fake_download)
     monkeypatch.setattr(ds, "DOWNLOAD_RETRY_WAIT_S", ())
+    monkeypatch.setattr(ds, "_relinked_at", {})
+    # obnovený seznam odkazů je stejný → balík opravdu chybí
+    ds._list_cache_path("CZ051").write_text(LBC, encoding="utf-8")
+    monkeypatch.setattr(ds, "fetch_url_list", lambda kraj, **k: ds.parse_url_list(LBC))
     logs: list[str] = []
     if expect is None:
         with pytest.raises(ds.urllib.error.HTTPError) as err:
@@ -386,3 +390,37 @@ def test_download_falls_back_to_older_release_on_404(downloads, monkeypatch, mis
         else:
             assert logs == []
     assert newest_cache.exists()
+
+
+def test_download_relinks_when_cached_links_are_stale(downloads, monkeypatch):
+    """DMVS přegeneruje vydání s novými UUID (JVF DTM 1.5, Jílové 2026-11): staré odkazy → 404,
+    seznam se jednou obnoví a stáhne se tentýž balík z nového odkazu."""
+    import io
+
+    fresh_list = LBC.replace("/x/a/", "/y/a/").replace("/x/b/", "/y/b/").replace("/x/c/", "/y/c/")
+    (pkg,) = ds.latest_packages(ds.parse_url_list(LBC), [ds.DtmUnit("OBEC", 577081, "Harrachov")], sets=("ZPS_KR",))
+    tried: list[str] = []
+
+    def fake_download(p, **k):
+        tried.append(p.url)
+        if "/x/" in p.url:
+            raise ds.urllib.error.HTTPError(p.url, 404, "x", {}, io.BytesIO())
+        return ds.package_path(p)
+
+    fetched: list[str] = []
+
+    def fake_fetch(kraj, **k):
+        fetched.append(kraj)
+        ds._list_cache_path(kraj).parent.mkdir(parents=True, exist_ok=True)
+        ds._list_cache_path(kraj).write_text(fresh_list, encoding="utf-8")
+        return ds.parse_url_list(fresh_list)
+
+    monkeypatch.setattr(ds, "download_package", fake_download)
+    monkeypatch.setattr(ds, "fetch_url_list", fake_fetch)
+    monkeypatch.setattr(ds, "_relinked_at", {})
+    logs: list[str] = []
+    got = ds.download_packages([pkg], log=logs.append)
+    assert got == {pkg.filename: ds.package_path(pkg)}
+    assert fetched == ["CZ051"]
+    assert tried[-1] == "https://dtm.kraj-lbc.cz/y/a/VS_CZ051_OBEC_577081_20261031_ZPS_KR.jvf.zip"
+    assert any("obnovuji seznam odkazů" in m for m in logs)

@@ -34,7 +34,7 @@ def fresh_state(data_dir, monkeypatch):
 def test_check_probe(fresh_state, monkeypatch, codes, any_4xx_ok, ok, detail, planned):
     seq = list(codes)
 
-    def fake(url, method):
+    def fake(url, method, timeout_s=None):
         code, text = item if isinstance(item := seq.pop(0), tuple) else (item, "")
         return code, (None if code else "URLError: timeout"), text
 
@@ -48,7 +48,7 @@ def test_check_all_tracks_down_since_file_and_api(fresh_state, monkeypatch, clie
     state = {"dtm": False}
     probes: list[str] = []
 
-    def fake(url, method):
+    def fake(url, method, timeout_s=None):
         probes.append(url)
         return (200, None, "") if state["dtm"] or "dmvs" not in url else (503, None, "")
 
@@ -116,7 +116,7 @@ def test_outage_alert_once_after_threshold_and_once_on_recovery(fresh_state, mon
     monkeypatch.setattr(app.mail, "send_mail", lambda to, subj, body, **kw: sent.append((to, subj, body)))
     state = {"lidar": False}
 
-    def fake(url, method):
+    def fake(url, method, timeout_s=None):
         if state["lidar"] or "openzu" not in url:
             return 200, None, ""
         return 503, None, "Plánovaná odstávka"
@@ -158,7 +158,7 @@ def test_short_outage_sends_nothing(fresh_state, monkeypatch):
     monkeypatch.setattr(app.mail, "send_mail", lambda to, subj, body, **kw: sent.append(subj))
     state = {"down": True}
     monkeypatch.setattr(
-        ss, "_probe_url", lambda url, method: (503, None, "") if state["down"] and "dmvs" in url else (200, None, "")
+        ss, "_probe_url", lambda url, method, timeout_s=None: (503, None, "") if state["down"] and "dmvs" in url else (200, None, "")
     )
     ss.check_all()
     state["down"] = False
@@ -170,7 +170,7 @@ def test_local_sources_by_country(fresh_state, monkeypatch, client):
     """Web ukáže místní servery země výřezu; vypnutá země se nekontroluje."""
     urls: list[str] = []
 
-    def fake(url, method):
+    def fake(url, method, timeout_s=None):
         urls.append(url)
         return (503, None, "") if "luchtfoto" in url else (200, None, "")
 
@@ -193,7 +193,7 @@ def test_local_sources_by_country(fresh_state, monkeypatch, client):
 # (SITES, jazyk stránky) – názvy a dopady zdrojů podle jazyka stránky, čeština jsou texty Probe beze změny.
 @pytest.mark.parametrize("sites, lang", [("testserver=cs:free:*", "cs"), ("testserver=en:paid:*", "en")])
 def test_source_texts_follow_page_language(fresh_state, monkeypatch, client, sites, lang):
-    monkeypatch.setattr(ss, "_probe_url", lambda url, method: (None, None, ""))  # nic neodpovídá
+    monkeypatch.setattr(ss, "_probe_url", lambda url, method, timeout_s=None: (None, None, ""))  # nic neodpovídá
     monkeypatch.setenv("COUNTRIES_BETA", "NL")
     monkeypatch.setenv("SITES", sites)
     ss.check_all()
@@ -236,8 +236,26 @@ def test_immediate_alert_only_for_fatal_sources_of_alert_countries(fresh_state, 
     monkeypatch.setattr(ss.settings, "FEEDBACK_TO", "provoz@example.cz")
     sent: list[str] = []
     monkeypatch.setattr(app.mail, "send_mail", lambda to, subj, body, **kw: sent.append(subj))
-    monkeypatch.setattr(ss, "_probe_url", lambda url, method: (503, None, "") if fails in url else (200, None, ""))
+    monkeypatch.setattr(ss, "_probe_url", lambda url, method, timeout_s=None: (503, None, "") if fails in url else (200, None, ""))
     ss.check_all()
     _age(fresh_state / "source_status.json", key, 45)
     ss.check_all()
     assert bool(sent) is immediate
+
+
+def test_osm_mirrors_probed_in_parallel(fresh_state, monkeypatch):
+    """Jílové 2026-11-26: fr odpověděl až po 15 s, další zrcadla 502 → sonda hlásila výpadek, job data dostal.
+    Zrcadla se ptají souběžně s delším limitem; stačí jedno, které odpoví."""
+    osm = next(p for p in ss.PROBES if p.key == "osm")
+    assert osm.parallel and osm.timeout_s and osm.timeout_s > ss.PROBE_TIMEOUT_S
+    assert len(osm.urls) == len(ss.OVERPASS_URLS)
+    seen: list[float | None] = []
+
+    def fake(url, method, timeout_s=None):
+        seen.append(timeout_s)
+        return (400, None, "") if "openstreetmap.fr" in url else (502, None, "")
+
+    monkeypatch.setattr(ss, "_probe_url", fake)
+    r = ss.check_probe(osm)
+    assert r["ok"] and r["detail"] is None
+    assert set(seen) == {osm.timeout_s}

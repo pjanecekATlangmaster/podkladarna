@@ -17,6 +17,7 @@ from app.pipeline import build_stats
 
 import json
 import re
+import threading
 import time
 import unicodedata
 import urllib.error
@@ -361,7 +362,7 @@ def download_package_or_older(pkg: DtmPackage, *, force: bool = False, log=None)
     try:
         return download_package(pkg, force=force, log=log)
     except urllib.error.HTTPError as exc:
-        if exc.code not in MISSING_PACKAGE_CODES or not pkg.older:
+        if exc.code not in MISSING_PACKAGE_CODES:
             raise
         first_exc = exc
     for older in pkg.older:
@@ -377,7 +378,50 @@ def download_package_or_older(pkg: DtmPackage, *, force: bool = False, log=None)
                 f"beru předchozí vydání z {_fmt_date(older.date)} ({older.filename})"
             )
         return path
+    fresh = _relinked_package(pkg, log=log)
+    if fresh is not None:
+        return download_package_or_older(fresh, force=force, log=log)
     raise first_exc
+
+
+# Odkazy na balíky (UUID v cestě) DMVS při přegenerování vydání mění i u stejného data
+# (přechod na JVF DTM 1.5, 2026-11: staré odkazy 30. 9. i 31. 10. → 404). Seznam v cache
+# platí podle data vydání, proto se při 404 všech vydání jednou obnoví (nejvýš jednou
+# za toto okno na kraj, i při souběžném stahování).
+RELINK_MIN_INTERVAL_S = 600
+_relink_lock = threading.Lock()
+_relinked_at: dict[str, float] = {}
+
+
+def _relinked_package(pkg: DtmPackage, *, log=None) -> DtmPackage | None:
+    """Tentýž balík (jednotka, sada) z čerstvě staženého seznamu odkazů; None, když se
+    seznam obnovit nedá nebo odkaz vyšel stejný (balík opravdu chybí)."""
+    with _relink_lock:
+        last = _relinked_at.get(pkg.kraj)
+        if last is None or time.monotonic() - last >= RELINK_MIN_INTERVAL_S:
+            if log:
+                log(f"DTM: odkaz na {pkg.filename} už neplatí (404), obnovuji seznam odkazů {pkg.kraj} z DMVS")
+            try:
+                fetch_url_list(pkg.kraj, force=True, log=log)
+            except Exception as exc:
+                if log:
+                    log(f"DTM: seznam odkazů {pkg.kraj} nelze obnovit ({type(exc).__name__}: {exc})")
+                return None
+            finally:
+                _relinked_at[pkg.kraj] = time.monotonic()
+    cache = _list_cache_path(pkg.kraj)
+    try:
+        packages = parse_url_list(cache.read_text(encoding="utf-8"))
+    except OSError:
+        return None
+    unit = DtmUnit(pkg.unit_kind, pkg.unit_code, "")
+    fresh = latest_packages(packages, [unit], sets=(pkg.set_name,), fmt=pkg.fmt)
+    if not fresh:
+        return None
+    tried = {pkg.url, *(o.url for o in pkg.older)}
+    if {fresh[0].url, *(o.url for o in fresh[0].older)} <= tried:
+        return None
+    return fresh[0]
 
 
 def download_packages(

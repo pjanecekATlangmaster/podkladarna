@@ -22,7 +22,7 @@ def gate(monkeypatch, tmp_path):
     def fake_url(responses):
         it = iter(responses)
 
-        def _probe_url(url, method):
+        def _probe_url(url, method, timeout_s=None):
             calls.append(url)
             return next(it, responses[-1])
 
