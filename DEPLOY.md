@@ -378,8 +378,8 @@ SMTP_FROM_NAME=OB podklady
 
 **Problémy zdrojů dat (4.1.0):** každé selhání kontroly zdrojů jde do deníku `data/source_events.jsonl`
 (bez osobních údajů). Okamžitý e-mail chodí jen o zdroji, bez kterého job selže, v zemích
-`SOURCE_ALERT_COUNTRIES` (výchozí `CZ`); ostatní jednou za `SOURCE_DIGEST_HOURS` (24) v souhrnném e-mailu,
-jen když je co hlásit. Deník jde číst přes `GET /api/source_events?days=7` s hlavičkou
+`SOURCE_ALERT_COUNTRIES` (výchozí `CZ`); ostatní jen do deníku (souhrnný e-mail je od 4.39.4 ve výchozím stavu vypnutý,
+`SOURCE_DIGEST_HOURS=0`; zapne ho např. `SOURCE_DIGEST_HOURS=24`). Deník jde číst přes `GET /api/source_events?days=7` s hlavičkou
 `Authorization: Bearer <SOURCE_EVENTS_TOKEN>`; token patří jen do `data/.env` (bez něj endpoint vrací 404).
 
 `docker-compose.nas-ab.yml` předává `SMTP_*` / `PUBLIC_BASE_URL` / `FEEDBACK_TO`

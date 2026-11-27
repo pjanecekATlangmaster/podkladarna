@@ -13,8 +13,8 @@ Druh problému (``kind``):
 * ``transient`` – 5xx, timeout, síť: výpadek zdroje, který nezmůžeme.
 
 Souhrn (``summary``) seskupí události podle zdroje: počet, první a poslední výskyt, poslední
-odpověď a stav (běží / mimo provoz / vypadá trvale). Jednou za ``SOURCE_DIGEST_HOURS`` (výchozí 24,
-test B 0 = nic) odejde na ``FEEDBACK_TO`` jeden souhrnný e-mail, jen když je co hlásit. Odesílá ho
+odpověď a stav (běží / mimo provoz / vypadá trvale). Jednou za ``SOURCE_DIGEST_HOURS`` (výchozí 0 =
+nic, od 4.39.4) odejde na ``FEEDBACK_TO`` jeden souhrnný e-mail, jen když je co hlásit. Odesílá ho
 líně kontrola zdrojů nebo smyčka úklidu (``cleanup``), dvojímu mailu z více procesů brání značka
 založená výhradně (``O_EXCL``).
 
