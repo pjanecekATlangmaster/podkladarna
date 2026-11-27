@@ -8,7 +8,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "4.39.3"
+APP_VERSION = "4.39.4"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -189,10 +189,9 @@ SOURCE_GATE_TTL_MIN = float(os.environ.get("SOURCE_GATE_TTL_MIN", "5") or 0)
 # Ostatní problémy zdrojů jdou do souhrnu (Petr 2026-11-20: maily o zahraničních výpadcích nic nezmění).
 SOURCE_ALERT_COUNTRIES = os.environ.get("SOURCE_ALERT_COUNTRIES", "CZ")
 # Souhrnný e-mail o problémech zdrojů (deník DATA_ROOT/source_events.jsonl) jednou za tolik hodin, jen když
-# je co hlásit; 0 = bez souhrnu. Test B ve výchozím stavu neposílá (souhrn hlásí ostrá A).
-SOURCE_DIGEST_HOURS = float(
-    os.environ.get("SOURCE_DIGEST_HOURS", "0" if INSTANCE_CHANNEL == "test" else "24") or 0
-)
+# je co hlásit; 0 = bez souhrnu. Výchozí 0 všude (Petr 2026-11-25: souhrn nechce, deník čte denní kontrola
+# zdrojů přes GET /api/source_events); deník se zapisuje a zkracuje dál.
+SOURCE_DIGEST_HOURS = float(os.environ.get("SOURCE_DIGEST_HOURS", "0") or 0)
 # Jak dlouho deník zdrojů drží události (dny).
 SOURCE_EVENTS_KEEP_DAYS = int(os.environ.get("SOURCE_EVENTS_KEEP_DAYS", "30") or 0)
 # Token pro čtení deníku přes GET /api/source_events (hlavička Authorization: Bearer …);
